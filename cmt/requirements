@@ -1,0 +1,33 @@
+## automatically generated CMT requirements file
+package TRooFit
+author  will
+
+use 	AtlasPolicy 	AtlasPolicy-*
+use 	AtlasROOT 	AtlasROOT-* External
+
+
+apply_tag ROOTMathLibs
+apply_tag ROOTGraphicsLibs
+apply_tag ROOTTableLibs
+apply_tag ROOTRooFitLibs
+
+
+
+
+library TRooFit *.cxx
+macro_append TRooFit_shlibflags " -lTreePlayer -lProof -lRooStats -lHistFactory "
+
+apply_pattern installed_library
+
+
+
+private
+apply_pattern have_root_headers     root_headers="TRooH1.h \
+                                                  TRooH1D.h \
+                                                  TRooHStack.h \
+                                                  TRooHPdfStack.h \
+                                                  TRooFitResult.h \
+                                                  LinkDef.h"    headers_lib="TRooFit"
+end_private
+
+
