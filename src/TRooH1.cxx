@@ -483,11 +483,28 @@ Bool_t TRooH1::Add(const TH1* h1 , Double_t c1) {
   return out;
 }
 
+void TRooH1::SetBinContent( const char* name , double w ) {
+  //first observable must be a category
+  if(GetDimension()==0) SetBinContent(1,w);
+  
+  RooCategory* cat = dynamic_cast<RooCategory*>(&fObservables[0]);
+  if(!cat) {
+    Error("SetBinContent","%s is not a category, cannot fill",fObservables[0].GetName());
+    return;
+  }
+  auto type = cat->lookupType(name);
+  if(!type) {
+    Error("SetBinContent","%s unknown label in %s",name,fObservables[0].GetName());
+    return;
+  }
+  SetBinContent( type->getVal() + 1 , w );
+  
+}
 
 Int_t TRooH1::Fill( const char* name , double w ) {
   //first observable must be a category
-  double x = 0;
-  if(GetDimension()==0) return Fill(x,w);
+  
+  if(GetDimension()==0) return Fill(0.,w);
   
   RooCategory* cat = dynamic_cast<RooCategory*>(&fObservables[0]);
   if(!cat) {

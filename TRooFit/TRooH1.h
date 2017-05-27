@@ -199,6 +199,7 @@ public:
   Int_t Fill( double x , double w =1.); 
   
   //virtual void SetBinContent( int bin, RooAbsReal& val ); //turns bin value into a function .. not available yet
+  virtual void SetBinContent( const char* name, double val ); //set category bin
   virtual void SetBinContent( int bin, double val);
   virtual void SetBinError( int bin, double val); //will update the stat uncert
 
