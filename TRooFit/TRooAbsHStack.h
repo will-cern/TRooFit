@@ -34,6 +34,12 @@ public:
 
   THStack* fillStack(THStack* stack, const RooFitResult* fr = 0, bool noRestyle=false) const;
 
+  void SetMinimum(Double_t min) { fMinimum=min; }
+  void SetMaximum(Double_t max) { fMaximum=max; }
+  
+  Double_t GetMinimum() const { return fMinimum; }
+  Double_t GetMaximum() const { return fMaximum; }
+
 protected:
   
   
@@ -54,6 +60,9 @@ protected:
   virtual RooListProxy& compList() = 0;virtual const RooListProxy& compList() const = 0;
   virtual void reinit() = 0; //called after adding new components
   //virtual TClass* IsA() const = 0;
+
+  Double_t fMinimum = -1111;
+  Double_t fMaximum = -1111;
 
 public:
   ClassDef(TRooAbsHStack,1)

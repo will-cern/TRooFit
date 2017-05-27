@@ -36,7 +36,9 @@ void TRooAbsHStack::Add(RooAbsReal* func) {
 void TRooAbsHStack::Add(TRooH1* hist) {
   //if this is the first one, take observables from it 
   if(!firstHistogram()) {
-    fObservables.add(hist->fObservables);  fDummyHist = hist->fDummyHist;
+    fObservables.add(hist->fObservables);  
+    fDummyHist = static_cast<TH1*>(hist->fDummyHist->Clone(GetName()));
+    fDummyHist->SetTitle(GetTitle());
     //FIXME .. only needed this for GetHistogram method .. should remove that dependency
     //fHists.push_back((TH1*)hist->fHists[0]->Clone(GetName()));fHists[0]->Reset();fHists[0]->SetDirectory(0);
     SetRangeName( hist->GetName() );
@@ -96,7 +98,12 @@ void TRooAbsHStack::Add(TRooH1* hist) {
 }
 
 THStack* TRooAbsHStack::GetStack(const RooFitResult* fr) const {
-  if(!fStack) { fStack = new THStack(Form("%s_stack",GetName()),GetTitle()); }
+  if(!fStack) { 
+    fStack = new THStack(Form("%s_stack",GetName()),GetTitle()); 
+    //transfer min and max to stack 
+    fStack->SetMinimum(GetMinimum());
+    fStack->SetMaximum(GetMaximum());
+  }
   fillStack( fStack, fr, false );
   return fStack;
 }
@@ -121,14 +128,14 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
     TH1* hist = (existingHists.GetSize()>i) ? (TH1*)(existingHists.At(i)) : 0;
     if(func->InheritsFrom(TRooH1::Class())) {
       static_cast<TRooH1*>(func)->SetRangeName(GetRangeName()); //FIXME: perhaps should set this when we acquire the hist
-      if(!(hist&&noRestyle)) hist = static_cast<TRooH1*>(func)->createOrAdjustHistogram(hist,true);
+      if(!(hist&&noRestyle)) hist = static_cast<TRooH1*>(func)->createOrAdjustHistogram(hist);
       (static_cast<TRooH1*>(func))->TRooAbsH1::fillHistogram(hist,fr,false); //fills the hist
     } else if(func->InheritsFrom(RooAbsPdf::Class())) {
       //need to fill a histogram ... use binning of GetRangeName() 
        
        
        
-       if(!(hist&&noRestyle)) hist = createOrAdjustHistogram(hist,true); 
+       if(!(hist&&noRestyle)) hist = createOrAdjustHistogram(hist); 
       
       //FIXME: need to use fit result to move parameters!
       
@@ -226,6 +233,9 @@ void TRooAbsHStack::Draw(Option_t *option)
     fDrawStacks.emplace_back( DrawnStack() );
     fDrawStacks.back().pad = gPad;
     fDrawStacks.back().stack = new THStack(Form("%s_stack",GetName()),GetTitle());
+    //transfer min and max to stack 
+    fDrawStacks.back().stack->SetMinimum(GetMinimum());
+    fDrawStacks.back().stack->SetMaximum(GetMaximum());
     fDrawStacks.back().opt = opt;
     gPad->GetListOfPrimitives()->Add( fDrawStacks.back().stack , opt ); //adding stack directly because cant figure out how to get clickable axis without it
    } else {
@@ -262,6 +272,12 @@ void TRooAbsHStack::Draw(const TRooFitResult& r, Option_t* option) {
 }
 
 void TRooAbsHStack::Paint(Option_t* option) {
+ 
+    //update the min and max on the last stack
+    if(fDrawStacks.size()) {
+       fDrawStacks.back().stack->SetMinimum(GetMinimum());
+       fDrawStacks.back().stack->SetMaximum(GetMaximum()); //NOTE: maybe move this min max setting into 'styleStack' function
+    }
  
     //fill the stacks and paint them
     uint i = 0;
