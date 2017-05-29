@@ -31,4 +31,5 @@
   //RooArgSet ss(x);
   //RooCurve c2(hs,x,0,10,100,hs.expectedEvents(x),&ss);
   
+  hs.Draw();
 }

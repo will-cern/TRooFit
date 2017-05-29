@@ -39,12 +39,16 @@
   //Combine s and b, using a TRooHStack
   TRooHStack sb("sb","Signal+Background");
   sb.Add(&b);sb.Add(&s);
+  sb.setFloor(true); //ensures overall pdf must be positive
+
   
   ///Done! ... 
   ///the complete model, including constraint term on theta
   ///Can be accessed with:
   sb.model(); //is a RooAbsPdf&
   
+  
+  //Model Visualization:
   //Here are some examples of how to visualise the model:
   b.SetFillColor(kBlue);
   s.SetFillColor(kRed);
@@ -56,4 +60,13 @@
   sb.SetMaximum(20);
   sb.Draw("mu=2","hist same"); //draw histogram on top corresponding to mu=2
 
+
+  //Model fitting:
+  //Here's how you would fit to some data
+  RooRealVar w("weightVar","weightVar",1);
+  RooDataSet data("data","data",RooArgSet(region,w),"weightVar");
+  data.add(region,10); //suppose we have 10 events 
+  
+  auto res = sb.model().fitTo(data,RooFit::Save());
+  TRooFitResult tres(res);
 }
