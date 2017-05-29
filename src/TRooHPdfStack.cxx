@@ -104,7 +104,6 @@ Double_t TRooHPdfStack::getValV(const RooArgSet* nset) const
       _value = rawVal / normVal ;
 //       cout << "RooAbsPdf::getValV(" << GetName() << ") writing _value = " << rawVal << "/" << normVal << " = " << _value << endl ;
     }
-    
     if(rawVal==0 && normVal==0) _value=1;
     if(kMustBePositive && _value < 0) _value=0;
 

@@ -69,7 +69,7 @@ Double_t TRooHStack::getValV(const RooArgSet* nset) const
   if(kUseAbsPdfValV) return RooRealSumPdf::getValV(nset);
   ///THIS CODE IS COPIED FROM BUT SLIGHTLY MODIFIED VERSION OF RooAbsPdf::getValV
   ///DONE TO SUPPRESS WARNINGS ABOUT NEGATIVE VALUES
-  
+
   // Return current value, normalizated by integrating over
   // the observables in 'nset'. If 'nset' is 0, the unnormalized value. 
   // is returned. All elements of 'nset' must be lvalues
@@ -135,7 +135,6 @@ Double_t TRooHStack::getValV(const RooArgSet* nset) const
       _value = rawVal / normVal ;
 //       cout << "RooAbsPdf::getValV(" << GetName() << ") writing _value = " << rawVal << "/" << normVal << " = " << _value << endl ;
     }
-    
     if(rawVal==0 && normVal==0) _value=1;
     if((kMustBePositive||getFloor()||getFloorGlobal()) && _value < 0) _value=0;
 
