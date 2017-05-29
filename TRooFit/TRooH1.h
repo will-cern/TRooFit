@@ -110,7 +110,7 @@ public:
   
   //other functions
   void setRooFitValV(bool in) { kUseAbsPdfValV = in; }//option to fall back to RooFit's usual evaluation
-  void setFloor(bool in) { kMustBePositive = in; } //if true, 'pdf' evaluations cannot go negative
+  virtual void setFloor(bool in) { kMustBePositive = in; } //if true, 'pdf' evaluations cannot go negative
   
 protected:
   TH1* createOrAdjustHistogram(TH1* hist, bool noBinLabels=false) const; //rebins and styles the given histogram (creating it if no hist given
@@ -225,6 +225,7 @@ public:
   
 
   virtual ExtendMode extendMode() const { return CanBeExtended ; }
+  virtual RooAbsArg::CacheMode canNodeBeCached() const { return RooAbsArg::NotAdvised; } //had to disable cache and track, otherwise fits not work
   virtual Bool_t syncNormalization(const RooArgSet* nset, Bool_t adjustProxies=kTRUE) const;
 
   const std::vector<double>& GetParamSet(int idx) const;
