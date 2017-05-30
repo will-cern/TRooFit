@@ -1229,6 +1229,25 @@ void TRooAbsH1::fillHistogram(TH1* histToFill, const RooFitResult* r, bool inclu
   }
 }
 
+void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints) const {
+  if(nPoints>0) {
+    //sample between min and max with nPoints
+    graphToFill->Set(nPoints); //FIXME: remove points over nPoints
+    //FIXME: handle discrete variables!
+    double low = fDummyHist->GetXaxis()->GetBinLowEdge(1);
+    double high = fDummyHist->GetXaxis()->GetBinLowEdge(fDummyHist->GetXaxis()->GetNbins()+1);
+    RooAbsRealLValue* obs[3] = {0,0,0}; double tmpVals[3] = {0,0,0};
+    if(fObservables.getSize()>0) {obs[0] = dynamic_cast<RooAbsRealLValue*>(&fObservables[0]); tmpVals[0]=obs[0]->getVal(); }
+    double expec = expectedEvents(fObservables);
+    for(int i=0;i<nPoints;i++) {
+      double x = low + i*(high-low)/(nPoints-1);
+      if(obs[0]) obs[0]->setVal( x );
+      graphToFill->SetPoint(i, x, getVal(fObservables)*expec );
+    }
+    for(int i=0;i<3;i++) if(obs[i]) obs[i]->setVal(tmpVals[i]);
+  }
+}
+
 
 Double_t TRooH1::expectedEvents(const RooArgSet* nset) const { 
  if(nset==0/* || !dependsOn(*nset)*/) {
@@ -1662,6 +1681,7 @@ Double_t TRooH1::getValV(const RooArgSet* nset) const
 void TRooAbsH1::Draw(Option_t *option)
 {
    // Draw this hist
+   // if option contains 'pdf' then we draw as a graph instead
 
    TString opt = option;
    opt.ToLower();
@@ -1701,7 +1721,14 @@ void TRooAbsH1::Draw(Option_t *option)
    if(gPad->IsEditable()) {
     fDrawHistograms.emplace_back( DrawnHistogram() );
     fDrawHistograms.back().pad = gPad;
-    fDrawHistograms.back().hist = TRooAbsH1::createOrAdjustHistogram( 0 );
+    if(opt.Contains("pdf")) {
+      TGraph* g = new TGraph; //FIXME: at some point want to make with errors
+      fDrawHistograms.back().hist = g;
+      TRooAbsH1::createOrAdjustHistogram( g->GetHistogram() );
+      opt.ReplaceAll("pdf","");
+    } else { 
+      fDrawHistograms.back().hist = TRooAbsH1::createOrAdjustHistogram( 0 );
+    }
     fDrawHistograms.back().opt = opt;
     gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().hist , opt ); //adding histogram directly because cant figure out how to get clickable axis without it
    }
@@ -1713,15 +1740,26 @@ void TRooAbsH1::Paint(Option_t*) {
     //Paint the histograms of the current pad
     
     //first ensure the last drawn histogram is appropriately styled
-    if(fDrawHistograms.size()) TRooAbsH1::createOrAdjustHistogram( fDrawHistograms.back().hist );
+    if(fDrawHistograms.size()) {
+      if(fDrawHistograms.back().hist->InheritsFrom(TH1::Class())) {
+        TRooAbsH1::createOrAdjustHistogram( static_cast<TH1*>(fDrawHistograms.back().hist) );
+      } else if(fDrawHistograms.back().hist->InheritsFrom(TGraph::Class())) {
+        //FIXME: style the graph
+        TGraph* g = static_cast<TGraph*>(fDrawHistograms.back().hist);
+        g->GetHistogram()->GetYaxis()->SetTitle("dN/dx");
+      }
+    }
     
     
 //     double currMax = -1e50; double currMin = 1e50;
 //     std::vector<TH1*> hists;
-    
     for(auto& hist : fDrawHistograms) {
       if(hist.pad == gPad) {  
-        TRooAbsH1::fillHistogram(hist.hist,hist.fr,true); //updates with current values
+        if(hist.hist->InheritsFrom(TH1::Class())) {
+          TRooAbsH1::fillHistogram(static_cast<TH1*>(hist.hist),hist.fr,true); //updates with current value
+        } else if(hist.hist->InheritsFrom(TGraph::Class())) {
+          TRooAbsH1::fillGraph(static_cast<TGraph*>(hist.hist),hist.fr,true); //updates with current value
+        }
         //hist.hist->Paint(hist.opt); ..don't paint here because added histogram to primitives directly (above)
         
         ///FIXME: wanted a way to auto-adjust the frame limits based on histograms we are drawing

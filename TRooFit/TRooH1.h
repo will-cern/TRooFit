@@ -98,6 +98,7 @@ public:
   TH1* GetHistogram(const RooFitResult* fr = 0, bool includeErrors=false, TH1* histToFill=0) const; //fills a histogram with the values (and errors) corresponding to the fit result
   TH1* GetHistogram(const TRooFitResult& fr) const { return GetHistogram(&fr); }
   void fillHistogram(TH1* histToFill, const RooFitResult* r, bool includeErrors) const;
+  void fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints=100) const;
   
   
   //these functions are used when fitting
@@ -125,7 +126,7 @@ protected:
   
   struct DrawnHistogram {
     TVirtualPad* pad = 0; //which pad the hist is drawn on
-    TH1* hist = 0; //the histogram
+    TObject* hist = 0; //the histogram or graph
     TRooFitResult* fr = 0; //the associated fit result for the parameter snapshot used to fill the histogram (optional)
     TString opt; //the draw option
   };
