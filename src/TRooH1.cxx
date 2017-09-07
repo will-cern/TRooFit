@@ -1037,22 +1037,35 @@ RooProdPdf* TRooAbsH1::buildConstraints(const RooArgSet& obs, const char* systGr
       RooProduct* mean = new RooProduct(Form("mean_%s",arg->GetName()),"",RooArgList(*arg,*tau));
       RooPoisson* p = new RooPoisson(Form("pois_%s",arg->GetName()),Form("TRooFit-generated constraint for %s",arg->GetTitle()),*gobs,*mean);
       constraints.add(*p);
+      
+      //also set the error on the parameter if it's error is zero 
+      RooRealVar* rrv = dynamic_cast<RooRealVar*>(arg);if(rrv && !rrv->getError()) rrv->setError(1./sqrt(tau->getVal()));
+      
     } else if(cType =="NORMAL") {
+      Info("buildConstraints","%s is normal(gobs=0,sigma=1) constrained free parameter",arg->GetName());
       //normal constraint
       RooRealVar* gobs = new RooRealVar(Form("gobs_%s",arg->GetName()),Form("Global observable for %s",arg->GetName()),0);gobs->setConstant();
       RooConstVar* sigma = new RooConstVar("1","1",1);
       RooGaussian* p = new RooGaussian(Form("gaus_%s",arg->GetName()),Form("TRooFit-generated constraint for %s",arg->GetTitle()),*gobs,*dynamic_cast<RooAbsReal*>(arg),*sigma);
       constraints.add(*p);
+      
+      //also set the error on the parameter if it's error is zero 
+      RooRealVar* rrv = dynamic_cast<RooRealVar*>(arg);if(rrv && !rrv->getError()) rrv->setError(1.);
+      
     } else if(cType.BeginsWith("GAUSSIAN(")) {
       //gaussian ... need to extract the auxObs (aka mean) and stdev from the attribute 
       //syntax is: gaussian(auxObs,stddev)
-      TString s(arg->getStringAttribute("constraintType"));
-      double auxObs = TString(s(9,s.Index(",")-9)).Atof();
-      TString stddevStr = TString(s(s.Index(",")+1,s.Index(")")-(s.Index(","))-1));
+      double auxObs = TString(cType(9,cType.Index(",")-9)).Atof();
+      TString stddevStr = TString(cType(cType.Index(",")+1,cType.Index(")")-(cType.Index(","))-1));
+      Info("buildConstraints","%s is gaussian(gobs=%g,sigma=%s) constrained free parameter",arg->GetName(),auxObs,stddevStr.Data());
       RooRealVar* gobs = new RooRealVar(Form("gobs_%s",arg->GetName()),Form("Global observable for %s",arg->GetName()),auxObs);gobs->setConstant();
       RooConstVar* sigma = new RooConstVar(stddevStr,stddevStr,stddevStr.Atof());
       RooGaussian* p = new RooGaussian(Form("gaus_%s",arg->GetName()),Form("TRooFit-generated constraint for %s",arg->GetTitle()),*gobs,*dynamic_cast<RooAbsReal*>(arg),*sigma);
       constraints.add(*p);
+      
+      //also set the error on the parameter if it's error is zero 
+      RooRealVar* rrv = dynamic_cast<RooRealVar*>(arg);if(rrv && !rrv->getError()) rrv->setError(stddevStr.Atof());
+      
     } else {
       Warning("buildConstraints","%s has unknown constraintType: %s", arg->GetName(), arg->getStringAttribute("constraintType"));
     }
