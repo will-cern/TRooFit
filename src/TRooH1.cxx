@@ -864,7 +864,6 @@ Double_t TRooAbsH1::GetBinError(int bin, const RooFitResult* fr) const {
     delete params;
     out = getBinError(r);
   } else {
-    
     RooAbsCollection* crsnap = 0;
     //also ensure that all non-observables are held constant if they are not specified in the fit result 
     RooAbsCollection* cdeps = getParams(fObservables);
@@ -1659,6 +1658,11 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
   
   if(paramList.getSize()==0) return 0; //no error
 
+  RooArgSet psnap;
+  errorParams->snapshot(psnap); //save the current values
+  *errorParams = fpf; //sets all param values to central values, including ones that had no error in floatParsFinal
+  
+
   std::vector<Double_t> plusVar, minusVar ;    
   
   // Create vector of plus,minus variations for each parameter  
@@ -1672,6 +1676,7 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
     
     Double_t cenVal = rrv.getVal() ;
     Double_t errVal = sqrt(V(ivar,ivar)) ;
+    
     
     // Make Plus variation
     ((RooRealVar*)paramList.at(ivar))->setVal(cenVal+errVal) ;
@@ -1699,6 +1704,9 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
   for (unsigned int j=0 ; j<plusVar.size() ; j++) {
     F[j] = (plusVar[j]-minusVar[j])/2 ;
   }
+  
+  *errorParams = psnap; //puts all params back
+
 
   // Calculate error in linear approximation from variations and correlation coefficient
   Double_t sum = F*(C*F) ;
@@ -1796,87 +1804,7 @@ Double_t TRooH1::getValV(const RooArgSet* nset) const
 
 
 
-#include "TROOT.h"
-#include "TPad.h"
-void TRooAbsH1::Draw(Option_t *option)
-{
-   // Draw this hist
-   // if option contains 'pdf' then we draw as a graph instead
 
-   TString opt = option;
-   opt.ToLower();
-   bool found(false);
-   
-   TObject* me = dynamic_cast<TObject*>(this);
-   
-   if (gPad) {
-      if (!gPad->IsEditable()) gROOT->MakeDefCanvas();
-      if (!opt.Contains("same")) {
-         //the following statement is necessary in case one attempts to draw
-         //a temporary histogram already in the current pad
-         if (me->TestBit(kCanDelete)) gPad->GetListOfPrimitives()->Remove(me);
-         gPad->Clear();
-         
-         //also delete any DrawnHistograms that matched this pad:
-         auto itr = fDrawHistograms.begin();
-         while( itr != fDrawHistograms.end() ) {
-          if(itr->pad==gPad) {
-            SafeDelete(itr->hist);
-            SafeDelete(itr->fr);
-            fDrawHistograms.erase(itr);
-          } else {
-            ++itr;
-          }
-         }
-      } else {
-        //check if I'm already in the list of primitives ... if so, we wont add me a second time
-        if(gPad->GetListOfPrimitives()->FindObject(me)) {
-          gPad->Modified(true);
-          found = true;
-        }
-      }
-   }
-   if(!found) me->AppendPad(opt.Data()); //will create gPad
-   
-   if(gPad->IsEditable()) {
-    fDrawHistograms.emplace_back( DrawnHistogram() );
-    fDrawHistograms.back().pad = gPad;
-    if(opt.Contains("pdf")) {
-      TGraph* g = new TGraphErrors; //FIXME: at some point want to make with asymm errors
-      g->SetName(GetName());g->SetTitle(GetTitle());
-      fDrawHistograms.back().hist = g;
-      TRooAbsH1::createOrAdjustHistogram( g->GetHistogram() );
-      
-      (*dynamic_cast<TAttFill*>(g)) = *this;
-      (*dynamic_cast<TAttLine*>(g)) = *this;
-      (*dynamic_cast<TAttMarker*>(g)) = *this;
-      
-      fillGraph(g,0,false/*no errors because need a roofitresult to do that*/);
-      
-      if(fObservables.getSize()) {
-        RooAbsArg& arg = fObservables[0];
-        RooAbsReal* argreal = dynamic_cast<RooAbsReal*>(&arg);
-        if(argreal && strlen(argreal->getUnit())) {
-          g->GetHistogram()->GetXaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
-          g->GetHistogram()->GetYaxis()->SetTitle(Form("dN/d%s [%s^{-1}]",arg.GetTitle(),argreal->getUnit()));
-        } else {
-          g->GetHistogram()->GetXaxis()->SetTitle(arg.GetTitle());
-          g->GetHistogram()->GetYaxis()->SetTitle(Form("dN/d%s",arg.GetTitle()));
-        }
-        
-      }
-      
-      opt.ReplaceAll("pdf","");
-    } else { 
-      TH1* hist = TRooAbsH1::createOrAdjustHistogram( 0 );
-      fDrawHistograms.back().hist = hist;
-      fillHistogram( hist , 0, true);
-    }
-    fDrawHistograms.back().opt = opt;
-    gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().hist , opt ); //adding histogram directly because cant figure out how to get clickable axis without it
-   }
-   
-}
 
 
 void TRooAbsH1::Paint(Option_t*) {
@@ -1932,6 +1860,12 @@ void TRooAbsH1::Paint(Option_t*) {
 //     fDrawHistogram->Paint(option); 
 }
 
+#include "TROOT.h"
+#include "TPad.h"
+void TRooAbsH1::Draw(Option_t *option)
+{
+   TRooAbsH1::Draw(TRooFitResult(),option);
+}
 
 void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
   TString opt = option;
@@ -1939,22 +1873,110 @@ void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
   
   TRooFitResult* r2 = 0;
   
-  if(opt.Contains("init")) {
-    //request to draw initial parameters instead of final
-    r2 = new TRooFitResult(r.floatParsInit());
-    opt.ReplaceAll("init","");
-  } else {
-    r2 = new TRooFitResult(r.floatParsFinal());
+  if(r.floatParsFinal().getSize()) {
+    if(opt.Contains("init")) {
+      //request to draw initial parameters instead of final
+      r2 = new TRooFitResult(r.floatParsInit());
+      opt.ReplaceAll("init","");
+    } else {
+      r2 = new TRooFitResult(r.floatParsFinal());
+    }
+    r2->setConstParList(r.constPars());
   }
-  r2->setConstParList(r.constPars());
   
-  this->Draw(opt);
+     // Draw this hist
+   // if option contains 'pdf' then we draw as a graph instead
+
+   bool found(false);
+   
+   TObject* me = dynamic_cast<TObject*>(this);
+   
+   if (gPad) {
+      if (!gPad->IsEditable()) gROOT->MakeDefCanvas();
+      if (!opt.Contains("same")) {
+         //the following statement is necessary in case one attempts to draw
+         //a temporary histogram already in the current pad
+         if (me->TestBit(kCanDelete)) gPad->GetListOfPrimitives()->Remove(me);
+         gPad->Clear();
+         
+         //also delete any DrawnHistograms that matched this pad:
+         auto itr = fDrawHistograms.begin();
+         while( itr != fDrawHistograms.end() ) {
+          if(itr->pad==gPad) {
+            SafeDelete(itr->hist);SafeDelete(itr->postHist);
+            SafeDelete(itr->fr);
+            fDrawHistograms.erase(itr);
+          } else {
+            ++itr;
+          }
+         }
+      } else {
+        //check if I'm already in the list of primitives ... if so, we wont add me a second time
+        if(gPad->GetListOfPrimitives()->FindObject(me)) {
+          gPad->Modified(true);
+          found = true;
+        }
+      }
+   }
+   if(!found) me->AppendPad(opt.Data()); //will create gPad
+   
+   if(gPad->IsEditable()) {
+    fDrawHistograms.emplace_back( DrawnHistogram() );
+    fDrawHistograms.back().pad = gPad;
+    if(opt.Contains("pdf")) {
+      TGraph* g = new TGraphErrors; //FIXME: at some point want to make with asymm errors
+      g->SetName(GetName());g->SetTitle(GetTitle());
+      fDrawHistograms.back().hist = g;
+      TRooAbsH1::createOrAdjustHistogram( g->GetHistogram() );
+      
+      (*dynamic_cast<TAttFill*>(g)) = *this;
+      (*dynamic_cast<TAttLine*>(g)) = *this;
+      (*dynamic_cast<TAttMarker*>(g)) = *this;
+      
+      fillGraph(g,r2,false/*no errors because need a roofitresult to do that*/);
+      
+      if(fObservables.getSize()) {
+        RooAbsArg& arg = fObservables[0];
+        RooAbsReal* argreal = dynamic_cast<RooAbsReal*>(&arg);
+        if(argreal && strlen(argreal->getUnit())) {
+          g->GetHistogram()->GetXaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
+          g->GetHistogram()->GetYaxis()->SetTitle(Form("dN/d%s [%s^{-1}]",arg.GetTitle(),argreal->getUnit()));
+        } else {
+          g->GetHistogram()->GetXaxis()->SetTitle(arg.GetTitle());
+          g->GetHistogram()->GetYaxis()->SetTitle(Form("dN/d%s",arg.GetTitle()));
+        }
+        
+      }
+      
+      opt.ReplaceAll("pdf","");
+    } else { 
+      TH1* hist = TRooAbsH1::createOrAdjustHistogram( 0 );
+      fDrawHistograms.back().hist = hist;
+      fillHistogram( hist , r2, true);
+      
+      //if drawing with option "e3XXX" then will use that histogram as error bar histogram
+      if(opt.Contains("e3")) {
+        int fillType = TString(opt(opt.Index("e3")+1,opt.Length())).Atoi();
+        if(fillType>=3000 && fillType<=3999) {
+          TH1* errHist = (TH1*)hist->Clone(TString::Format("%s_error",hist->GetName()));
+          errHist->SetFillStyle(fillType);errHist->SetMarkerStyle(0);errHist->SetFillColor(hist->GetLineColor());
+          errHist->SetOption("e2same");
+          fDrawHistograms.back().postHist = errHist;
+          opt.ReplaceAll(TString::Format("e%d",fillType),"");
+          //since we are showing error bar, the main hist should only be drawn as a line
+          opt += "hist";
+        }
+      }
+      
+      
+    }
+    fDrawHistograms.back().opt = opt;
+    fDrawHistograms.back().fr = r2;
+    gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().hist , opt ); //adding histogram directly because cant figure out how to get clickable axis without it
+    if(fDrawHistograms.back().postHist) gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().postHist , fDrawHistograms.back().postHist->GetOption() ); //opt gets taken from fOption in hist
+   }
   
   
-  fDrawHistograms.back().fr = r2;
-  if(fDrawHistograms.back().hist->InheritsFrom(TGraph::Class())) {
-    fillGraph(static_cast<TGraph*>(fDrawHistograms.back().hist),r2,true);
-  } else {
-    fillHistogram(static_cast<TH1*>(fDrawHistograms.back().hist),r2,true);
-  }
+  
+
 }

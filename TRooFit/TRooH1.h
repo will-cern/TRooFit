@@ -132,6 +132,7 @@ protected:
   struct DrawnHistogram {
     TVirtualPad* pad = 0; //which pad the hist is drawn on
     TObject* hist = 0; //the histogram or graph
+    TObject* postHist = 0; //a secondary hist or graph, drawn after the first
     TRooFitResult* fr = 0; //the associated fit result for the parameter snapshot used to fill the histogram (optional)
     TString opt; //the draw option
   };

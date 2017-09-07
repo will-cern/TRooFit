@@ -26,7 +26,7 @@ public:
 
   TRooFitResult(const RooArgList& finalPars) : TRooFitResult(0,0,finalPars) { }; 
   
-  TRooFitResult(const char* finalPars); //constructor that takes a string "x=y,a=b" etc ... copies those into constPars
+  TRooFitResult(const char* finalPars=""); //constructor that takes a string "x=y,a=b" etc ... copies those into constPars
   
   virtual void Paint(Option_t* option = "") {
     if(fPullFrame) {

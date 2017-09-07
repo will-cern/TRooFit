@@ -201,12 +201,32 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
 #include "TPad.h"
 void TRooAbsHStack::Draw(Option_t *option)
 {
-    // Draw this stack ... potentially as a hist!
+   TRooAbsHStack::Draw(TRooFitResult(),option);
+}
 
-   TString opt = option;
-   opt.ToLower();
+
+void TRooAbsHStack::Draw(const TRooFitResult& r, Option_t* option) {
+  TString opt = option;
+  opt.ToLower();
+  
+
+  TRooFitResult* r2 = 0;
+  bool hadInit=false;
+  
+  if(r.floatParsFinal().getSize()>0) { //wont have any pars if was doing a straightforward draw
+    if(opt.Contains("init")) {
+      //request to draw initial parameters instead of final
+      r2 = new TRooFitResult(r.floatParsInit());
+      opt.ReplaceAll("init","");hadInit=true;
+    } else {
+      r2 = new TRooFitResult(r.floatParsFinal());
+    }
+    r2->setConstParList(r.constPars());
+  }
+  
+      // Draw this stack ... potentially as a hist!
+  
    bool found(false);
-   
    TObject* me = dynamic_cast<TObject*>(this);
    
    if (gPad) {
@@ -242,7 +262,7 @@ void TRooAbsHStack::Draw(Option_t *option)
    
    if(opt.Contains("pdf")) {
     //FIXME: ideally would draw a stack of pdfs (in a TMultiGraph?)
-    TRooAbsH1::Draw(opt);
+    TRooAbsH1::Draw(r,opt);
    
    } else if(!opt.Contains("hist")) {
     fDrawStacks.emplace_back( DrawnStack() );
@@ -251,44 +271,35 @@ void TRooAbsHStack::Draw(Option_t *option)
     //transfer min and max to stack 
     fDrawStacks.back().stack->SetMinimum(GetMinimum());
     fDrawStacks.back().stack->SetMaximum(GetMaximum());
+    int fillType=0;
+    if(opt.Contains("e3")) {
+        fillType = TString(opt(opt.Index("e3")+1,opt.Length())).Atoi();
+        if(fillType>=3000 && fillType<=3999) {
+          opt.ReplaceAll(TString::Format("e%d",fillType),"");
+        } else {
+          fillType=0;
+        }
+    }
+    std::cout << "opt = " << opt << "," << fillType << std::endl;
+    
     fDrawStacks.back().opt = opt;
-    fillStack(fDrawStacks.back().stack,0,false/* noRestyle*/);
+    fillStack(fDrawStacks.back().stack,r2,false/* noRestyle*/);
+    fDrawStacks.back().fr = r2;
+    
     gPad->GetListOfPrimitives()->Add( fDrawStacks.back().stack , opt ); //adding stack directly because cant figure out how to get clickable axis without it
+    
+    //if drawing with option "e3XXX" then need to also draw as a histogram
+    if(fillType) {
+        TRooAbsH1::Draw(r,TString::Format("%s e%dsame",(hadInit)?"init":"",fillType));
+        //FIXME: would like to have stack's maximum match up to error bar maximum
+    }
+    
    } else {
     //not drawing the stack, pass onto parent class to draw as a hist instead
     opt.ReplaceAll("hist","");
-    TRooAbsH1::Draw(opt);
+    TRooAbsH1::Draw(r,opt);
    }
-}
-
-
-void TRooAbsHStack::Draw(const TRooFitResult& r, Option_t* option) {
-  TString opt = option;
-  opt.ToLower();
   
-  TRooFitResult* r2 = 0;
-  
-  if(opt.Contains("init")) {
-    //request to draw initial parameters instead of final
-    r2 = new TRooFitResult(r.floatParsInit());
-    opt.ReplaceAll("init","");
-  } else {
-    r2 = new TRooFitResult(r.floatParsFinal());
-  }
-  r2->setConstParList(r.constPars());
-  
-  this->Draw(opt);
-  
-  if(opt.Contains("pdf")) {
-    fDrawHistograms.back().fr = r2;
-    fillGraph(static_cast<TGraph*>(fDrawHistograms.back().hist),r2,true/* includeErrors*/);
-  } else if(opt.Contains("hist")) {
-    fDrawHistograms.back().fr = r2;
-    fillHistogram(static_cast<TH1*>(fDrawHistograms.back().hist),r2,true/* includeErrors*/);
-  } else {
-    fDrawStacks.back().fr = r2;
-    fillStack(fDrawStacks.back().stack,r2,false/* noRestyle*/);
-  }
 
 }
 
