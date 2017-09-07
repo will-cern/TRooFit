@@ -12,6 +12,9 @@
  
 #include "TH1D.h"
 #include "TGraphAsymmErrors.h" 
+
+#include "TLine.h"
+#include "TBox.h"
  
 class TRooFitResult : public RooFitResult {
 public:
@@ -26,12 +29,18 @@ public:
   TRooFitResult(const char* finalPars); //constructor that takes a string "x=y,a=b" etc ... copies those into constPars
   
   virtual void Paint(Option_t* option = "") {
-    if(fPullFrame) fPullFrame->Paint(option);
+    if(fPullFrame) {
+      fPullFrame->Paint(option);
+      for(auto& o : fPullBoxes) o.Paint("f");
+      for(auto& o : fPullLines) o.Paint("l");
+      fPullFrame->Paint("sameaxis");
+    }
     if(fPullGraph) fPullGraph->Paint("p");
   }
   
   virtual void Draw(Option_t* option = "pull");
   
+  TGraphAsymmErrors* GetPullGraph() { return fPullGraph; }
   
 protected:
   
@@ -42,6 +51,8 @@ private:
 
   TH1D* fPullFrame = 0;
   TGraphAsymmErrors* fPullGraph = 0;
+  std::vector<TLine> fPullLines;
+  std::vector<TBox> fPullBoxes;
 
   ClassDef(TRooFitResult,1) // Your description goes here...
 };
