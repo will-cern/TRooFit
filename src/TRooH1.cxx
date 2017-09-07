@@ -388,6 +388,25 @@ bool TRooAbsH1::addShapeFactor( int bin, RooAbsReal& factor ) {
   return true;
 }
 
+bool TRooAbsH1::addShapeFactor( const char* bin, RooAbsReal& factor ) {
+  //first observable must be a category
+  if(GetDimension()==0) return addShapeFactor(1,factor);
+  
+  RooCategory* cat = dynamic_cast<RooCategory*>(&fObservables[0]);
+  if(!cat) {
+    Error("addShapeFactor","%s is not a category, cannot fill",fObservables[0].GetName());
+    return false;
+  }
+  auto type = cat->lookupType(bin);
+  if(!type) {
+    Error("addShapeFactor","%s unknown label in %s",bin,fObservables[0].GetName());
+    return false;
+  }
+  return addShapeFactor( type->getVal() + 1 , factor );
+  
+}
+
+
 bool TRooH1::addParameter( RooAbsArg& arg ) { 
   if(fParameters.find(arg)) return false; //already added
   if(fData) {
@@ -916,6 +935,25 @@ Double_t TRooAbsH1::GetBinContent(int bin, const RooFitResult* r) const {
     case 1: dynamic_cast<RooAbsLValue&>(fObservables[0]).setBin(tmpVals[0],GetRangeName());
   }
   return out;
+}
+
+
+Double_t TRooAbsH1::GetBinContent(const char* bin, const RooFitResult* r) const {
+  //first observable must be a category
+  if(GetDimension()==0) return GetBinContent(1,r);
+  
+  RooCategory* cat = dynamic_cast<RooCategory*>(&fObservables[0]);
+  if(!cat) {
+    Error("GetBinContent","%s is not a category, cannot fill",fObservables[0].GetName());
+    return false;
+  }
+  auto type = cat->lookupType(bin);
+  if(!type) {
+    Error("GetBinContent","%s unknown label in %s",bin,fObservables[0].GetName());
+    return false;
+  }
+  return GetBinContent( type->getVal() + 1 , r );
+  
 }
 
 Int_t TRooH1::getParamSet() const {
