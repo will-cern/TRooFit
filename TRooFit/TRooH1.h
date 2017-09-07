@@ -67,7 +67,7 @@ public:
   
   bool addNormFactor( RooAbsReal& factor ); //add a norm factor
   bool addShapeFactor( int bin, RooAbsReal& factor ); //add a shape factor to a bin
-
+  bool addShapeFactor( const char* name, RooAbsReal& factor ); //add shape to a category bin
 
   inline void SetRangeName(const char* name) { fRangeName = name; }
   virtual const char* GetRangeName(const char* name=0) const { 
@@ -94,6 +94,8 @@ public:
   //the following functions temporarily move the observables to the given bin, then call a method above
   Double_t GetBinContent(int bin,const RooFitResult* fr = 0) const;
   Double_t GetBinContent(int bin,const TRooFitResult& fr) const { return GetBinContent(bin,&fr); }
+  Double_t GetBinContent(const char* bin, const RooFitResult* fr = 0) const;
+  Double_t GetBinContent(const char* bin,const TRooFitResult& fr) const { return GetBinContent(bin,&fr); }
   Double_t GetBinError(int bin, const RooFitResult* fr = 0) const;
   TH1* GetHistogram(const RooFitResult* fr = 0, bool includeErrors=false, TH1* histToFill=0) const; //fills a histogram with the values (and errors) corresponding to the fit result
   TH1* GetHistogram(const TRooFitResult& fr) const { return GetHistogram(&fr); }
