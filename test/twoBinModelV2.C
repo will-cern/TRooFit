@@ -18,8 +18,11 @@
 
   TRooHStack mean("mean","mean");mean.Add(&bkg);mean.Add(&sig);
   
-  RooRealVar alpha("alpha","alpha",1,1e-9,5);
-  bkg.addNormFactor(alpha);
+  RooRealVar alpha("alpha","alpha",0,-100,100);
+  bkg.addParameter(alpha);
+  
+  alpha = 1; bkg.SetBinContent(1,11);
+  alpha = 0;
   
   RooRealVar mu("mu","mu",0,0,20);
   //RooRealVar mu("mu","mu",0,0,0.0001);
@@ -28,7 +31,7 @@
   
  
 
-  RooConstVar alpha_gobs("alpha_gobs","alpha_gobs",1);RooConstVar alpha_sigma("alpha_sigma","alpha_sigma",1);
+  RooConstVar alpha_gobs("alpha_gobs","alpha_gobs",0);RooConstVar alpha_sigma("alpha_sigma","alpha_sigma",5);
 
   RooGaussian alpha_constraint("alpha_constraint","alpha_constraint",alpha_gobs,alpha,alpha_sigma); //5% uncert
 

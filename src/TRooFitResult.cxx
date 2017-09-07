@@ -4,6 +4,9 @@
 
 #include "TPRegexp.h"
 
+#include "TROOT.h"
+#include "TPad.h"
+
 ClassImp(TRooFitResult) 
 
 using namespace std;
@@ -14,12 +17,16 @@ void TRooFitResult::init(const RooArgList& pars) {
   RooFIter itr( pars.fwdIterator() );
   RooAbsArg* arg = 0;
   RooArgList realpars;
+  RooArgList constpars;
   while( (arg = itr.next()) ) {
-    if(arg->IsA() != RooRealVar::Class()) {
+    if(arg->isConstant()) constpars.add(*arg);
+    else if(arg->IsA() != RooRealVar::Class()) {
       Warning("TRooFitResult","%s is not a RooRealVar, ignoring",arg->GetName());
-    } else realpars.add(*arg);
+    } 
+    else realpars.add(*arg);
   }
   
+  setConstParList(constpars);
   setInitParList(realpars);
   setFinalParList(realpars);
   
@@ -108,5 +115,16 @@ void TRooFitResult::Draw(Option_t* option) {
     }
     
   }
+  
+  if (gPad) {
+      if (!gPad->IsEditable()) gROOT->MakeDefCanvas();
+      if (!opt.Contains("same")) {
+         //the following statement is necessary in case one attempts to draw
+         //a temporary histogram already in the current pad
+         if (TestBit(kCanDelete)) gPad->GetListOfPrimitives()->Remove(this);
+         gPad->Clear();
+      }
+  }
+  
   TObject::Draw(option);
 }

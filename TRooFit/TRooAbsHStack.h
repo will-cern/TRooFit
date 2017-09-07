@@ -21,6 +21,11 @@ class TRooAbsHStack : public TRooAbsH1 {
 public:
   using TRooAbsH1::TRooAbsH1;
   ~TRooAbsHStack();
+  
+  virtual TH1* getNominalHist() const { return 0; } //FIXME ... do we need to return something better ever?
+  
+  virtual Double_t missingEvents() const;
+  
 
   virtual void Paint(Option_t* option = "");
 
@@ -34,8 +39,8 @@ public:
 
   THStack* fillStack(THStack* stack, const RooFitResult* fr = 0, bool noRestyle=false) const;
 
-  void SetMinimum(Double_t min) { fMinimum=min; }
-  void SetMaximum(Double_t max) { fMaximum=max; }
+  void SetMinimum(Double_t min) { fMinimum=min; if(fDrawStacks.size()) fDrawStacks.back().stack->SetMinimum(fMinimum); }
+  void SetMaximum(Double_t max) { fMaximum=max; if(fDrawStacks.size()) fDrawStacks.back().stack->SetMaximum(fMaximum);}
   
   Double_t GetMinimum() const { return fMinimum; }
   Double_t GetMaximum() const { return fMaximum; }
