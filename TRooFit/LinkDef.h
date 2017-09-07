@@ -4,6 +4,8 @@
 #include "TRooFit/TRooHStack.h"
 #include "TRooFit/TRooFitResult.h"
 
+#include "TRooFit/Utils.h"
+
 #pragma link C++ class TRooAbsH1+;
 #pragma link C++ class TRooH1+;
 #pragma link C++ class TRooH0D+;
@@ -15,6 +17,9 @@
 
 //#include "TRooFit/TRooSlider.h"
 //#pragma link C++ class TRooSlider+;
+
+#pragma link C++ class TRooFit+;
+//#pragma link C++ function TRooFit::BuildModel;
 
 #pragma link C++ nestedfunction;
 #pragma link C++ nestedclasses;
