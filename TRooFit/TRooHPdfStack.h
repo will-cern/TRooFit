@@ -29,7 +29,7 @@ public:
   virtual Double_t expectedEvents(const RooArgSet* nset=0) const { Double_t out = RooAddPdf::expectedEvents(nset); if(out<0 && kMustBePositive) return 0; return out; }
   virtual Double_t expectedEvents(const RooArgSet& nset) const { Double_t out = RooAddPdf::expectedEvents(nset); if(out<0 && kMustBePositive) return 0; return out; }
   ///----
-  
+  virtual Double_t missingEvents() const { return TRooAbsHStack::missingEvents(); }
 
   
   TRooHPdfStack() {} ; 

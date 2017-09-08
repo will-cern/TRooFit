@@ -31,6 +31,8 @@ public:
   virtual Double_t expectedEvents(const RooArgSet* nset=0) const { Double_t out = RooRealSumPdf::getNorm(nset); if(out<0 && kMustBePositive) return 0; return out; }
   virtual Double_t expectedEvents(const RooArgSet& nset) const { Double_t out = RooRealSumPdf::getNorm(nset); if(out<0 && kMustBePositive) return 0; return out; }
   ///----
+  virtual Double_t missingEvents() const { return TRooAbsHStack::missingEvents(); }
+
 
   TRooHStack() {} ; 
   

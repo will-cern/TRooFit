@@ -34,7 +34,7 @@
 
 
 class RooProdPdf;
-
+class TRooH1;
 
 class TRooAbsH1 : public TAttLine, public TAttFill, public TAttMarker {
 public:
@@ -48,9 +48,10 @@ public:
   inline virtual ~TRooAbsH1() { SafeDelete(fDrawHistogram); SafeDelete(fThisWithConstraints); }
   
   
-  //derived classes must implement these methods
-  virtual const char* GetName() const = 0;
-  virtual const char* GetTitle() const = 0;
+  //derived classes must implement this method
+  virtual const char* GetName() const = 0; 
+  //derived classes must implement this method
+  virtual const char* GetTitle() const = 0; 
   virtual Double_t getVal(const RooArgSet* nset = 0) const = 0;
   virtual Double_t getVal(const RooArgSet& nset) const = 0;
   virtual TIterator* clientIterator() const = 0;
@@ -59,6 +60,9 @@ public:
   virtual RooArgSet* getParams(const RooArgSet& set) const = 0;
   virtual Double_t expectedEvents(const RooArgSet* nset=0) const = 0;
   virtual Double_t expectedEvents(const RooArgSet&) const = 0;
+  virtual TH1* getNominalHist() const = 0; //retrieves the underlying nominal histogram
+  
+  virtual Double_t missingEvents() const; //default implementation just checks fMissingBin - override in stacks to combine components
   
   void UseCurrentStyle();
   
@@ -87,19 +91,21 @@ public:
   Double_t getBinVolume() const; //return volume of current bin
   Double_t getError(const RooFitResult& fr) const;
   Double_t getBinError(const RooFitResult& fr) const { return getBinVolume()*getError(fr); }
-  inline Double_t getBinContent(const RooArgSet* nset=0) const { return getBinVolume()*getVal(nset)*expectedEvents(nset); } //FIXME: assumes getVal is
-  inline Double_t getBinContent(const RooArgSet& nset) const { return getBinVolume()*getVal(nset)*expectedEvents(nset); }   //  flat across the bin!
+  inline Double_t getBinContent(const RooArgSet* nset=0) const { return getBinVolume()*getVal(nset)*(expectedEvents(nset) /*+ missingEvents()*/); } //FIXME: assumes getVal is
+  inline Double_t getBinContent(const RooArgSet& nset) const { return getBinContent(&nset); }   //  flat across the bin!
   RooRealVar* getStatFactor(int bin, bool createIf=false);
   
   //the following functions temporarily move the observables to the given bin, then call a method above
   Double_t GetBinContent(int bin,const RooFitResult* fr = 0) const;
   Double_t GetBinContent(int bin,const TRooFitResult& fr) const { return GetBinContent(bin,&fr); }
   Double_t GetBinContent(const char* bin, const RooFitResult* fr = 0) const;
-  Double_t GetBinContent(const char* bin,const TRooFitResult& fr) const { return GetBinContent(bin,&fr); }
+  inline Double_t GetBinContent(const char* bin,const TRooFitResult& fr) const { return GetBinContent(bin,&fr); }
   Double_t GetBinError(int bin, const RooFitResult* fr = 0) const;
+  inline Double_t GetBinError(int bin, const TRooFitResult& fr) const { return GetBinError(bin,&fr); }
   TH1* GetHistogram(const RooFitResult* fr = 0, bool includeErrors=false, TH1* histToFill=0) const; //fills a histogram with the values (and errors) corresponding to the fit result
   TH1* GetHistogram(const TRooFitResult& fr) const { return GetHistogram(&fr); }
   void fillHistogram(TH1* histToFill, const RooFitResult* r, bool includeErrors) const;
+  void fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints=100) const;
   
   
   //these functions are used when fitting
@@ -127,7 +133,8 @@ protected:
   
   struct DrawnHistogram {
     TVirtualPad* pad = 0; //which pad the hist is drawn on
-    TH1* hist = 0; //the histogram
+    TObject* hist = 0; //the histogram or graph
+    TObject* postHist = 0; //a secondary hist or graph, drawn after the first
     TRooFitResult* fr = 0; //the associated fit result for the parameter snapshot used to fill the histogram (optional)
     TString opt; //the draw option
   };
@@ -144,10 +151,14 @@ protected:
   bool kUseAbsPdfValV=false; //if we should just use the RooAbsPdf getValV method;
   bool kMustBePositive=false; //if true, return in getValV forced to 0 (if integral is <=0 and val is <=0 then we return "1" as value
   
+  
+  TRooH1* fMissingBin = 0; //when FillMissing call, created a TH0D to hold this contribution to pdf normalization
+  RooRealProxy fMissingBinProxy; //hold a proxy to it
+  
   RooProdPdf* fThisWithConstraints = 0; //constructed in 'model' method.
 
 private:
-    ClassDef(TRooAbsH1,1) // Your description goes here...
+    ClassDef(TRooAbsH1,1) // The Abstract Base class for all TRooFit pdfs
 };
 
 
@@ -166,6 +177,7 @@ public:
   RooArgSet* getParams(const RooArgSet& set) const { return RooAbsPdf::getParameters(set); }
   virtual Double_t expectedEvents(const RooArgSet* nset=0) const;
   virtual Double_t expectedEvents(const RooArgSet& nset) const { return expectedEvents(&nset) ; }
+  virtual TH1* getNominalHist() const { return (fHists.size()) ? fHists[0] : 0; }
   ///----
   
   TRooH1() {} ; 
@@ -240,6 +252,9 @@ public:
   virtual std::list<Double_t>* binBoundaries(RooAbsRealLValue& obs, Double_t xlow, Double_t xhi) const;
   virtual Bool_t isBinnedDistribution(const RooArgSet& obs) const;
 
+  void FillMissing(double w=1.); //adds a missing event ... this wont contribute to expectedEvents (or integral) but will affect getVal(x) results
+  void SetMissingContent(double w);
+
   //we will need to do some trickery if a NormFactor or ShapeFactor depends on our observables!
   //virtual Int_t getAnalyticalIntegralWN(RooArgSet& allVars, RooArgSet& analVars, const RooArgSet* normSet, const char* rangeName) const; 
   //virtual Double_t analyticalIntegralWN(Int_t code, const RooArgSet* normSet, const char* rangeName) const;
@@ -262,15 +277,15 @@ protected:
   
   TRooH1* fTransFactor = 0; //for now, only one transfer factor allowed .. in future, may allow for partial transfer factors 
   bool kIsTransNumerator=false;
+  
 
   RooAbsData* fData = 0; //gets set up by setData, and then subsequent fills go into this
   RooRealVar* fDataWeightVar = 0; //used when fData is a RooDataSet
 
-  bool kUseAbsPdfValV=false; //if we should just use the RooAbsPdf getValV method;
-
+  
 private:
 
-  ClassDef(TRooH1,1) // Your description goes here...
+  ClassDef(TRooH1,1) // The base class for all TRooFit histograms (TRooHxD)
 };
 
 
@@ -289,7 +304,7 @@ public:
   virtual inline void SetBinContent(double val) { SetBinContent(1,val); } //set value without creating a stat uncert
 
 private:
-  ClassDef(TRooH0D,1)
+  ClassDef(TRooH0D,1) //  A zero-bin (simple event count) TRooFit histogram [do not use because of RooFit problems]
 };
  
 #endif

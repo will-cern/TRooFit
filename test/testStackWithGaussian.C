@@ -32,4 +32,16 @@
   //RooCurve c2(hs,x,0,10,100,hs.expectedEvents(x),&ss);
   
   hs.Draw();
+  
+  
+  //create a fitresult with all parameters ... used to draw error bar
+  RooArgSet* params = hs.getParams(x);
+  TRooFitResult r(*params);
+  delete params;
+  
+  hs.SetLineColor(kRed);hs.SetFillColor(kRed-9);hs.SetLineWidth(2);
+  hs.Draw(r,"pdf A3L"); //draws the error bar of the pdf
+  hs.Draw(r,"pdf LX same"); //draws the central value line
+  
+  
 }

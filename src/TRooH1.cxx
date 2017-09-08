@@ -39,6 +39,8 @@
 
 #include <memory>
 
+#include "TGraphErrors.h"
+
 ClassImp(TRooH1) 
 ClassImp(TRooH0D) 
 
@@ -55,7 +57,8 @@ TRooAbsH1::TRooAbsH1(const RooArgList& observables, RooAbsArg* me) :
 	fObservables((observables.getSize()>0)?"obs":"!obs","obs",me),
 	fNormFactors("!normFactors","normFactors",me),
         fShapeFactors("!shapeFactors","shapeFactors",me),
-        fStatFactors("!statFactors","statFactors",me) {
+        fStatFactors("!statFactors","statFactors",me),
+        fMissingBinProxy("!missing","missing",me) {
   fObservables.add(observables);
   fStatFactors.takeOwnership();//default is to own the stat factors .. TRooHStacks can acquire ownership though
   UseCurrentStyle();
@@ -230,7 +233,9 @@ TRooAbsH1::TRooAbsH1(const TRooAbsH1& other, RooAbsArg* me) :
   fRangeName(other.fRangeName),
   fDummyHist(other.fDummyHist),
   kUseAbsPdfValV(other.kUseAbsPdfValV),
-  kMustBePositive(other.kMustBePositive)
+  kMustBePositive(other.kMustBePositive),
+   fMissingBin(other.fMissingBin),
+   fMissingBinProxy(other.fMissingBinProxy.GetName(),me,other.fMissingBinProxy)
 { 
   if(fRangeName=="") fRangeName=other.GetName(); //FIXME: should we default the fRangeName to name in constructor?
 } 
@@ -355,8 +360,18 @@ TRooH1* TRooH1::createTransFactor( TRooH1* transferFrom ) {
 }
 
 bool TRooAbsH1::addNormFactor( RooAbsReal& factor ) {
+  //Add an overall normalization factor to this TRooFit pdf 
+  //If you want the factor to be constrained, you should specify a 
+  //constraintType property on the factor 
+  //
+  //Available constraintTypes: (set with factor.setStringAttribute("constraintType","TYPE") )
+  //   normal : constrained by 0, with stdev = 1
+  //   gaussian(x,y) : constrained by x, with stdev = y    [gaussian(0,1) == normal]
+  
+
   if(fNormFactors.find( factor )) return false;
   fNormFactors.add( factor ); fNormFactors.setName("normFactors");
+  if(fMissingBin) { fMissingBin->addNormFactor( factor ); }
   //need to also tell all clients that we have a new parameter to depend on
   TIterator* citer(clientIterator());//std::unique_ptr<TIterator> citer(clientIterator());
   while( RooAbsArg* client = (RooAbsArg*)( citer->Next() ) ) {
@@ -367,6 +382,10 @@ bool TRooAbsH1::addNormFactor( RooAbsReal& factor ) {
 }
 
 bool TRooAbsH1::addShapeFactor( int bin, RooAbsReal& factor ) {
+  //Add a normalization factor to a specific bin of this TRooFit pdf 
+  //If you want the factor to be constrained, you should specify a 
+  //constraintType property on the factor. See TRooAbsH1::addNormFactor for more info.
+
   if(!fShapeFactors.find( factor )) {
     fShapeFactors.add( factor ); fShapeFactors.setName("shapeFactors");
     //need to also tell all clients that we have a new parameter to depend on
@@ -381,6 +400,9 @@ bool TRooAbsH1::addShapeFactor( int bin, RooAbsReal& factor ) {
 }
 
 bool TRooAbsH1::addShapeFactor( const char* bin, RooAbsReal& factor ) {
+  //Same as the other addShapeFactor method, but can be used when the 
+  //first (i.e. x-axis) observable of this histogram is a discrete variable
+
   //first observable must be a category
   if(GetDimension()==0) return addShapeFactor(1,factor);
   
@@ -400,6 +422,16 @@ bool TRooAbsH1::addShapeFactor( const char* bin, RooAbsReal& factor ) {
 
 
 bool TRooH1::addParameter( RooAbsArg& arg ) { 
+  //Use this method to turn this TRooFit histogram into a function of the given parameter, arg.
+  //All the previously filled values of the histogram will be assumed to correspond 
+  //to the current value of the parameter 
+  //
+  //You can then change the value of the parameter and start to re-fill the histogram 
+  //This will then make the histogram correspond to a coherent variation. 
+  //
+  //Linear interpolation of the bin contents is performed for intermediate values of the 
+  //parameter.
+
   if(fParameters.find(arg)) return false; //already added
   if(fData) {
     if(!arg.InheritsFrom(RooAbsCategory::Class())) {
@@ -415,6 +447,7 @@ bool TRooH1::addParameter( RooAbsArg& arg ) {
   
   
   fParameters.add(arg); fParameters.setName("pars");
+  if(fMissingBin) fMissingBin->addParameter(arg);
   //add a clone to all existing paramsets too
   double val = (arg.InheritsFrom(RooAbsCategory::Class())) ? static_cast<RooAbsCategory&>(arg).getIndex() : static_cast<RooAbsReal&>(arg).getVal();
   for(auto& pars : fParameterSnapshots) {
@@ -440,6 +473,31 @@ std::unique_ptr<RooArgSet> TRooAbsH1::GetShapeFactors(int bin) const {
   }
   return out;
   
+}
+
+void TRooH1::FillMissing(double w) {
+  if(!fMissingBin) {
+    fMissingBin = new TRooH0D(Form("%s_missed",GetName()),Form("Missed part of %s",GetTitle()));
+    fMissingBinProxy.setArg(*fMissingBin);
+    fMissingBinProxy.SetName("missing"); //so it shows up in Print
+    //propagate all normFactors!
+    for(int i=0;i<fNormFactors.getSize();i++) {
+      fMissingBin->addNormFactor(static_cast<RooAbsReal&>(fNormFactors[i]));
+    }
+  }
+  fMissingBin->Fill(w);
+}
+void TRooH1::SetMissingContent(double w) {
+  if(!fMissingBin) {
+    fMissingBin = new TRooH0D(Form("%s_missed",GetName()),Form("Missed part of %s",GetTitle()));
+    fMissingBinProxy.setArg(*fMissingBin);
+    fMissingBinProxy.SetName("missing"); //so it shows up in Print
+    //propagate all normFactors!
+    for(int i=0;i<fNormFactors.getSize();i++) {
+      fMissingBin->addNormFactor(static_cast<RooAbsReal&>(fNormFactors[i]));
+    }
+  }
+  fMissingBin->SetBinContent(1,w);
 }
 
 //fill every bin with this function
@@ -624,8 +682,8 @@ RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
         statFactor = new RooRealVar(Form("%s_stat_bin%d",(stack)?stack->GetName():GetName(),bin),Form("Stat factor bin %d",bin),1,0,5);
         statFactor->setStringAttribute("statBinNumber",Form("%d",bin));
         statFactor->setStringAttribute("constraintType","statPoisson");
-        statFactor->setStringAttribute("sumw",Form("%f",GetBinContent(bin))); //FIXME: should get nominal content
-        statFactor->setStringAttribute("sumw2",Form("%f",GetBinError(bin))); //FIXME: should get nominal error
+        statFactor->setStringAttribute("sumw",Form("%f",getNominalHist()->GetBinContent(bin))); 
+        statFactor->setStringAttribute("sumw2",Form("%f",getNominalHist()->GetBinError(bin))); 
         if(!stack) {
           fStatFactors.addOwned(*statFactor); fStatFactors.setName("statFactors");
         } else {
@@ -829,14 +887,26 @@ Double_t TRooAbsH1::GetBinError(int bin, const RooFitResult* fr) const {
     TRooFitResult r(*params);
     delete params;
     out = getBinError(r);
+  } else if(fr->floatParsFinal().getSize()==0) {
+      //no floating pars ... error would by definition be zero for this case
+      //we assume here that isn't what the user wanted ... instead assume they wanted all parameters 
+      //that are not in the constPars list 
+      RooAbsCollection* cdeps = getParams(fObservables);
+      cdeps->remove(fr->constPars(),true,true);
+      RooArgList l; l.add(*cdeps);
+      TRooFitResult r(l,fr->constPars());
+      out = getBinError(r);
+      delete cdeps;
+      
+      
   } else {
-    
+  
     RooAbsCollection* crsnap = 0;
     //also ensure that all non-observables are held constant if they are not specified in the fit result 
     RooAbsCollection* cdeps = getParams(fObservables);
-    cdeps->remove(fr->floatParsFinal());
+    cdeps->remove(fr->floatParsFinal(),true,true/*remove by name*/);
     crsnap = cdeps->snapshot();
-    *cdeps = fr->constPars(); //move constpars to their location 
+    *cdeps = fr->constPars(); //move constpars to their location  ... shouldn't be necessary now that i added line to getError method to set constPars values
     cdeps->setAttribAll("Constant",true); //hold everything const now
     
     out = getBinError(*fr);
@@ -990,7 +1060,9 @@ RooProdPdf* TRooAbsH1::buildConstraints(const RooArgSet& obs, const char* systGr
       Info("buildConstraints","%s is an unconstrained free parameter",arg->GetName());
       continue;
     }
-    if(!strcmp(arg->getStringAttribute("constraintType"),  "statPoisson" )) {
+    TString cType = arg->getStringAttribute("constraintType");
+    cType.ToUpper();
+    if(cType == "STATPOISSON" ) {
       //this factor is poisson constrained to be: gamma = 1 +/- sqrt(sumw2)/sumw
       //this means constraint with Pois(gobs|gamma*tau) where observed gobs=tau,
       //and tau = (sumw)^2/sumw2
@@ -999,14 +1071,39 @@ RooProdPdf* TRooAbsH1::buildConstraints(const RooArgSet& obs, const char* systGr
       RooRealVar* gobs = new RooRealVar(Form("gobs_%s",arg->GetName()),Form("Global observable for %s",arg->GetName()),
                         tau->getVal());gobs->setConstant();
       RooProduct* mean = new RooProduct(Form("mean_%s",arg->GetName()),"",RooArgList(*arg,*tau));
-      RooPoisson* p = new RooPoisson(Form("pois_%s",arg->GetName()),Form("TRoo-generated constraint for %s",arg->GetTitle()),*gobs,*mean);
+      RooPoisson* p = new RooPoisson(Form("pois_%s",arg->GetName()),Form("TRooFit-generated constraint for %s",arg->GetTitle()),*gobs,*mean);
       constraints.add(*p);
-    } else if(!strcmp( arg->getStringAttribute("constraintType"), "normal"  )) {
+      
+      //also set the error on the parameter if it's error is zero 
+      RooRealVar* rrv = dynamic_cast<RooRealVar*>(arg);if(rrv && !rrv->getError()) rrv->setError(1./sqrt(tau->getVal()));
+      
+    } else if(cType =="NORMAL") {
+      Info("buildConstraints","%s is normal(gobs=0,sigma=1) constrained free parameter",arg->GetName());
       //normal constraint
       RooRealVar* gobs = new RooRealVar(Form("gobs_%s",arg->GetName()),Form("Global observable for %s",arg->GetName()),0);gobs->setConstant();
       RooConstVar* sigma = new RooConstVar("1","1",1);
-      RooGaussian* p = new RooGaussian(Form("gaus_%s",arg->GetName()),Form("TRoo-generated constraint for %s",arg->GetTitle()),*gobs,*dynamic_cast<RooAbsReal*>(arg),*sigma);
+      RooGaussian* p = new RooGaussian(Form("gaus_%s",arg->GetName()),Form("TRooFit-generated constraint for %s",arg->GetTitle()),*gobs,*dynamic_cast<RooAbsReal*>(arg),*sigma);
       constraints.add(*p);
+      
+      //also set the error on the parameter if it's error is zero 
+      RooRealVar* rrv = dynamic_cast<RooRealVar*>(arg);if(rrv && !rrv->getError()) rrv->setError(1.);
+      
+    } else if(cType.BeginsWith("GAUSSIAN(")) {
+      //gaussian ... need to extract the auxObs (aka mean) and stdev from the attribute 
+      //syntax is: gaussian(auxObs,stddev)
+      double auxObs = TString(cType(9,cType.Index(",")-9)).Atof();
+      TString stddevStr = TString(cType(cType.Index(",")+1,cType.Index(")")-(cType.Index(","))-1));
+      Info("buildConstraints","%s is gaussian(gobs=%g,sigma=%s) constrained free parameter",arg->GetName(),auxObs,stddevStr.Data());
+      RooRealVar* gobs = new RooRealVar(Form("gobs_%s",arg->GetName()),Form("Global observable for %s",arg->GetName()),auxObs);gobs->setConstant();
+      RooConstVar* sigma = new RooConstVar(stddevStr,stddevStr,stddevStr.Atof());
+      RooGaussian* p = new RooGaussian(Form("gaus_%s",arg->GetName()),Form("TRooFit-generated constraint for %s",arg->GetTitle()),*gobs,*dynamic_cast<RooAbsReal*>(arg),*sigma);
+      constraints.add(*p);
+      
+      //also set the error on the parameter if it's error is zero 
+      RooRealVar* rrv = dynamic_cast<RooRealVar*>(arg);if(rrv && !rrv->getError()) rrv->setError(stddevStr.Atof());
+      
+    } else {
+      Warning("buildConstraints","%s has unknown constraintType: %s", arg->GetName(), arg->getStringAttribute("constraintType"));
     }
   }
   delete nodes;
@@ -1264,6 +1361,38 @@ void TRooAbsH1::fillHistogram(TH1* histToFill, const RooFitResult* r, bool inclu
     if(includeErrors) {
       histToFill->SetBinError(i,GetBinError(i,r));
     }
+  }
+}
+
+void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints) const {
+  if(nPoints>0) {
+    if(includeErrors) {
+      if(graphToFill->IsA() != TGraphErrors::Class()) {
+        Error("fillGraph","Must receive TGraphErrors to fill errors. Will skip error filling");
+        includeErrors = false;
+      }
+      if(r==0) {
+         Error("fillGraph","Must pass a RooFitResult to propagate errors for. Will skip error filling");
+         includeErrors=false;
+      }
+    }
+    //sample between min and max with nPoints
+    graphToFill->Set(nPoints); //FIXME: remove points over nPoints
+    //FIXME: handle discrete variables!
+    double low = fDummyHist->GetXaxis()->GetBinLowEdge(1);
+    double high = fDummyHist->GetXaxis()->GetBinLowEdge(fDummyHist->GetXaxis()->GetNbins()+1);
+    RooAbsRealLValue* obs[3] = {0,0,0}; double tmpVals[3] = {0,0,0};
+    if(fObservables.getSize()>0) {obs[0] = dynamic_cast<RooAbsRealLValue*>(&fObservables[0]); tmpVals[0]=obs[0]->getVal(); }
+    double expec = expectedEvents(fObservables);
+    for(int i=0;i<nPoints;i++) {
+      double x = low + i*(high-low)/(nPoints-1);
+      if(obs[0]) obs[0]->setVal( x );
+      graphToFill->SetPoint(i, x, getVal(fObservables)*expec );
+      if(includeErrors && r) {
+        (static_cast<TGraphErrors*>(graphToFill))->SetPointError(i,0,getError(*r));
+      }
+    }
+    for(int i=0;i<3;i++) if(obs[i]) obs[i]->setVal(tmpVals[i]);
   }
 }
 
@@ -1544,7 +1673,14 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
   RooAbsReal* cloneFunc = (RooAbsReal*) cloneTree() ;
   RooArgSet* errorParams = cloneFunc->getObservables(fr.floatParsFinal()) ;
   RooArgSet* nset = cloneFunc->getParameters(*errorParams) ;
+  //remove const pars from nset ...
   
+  //DONT NEED TO SNAP because we cloneTreed ... RooArgSet nsnap; nset->snapshot(nsnap);
+  *nset = fr.constPars(); //also ensure any const parameters are set to their respective values 
+  
+  //nset->remove( fr.constPars(),false,true );
+  auto constpars = nset->selectByAttrib("Constant",true); //this is more certain to catch the constant parameters and not normalize on them
+  nset->remove(*constpars); delete constpars;
   
   
   // Make list of parameter instances of cloneFunc in order of error matrix
@@ -1560,7 +1696,14 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
     }
   }
   
-  if(paramList.getSize()==0) return 0; //no error
+  if(paramList.getSize()==0) {
+    delete cloneFunc; delete errorParams; delete nset;
+    return 0; //no error
+  }
+
+  //DONT NEED TO SNAP BECAUSE WE cloneTree'd! RooArgSet psnap;errorParams->snapshot(psnap); //save the current values
+  *errorParams = fpf; //sets all param values to central values, including ones that had no error in floatParsFinal
+  
 
   std::vector<Double_t> plusVar, minusVar ;    
   
@@ -1575,6 +1718,7 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
     
     Double_t cenVal = rrv.getVal() ;
     Double_t errVal = sqrt(V(ivar,ivar)) ;
+    
     
     // Make Plus variation
     ((RooRealVar*)paramList.at(ivar))->setVal(cenVal+errVal) ;
@@ -1602,6 +1746,9 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
   for (unsigned int j=0 ; j<plusVar.size() ; j++) {
     F[j] = (plusVar[j]-minusVar[j])/2 ;
   }
+  
+  //*errorParams = psnap; //puts all params back
+  //*nset = nsnap;
 
   // Calculate error in linear approximation from variations and correlation coefficient
   Double_t sum = F*(C*F) ;
@@ -1669,6 +1816,10 @@ Double_t TRooH1::getValV(const RooArgSet* nset) const
     // Evaluate denominator
     Double_t normVal(_norm->getVal()) ;
     
+    //add the missing bin, if its defined
+    //if(fMissingBinProxy.absArg()) normVal += fMissingBinProxy;
+    //if(fMissingBin) normVal += fMissingBin->getVal();
+    
 //     if (normVal<=0.) {
 //       error=kTRUE ;
 //       logEvalError("p.d.f normalization integral is zero or negative") ;  
@@ -1695,14 +1846,102 @@ Double_t TRooH1::getValV(const RooArgSet* nset) const
 
 
 
+
+
+
+void TRooAbsH1::Paint(Option_t*) {
+    //Paint the histograms of the current pad
+    
+    //first ensure the last drawn histogram is appropriately styled
+    if(fDrawHistograms.size()) {
+      (*dynamic_cast<TAttFill*>(fDrawHistograms.back().hist)) = *this;
+      (*dynamic_cast<TAttLine*>(fDrawHistograms.back().hist)) = *this;
+      (*dynamic_cast<TAttMarker*>(fDrawHistograms.back().hist)) = *this;
+      /*
+      if(fDrawHistograms.back().hist->InheritsFrom(TH1::Class())) {
+        // cant use this method unless we refill the hist TRooAbsH1::createOrAdjustHistogram( static_cast<TH1*>(fDrawHistograms.back().hist) );
+        (*dynamic_cast<TAttFill*>(fDrawHistograms.back().hist)) = *this;
+        (*dynamic_cast<TAttLine*>(fDrawHistograms.back().hist)) = *this;
+        (*dynamic_cast<TAttMarker*>(fDrawHistograms.back().hist)) = *this;
+      } else if(fDrawHistograms.back().hist->InheritsFrom(TGraph::Class())) {
+        //FIXME: style the graph
+
+      }
+      */
+    }
+    
+    
+//     double currMax = -1e50; double currMin = 1e50;
+//     std::vector<TH1*> hists;
+/*
+    for(auto& hist : fDrawHistograms) {
+      if(hist.pad == gPad) {  
+        if(hist.hist->InheritsFrom(TH1::Class())) {
+          TRooAbsH1::fillHistogram(static_cast<TH1*>(hist.hist),hist.fr,true); //updates with current value
+        } else if(hist.hist->InheritsFrom(TGraph::Class())) {
+          TRooAbsH1::fillGraph(static_cast<TGraph*>(hist.hist),hist.fr,true); //updates with current value
+        }
+        //hist.hist->Paint(hist.opt); ..don't paint here because added histogram to primitives directly (above)
+        
+        ///FIXME: wanted a way to auto-adjust the frame limits based on histograms we are drawing
+//         hists.push_back(hist.hist);
+//         if(hist.hist->GetMaximum() > currMax) {
+//           currMax = hist.hist->GetMaximum();
+//           for(auto& h : hists) h->SetMaximum(currMax);
+//         }
+//         if(hist.hist->GetMinimum() < currMin) {
+//           currMin = hist.hist->GetMinimum();
+//           for(auto& h : hists) h->SetMinimum(currMin);
+//         }
+      }
+    }
+*/
+
+//     if(!fDrawHistogram) GetHistogram(fDrawFitResult,true); 
+//     else TRooAbsH1::fillHistogram(fDrawHistogram,fDrawFitResult,true); //updates with current values
+//     fDrawHistogram->Paint(option); 
+}
+
 #include "TROOT.h"
 #include "TPad.h"
 void TRooAbsH1::Draw(Option_t *option)
 {
-   // Draw this hist
+  //Draw method taking just an option
+  //option is used to construct a TRooFitResult that can be used to set parameters
+  //constant at a given value
+  //I.e. you can do: Draw("param=value") to draw this pdf at the given value
 
-   TString opt = option;
-   opt.ToLower();
+  //FIXME: should really remove from option any bits that got used successfully for constPars construction
+
+   TRooAbsH1::Draw(TRooFitResult(option),option);
+}
+
+void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
+  //Main Draw method for TRooFit pdfs 
+  //See the concrete implementations for more details:
+  //    TRooH1D::Draw 
+  //    TRooHStack::Draw 
+  //    TRooHPdfStack::Draw 
+
+  TString opt = option;
+  opt.ToLower();
+  
+  TRooFitResult* r2 = 0;
+  
+  if(r.floatParsFinal().getSize()|| r.constPars().getSize()) {
+    if(opt.Contains("init")) {
+      //request to draw initial parameters instead of final
+      r2 = new TRooFitResult(r.floatParsInit());
+      opt.ReplaceAll("init","");
+    } else {
+      r2 = new TRooFitResult(r.floatParsFinal());
+    }
+    r2->setConstParList(r.constPars());
+  }
+  
+     // Draw this hist
+   // if option contains 'pdf' then we draw as a graph instead
+
    bool found(false);
    
    TObject* me = dynamic_cast<TObject*>(this);
@@ -1719,7 +1958,7 @@ void TRooAbsH1::Draw(Option_t *option)
          auto itr = fDrawHistograms.begin();
          while( itr != fDrawHistograms.end() ) {
           if(itr->pad==gPad) {
-            SafeDelete(itr->hist);
+            SafeDelete(itr->hist);SafeDelete(itr->postHist);
             SafeDelete(itr->fr);
             fDrawHistograms.erase(itr);
           } else {
@@ -1739,66 +1978,68 @@ void TRooAbsH1::Draw(Option_t *option)
    if(gPad->IsEditable()) {
     fDrawHistograms.emplace_back( DrawnHistogram() );
     fDrawHistograms.back().pad = gPad;
-    fDrawHistograms.back().hist = TRooAbsH1::createOrAdjustHistogram( 0 );
-    fDrawHistograms.back().opt = opt;
-    gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().hist , opt ); //adding histogram directly because cant figure out how to get clickable axis without it
-   }
-   
-}
-
-
-void TRooAbsH1::Paint(Option_t*) {
-    //Paint the histograms of the current pad
-    
-    //first ensure the last drawn histogram is appropriately styled
-    if(fDrawHistograms.size()) TRooAbsH1::createOrAdjustHistogram( fDrawHistograms.back().hist );
-    
-    
-//     double currMax = -1e50; double currMin = 1e50;
-//     std::vector<TH1*> hists;
-    
-    for(auto& hist : fDrawHistograms) {
-      if(hist.pad == gPad) {  
-        TRooAbsH1::fillHistogram(hist.hist,hist.fr,true); //updates with current values
-        //hist.hist->Paint(hist.opt); ..don't paint here because added histogram to primitives directly (above)
+    if(opt.Contains("pdf")) {
+      TGraph* g = new TGraphErrors; //FIXME: at some point want to make with asymm errors
+      g->SetName(GetName());g->SetTitle(GetTitle());
+      fDrawHistograms.back().hist = g;
+      TRooAbsH1::createOrAdjustHistogram( g->GetHistogram() );
+      
+      (*dynamic_cast<TAttFill*>(g)) = *this;
+      (*dynamic_cast<TAttLine*>(g)) = *this;
+      (*dynamic_cast<TAttMarker*>(g)) = *this;
+      
+      fillGraph(g,r2,true);
+      
+      if(fObservables.getSize()) {
+        RooAbsArg& arg = fObservables[0];
+        RooAbsReal* argreal = dynamic_cast<RooAbsReal*>(&arg);
+        if(argreal && strlen(argreal->getUnit())) {
+          g->GetHistogram()->GetXaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
+          g->GetHistogram()->GetYaxis()->SetTitle(Form("dN/d%s [%s^{-1}]",arg.GetTitle(),argreal->getUnit()));
+        } else {
+          g->GetHistogram()->GetXaxis()->SetTitle(arg.GetTitle());
+          g->GetHistogram()->GetYaxis()->SetTitle(Form("dN/d%s",arg.GetTitle()));
+        }
         
-        ///FIXME: wanted a way to auto-adjust the frame limits based on histograms we are drawing
-//         hists.push_back(hist.hist);
-//         if(hist.hist->GetMaximum() > currMax) {
-//           currMax = hist.hist->GetMaximum();
-//           for(auto& h : hists) h->SetMaximum(currMax);
-//         }
-//         if(hist.hist->GetMinimum() < currMin) {
-//           currMin = hist.hist->GetMinimum();
-//           for(auto& h : hists) h->SetMinimum(currMin);
-//         }
       }
+      
+      opt.ReplaceAll("pdf","");
+    } else { 
+      TH1* hist = TRooAbsH1::createOrAdjustHistogram( 0 );
+      fDrawHistograms.back().hist = hist;
+      fillHistogram( hist , r2, true);
+      
+      //if drawing with option "e3XXX" then will use that histogram as error bar histogram
+      if(opt.Contains("e3")) {
+        int fillType = TString(opt(opt.Index("e3")+1,opt.Length())).Atoi();
+        if(fillType>=3000 && fillType<=3999 && hist->GetSumw2()->GetSum()) { //must have an error to draw an error bar hist
+          TH1* errHist = (TH1*)hist->Clone(TString::Format("%s_error",hist->GetName()));
+          errHist->SetFillStyle(fillType);errHist->SetMarkerStyle(0);errHist->SetFillColor(hist->GetLineColor());
+          errHist->SetOption("e2same");
+          fDrawHistograms.back().postHist = errHist;
+          opt.ReplaceAll(TString::Format("e%d",fillType),"");
+          //since we are showing error bar, the main hist should only be drawn as a line
+          opt += "hist";
+        }
+      }
+      
+      
     }
-    
+    fDrawHistograms.back().opt = opt;
+    fDrawHistograms.back().fr = r2;
+    gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().hist , opt ); //adding histogram directly because cant figure out how to get clickable axis without it
+    if(fDrawHistograms.back().postHist) gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().postHist , fDrawHistograms.back().postHist->GetOption() ); //opt gets taken from fOption in hist
+   }
+  
+  
+  
 
-//     if(!fDrawHistogram) GetHistogram(fDrawFitResult,true); 
-//     else TRooAbsH1::fillHistogram(fDrawHistogram,fDrawFitResult,true); //updates with current values
-//     fDrawHistogram->Paint(option); 
 }
 
 
-void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
-  TString opt = option;
-  opt.ToLower();
-  
-  TRooFitResult* r2 = 0;
-  
-  if(opt.Contains("init")) {
-    //request to draw initial parameters instead of final
-    r2 = new TRooFitResult(r.floatParsInit());
-    opt.ReplaceAll("init","");
-  } else {
-    r2 = new TRooFitResult(r.floatParsFinal());
-  }
-  r2->setConstParList(r.constPars());
-  
-  this->Draw(opt);
-  
-  fDrawHistograms.back().fr = r2;
-  
+Double_t TRooAbsH1::missingEvents() const  { 
+  //Get value of the missingEvents bin
+  //EXPERIMENTAL FEATURE: do not use
+
+  return (fMissingBin) ? fMissingBin->getVal() : 0.; 
 }

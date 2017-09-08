@@ -61,12 +61,12 @@
   sb.Draw("mu=2","hist same"); //draw histogram on top corresponding to mu=2
 
 
-  //Model fitting:
-  //Here's how you would fit to some data
-  RooRealVar w("weightVar","weightVar",1);
-  RooDataSet data("data","data",RooArgSet(region,w),"weightVar");
-  data.add(region,10); //suppose we have 10 events 
-  
-  auto res = sb.model().fitTo(data,RooFit::Save());
-  TRooFitResult tres(res);
+//   //Model fitting:
+//   //Here's how you would fit to some data
+//   RooRealVar w("weightVar","weightVar",1);
+//   RooDataSet data("data","data",RooArgSet(region,w),"weightVar");
+//   data.add(region,10); //suppose we have 10 events 
+//   
+//   auto res = sb.model().fitTo(data,RooFit::Save());
+//   TRooFitResult tres(res);
 }

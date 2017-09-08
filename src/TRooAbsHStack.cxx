@@ -21,6 +21,18 @@ TRooH1* TRooAbsHStack::firstHistogram() {
   return 0;
 }
 
+Double_t TRooAbsHStack::missingEvents() const {
+  double out = 0;
+  RooFIter funcIter = compList().fwdIterator() ;
+  RooAbsReal* func ;
+  while((func=(RooAbsReal*)funcIter.next())) {
+    if(func->InheritsFrom(TRooAbsH1::Class())) {
+      out += (dynamic_cast<TRooAbsH1*>(func))->missingEvents();
+    }
+  }
+  return out;
+}
+
 void TRooAbsHStack::Add(RooAbsReal* func) {
   if(this->IsA() == TRooHStack::Class()) {
     //must be extendable to be added
@@ -189,12 +201,32 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
 #include "TPad.h"
 void TRooAbsHStack::Draw(Option_t *option)
 {
-    // Draw this stack ... potentially as a hist!
+   TRooAbsHStack::Draw(TRooFitResult(option),option);
+}
 
-   TString opt = option;
-   opt.ToLower();
+
+void TRooAbsHStack::Draw(const TRooFitResult& r, Option_t* option) {
+  TString opt = option;
+  opt.ToLower();
+  
+
+  TRooFitResult* r2 = 0;
+  bool hadInit=false;
+  
+  if(r.floatParsFinal().getSize()>0 || r.constPars().getSize()>0) { //wont have any pars if was doing a straightforward draw
+    if(opt.Contains("init")) {
+      //request to draw initial parameters instead of final
+      r2 = new TRooFitResult(r.floatParsInit());
+      opt.ReplaceAll("init","");hadInit=true;
+    } else {
+      r2 = new TRooFitResult(r.floatParsFinal());
+    }
+    r2->setConstParList(r.constPars());
+  }
+  
+      // Draw this stack ... potentially as a hist!
+  
    bool found(false);
-   
    TObject* me = dynamic_cast<TObject*>(this);
    
    if (gPad) {
@@ -228,46 +260,45 @@ void TRooAbsHStack::Draw(Option_t *option)
    
    if(!gPad->IsEditable()) return;
    
+   if(opt.Contains("pdf")) {
+    //FIXME: ideally would draw a stack of pdfs (in a TMultiGraph?)
+    TRooAbsH1::Draw(r,opt);
    
-   if(!opt.Contains("hist")) {
+   } else if(!opt.Contains("hist")) {
     fDrawStacks.emplace_back( DrawnStack() );
     fDrawStacks.back().pad = gPad;
     fDrawStacks.back().stack = new THStack(Form("%s_stack",GetName()),GetTitle());
     //transfer min and max to stack 
     fDrawStacks.back().stack->SetMinimum(GetMinimum());
     fDrawStacks.back().stack->SetMaximum(GetMaximum());
+    int fillType=0;
+    if(opt.Contains("e3")) {
+        fillType = TString(opt(opt.Index("e3")+1,opt.Length())).Atoi();
+        if(fillType>=3000 && fillType<=3999) {
+          opt.ReplaceAll(TString::Format("e%d",fillType),"");
+        } else {
+          fillType=0;
+        }
+    }
+    
     fDrawStacks.back().opt = opt;
+    fillStack(fDrawStacks.back().stack,r2,false/* noRestyle*/);
+    fDrawStacks.back().fr = r2;
+    
     gPad->GetListOfPrimitives()->Add( fDrawStacks.back().stack , opt ); //adding stack directly because cant figure out how to get clickable axis without it
+    
+    //if drawing with option "e3XXX" then need to also draw as a histogram
+    if(fillType) {
+        TRooAbsH1::Draw(r,TString::Format("%s e%dsame",(hadInit)?"init":"",fillType));
+        //FIXME: would like to have stack's maximum match up to error bar maximum
+    }
+    
    } else {
     //not drawing the stack, pass onto parent class to draw as a hist instead
     opt.ReplaceAll("hist","");
-    TRooAbsH1::Draw(opt);
+    TRooAbsH1::Draw(r,opt);
    }
-}
-
-
-void TRooAbsHStack::Draw(const TRooFitResult& r, Option_t* option) {
-  TString opt = option;
-  opt.ToLower();
   
-  TRooFitResult* r2 = 0;
-  
-  if(opt.Contains("init")) {
-    //request to draw initial parameters instead of final
-    r2 = new TRooFitResult(r.floatParsInit());
-    opt.ReplaceAll("init","");
-  } else {
-    r2 = new TRooFitResult(r.floatParsFinal());
-  }
-  r2->setConstParList(r.constPars());
-  
-  this->Draw(opt);
-  
-  if(opt.Contains("hist")) {
-    fDrawHistograms.back().fr = r2;
-  } else {
-    fDrawStacks.back().fr = r2;
-  }
 
 }
 
@@ -275,25 +306,23 @@ void TRooAbsHStack::Paint(Option_t* option) {
  
     //update the min and max on the last stack
     if(fDrawStacks.size()) {
-       fDrawStacks.back().stack->SetMinimum(GetMinimum());
-       fDrawStacks.back().stack->SetMaximum(GetMaximum()); //NOTE: maybe move this min max setting into 'styleStack' function
+       //fDrawStacks.back().stack->SetMinimum(GetMinimum());
+       //fDrawStacks.back().stack->SetMaximum(GetMaximum()); //NOTE: maybe move this min max setting into 'styleStack' function
     }
  
     //fill the stacks and paint them
-    uint i = 0;
-    for(auto& stack : fDrawStacks) {
-      if(stack.pad == gPad) {  
-        fillStack(stack.stack,stack.fr,!(i==fDrawStacks.size()) /* restyles the last stack only */); //updates with current values
-        //stack.stack->Paint(stack.opt); ..don't paint here because added histogram to primitives directly (above)
-      }
-      i++;
-    }
+    
+//     uint i = 0;
+//     for(auto& stack : fDrawStacks) {
+//       if(stack.pad == gPad) {  
+//         fillStack(stack.stack,stack.fr,!(i==fDrawStacks.size()-1) /* restyles the last stack only */); //updates with current values
+//         //stack.stack->Paint(stack.opt); ..don't paint here because added histogram to primitives directly (above)
+//       }
+//       i++;
+//     }
  
     //GetStack(0,true); fStack->Paint(option); 
     
-    //FIXME can't get bin labels to update :-(
-    //createOrAdjustHistogram(fStack->GetHistogram()); /* fHistogram exists aftering calling paint ... add the labels if necessary*/ 
-    //fStack->GetHistogram()->Modified();
     
     //draw any histograms we painted here too!
     TRooAbsH1::Paint(option);
