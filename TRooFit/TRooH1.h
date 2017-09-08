@@ -99,8 +99,9 @@ public:
   Double_t GetBinContent(int bin,const RooFitResult* fr = 0) const;
   Double_t GetBinContent(int bin,const TRooFitResult& fr) const { return GetBinContent(bin,&fr); }
   Double_t GetBinContent(const char* bin, const RooFitResult* fr = 0) const;
-  Double_t GetBinContent(const char* bin,const TRooFitResult& fr) const { return GetBinContent(bin,&fr); }
+  inline Double_t GetBinContent(const char* bin,const TRooFitResult& fr) const { return GetBinContent(bin,&fr); }
   Double_t GetBinError(int bin, const RooFitResult* fr = 0) const;
+  inline Double_t GetBinError(int bin, const TRooFitResult& fr) const { return GetBinError(bin,&fr); }
   TH1* GetHistogram(const RooFitResult* fr = 0, bool includeErrors=false, TH1* histToFill=0) const; //fills a histogram with the values (and errors) corresponding to the fit result
   TH1* GetHistogram(const TRooFitResult& fr) const { return GetHistogram(&fr); }
   void fillHistogram(TH1* histToFill, const RooFitResult* r, bool includeErrors) const;

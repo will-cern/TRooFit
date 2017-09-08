@@ -280,7 +280,6 @@ void TRooAbsHStack::Draw(const TRooFitResult& r, Option_t* option) {
           fillType=0;
         }
     }
-    std::cout << "opt = " << opt << "," << fillType << std::endl;
     
     fDrawStacks.back().opt = opt;
     fillStack(fDrawStacks.back().stack,r2,false/* noRestyle*/);

@@ -31,6 +31,13 @@ public:
     //The covariance matrix is taken to be uncorrelated
   }; 
   
+  TRooFitResult(const RooArgList& finalPars, const RooArgList& _constPars) : TRooFitResult(0,0,finalPars) {
+    //constructor that also sets the constPars
+    RooArgList tmp(constPars()); //some of the finalPars may have been const, ending up in here
+    tmp.add(_constPars);
+    setConstParList(tmp);
+  }
+  
   TRooFitResult(const char* constPars=""); 
   
   virtual void Paint(Option_t* option = "") {

@@ -887,13 +887,26 @@ Double_t TRooAbsH1::GetBinError(int bin, const RooFitResult* fr) const {
     TRooFitResult r(*params);
     delete params;
     out = getBinError(r);
+  } else if(fr->floatParsFinal().getSize()==0) {
+      //no floating pars ... error would by definition be zero for this case
+      //we assume here that isn't what the user wanted ... instead assume they wanted all parameters 
+      //that are not in the constPars list 
+      RooAbsCollection* cdeps = getParams(fObservables);
+      cdeps->remove(fr->constPars(),true,true);
+      RooArgList l; l.add(*cdeps);
+      TRooFitResult r(l,fr->constPars());
+      out = getBinError(r);
+      delete cdeps;
+      
+      
   } else {
+  
     RooAbsCollection* crsnap = 0;
     //also ensure that all non-observables are held constant if they are not specified in the fit result 
     RooAbsCollection* cdeps = getParams(fObservables);
-    cdeps->remove(fr->floatParsFinal());
+    cdeps->remove(fr->floatParsFinal(),true,true/*remove by name*/);
     crsnap = cdeps->snapshot();
-    *cdeps = fr->constPars(); //move constpars to their location 
+    *cdeps = fr->constPars(); //move constpars to their location  ... shouldn't be necessary now that i added line to getError method to set constPars values
     cdeps->setAttribAll("Constant",true); //hold everything const now
     
     out = getBinError(*fr);
@@ -1662,6 +1675,9 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
   RooArgSet* nset = cloneFunc->getParameters(*errorParams) ;
   //remove const pars from nset ...
   
+  //DONT NEED TO SNAP because we cloneTreed ... RooArgSet nsnap; nset->snapshot(nsnap);
+  *nset = fr.constPars(); //also ensure any const parameters are set to their respective values 
+  
   //nset->remove( fr.constPars(),false,true );
   auto constpars = nset->selectByAttrib("Constant",true); //this is more certain to catch the constant parameters and not normalize on them
   nset->remove(*constpars); delete constpars;
@@ -1680,10 +1696,12 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
     }
   }
   
-  if(paramList.getSize()==0) return 0; //no error
+  if(paramList.getSize()==0) {
+    delete cloneFunc; delete errorParams; delete nset;
+    return 0; //no error
+  }
 
-  RooArgSet psnap;
-  errorParams->snapshot(psnap); //save the current values
+  //DONT NEED TO SNAP BECAUSE WE cloneTree'd! RooArgSet psnap;errorParams->snapshot(psnap); //save the current values
   *errorParams = fpf; //sets all param values to central values, including ones that had no error in floatParsFinal
   
 
@@ -1729,8 +1747,8 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
     F[j] = (plusVar[j]-minusVar[j])/2 ;
   }
   
-  *errorParams = psnap; //puts all params back
-
+  //*errorParams = psnap; //puts all params back
+  //*nset = nsnap;
 
   // Calculate error in linear approximation from variations and correlation coefficient
   Double_t sum = F*(C*F) ;
@@ -1888,6 +1906,13 @@ void TRooAbsH1::Paint(Option_t*) {
 #include "TPad.h"
 void TRooAbsH1::Draw(Option_t *option)
 {
+  //Draw method taking just an option
+  //option is used to construct a TRooFitResult that can be used to set parameters
+  //constant at a given value
+  //I.e. you can do: Draw("param=value") to draw this pdf at the given value
+
+  //FIXME: should really remove from option any bits that got used successfully for constPars construction
+
    TRooAbsH1::Draw(TRooFitResult(option),option);
 }
 

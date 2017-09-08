@@ -26,19 +26,40 @@ void TRooFitResult::init(const RooArgList& pars) {
     else realpars.add(*arg);
   }
   
-  setConstParList(constpars);
-  setInitParList(realpars);
   setFinalParList(realpars);
+  setConstParList(constpars);
   
-  TMatrixDSym cov(realpars.getSize());
+  TMatrixDSym cov(floatParsFinal().getSize());
   
-  RooFIter itr2( realpars.fwdIterator() );
+  RooFIter itr2( floatParsFinal().fwdIterator() );
   
   int i=0;
   while( (arg = itr2.next()) ) {
     cov(i,i) = pow(dynamic_cast<RooRealVar*>(arg)->getError(),2);
+    if(cov(i,i)<1e-9) {
+      //try to get error by checking for constraintType 
+      //check for constraintType ... 
+      if(arg->getStringAttribute("constraintType")) {
+        TString s(arg->getStringAttribute("constraintType"));
+        s.ToUpper();
+        if(s=="STATPOISSON") {
+          double tau = pow(TString(arg->getStringAttribute("sumw")).Atof(),2)/TString(arg->getStringAttribute("sumw2")).Atof();
+          dynamic_cast<RooRealVar*>(arg)->setError(1./sqrt(tau));
+        }
+        else if(s=="NORMAL") { dynamic_cast<RooRealVar*>(arg)->setError(1);  }
+        else if(s.BeginsWith("GAUSSIAN(")) {
+          TString stddevStr = TString(s(s.Index(",")+1,s.Index(")")-(s.Index(","))-1));
+          dynamic_cast<RooRealVar*>(arg)->setError(stddevStr.Atof());
+        }
+        cov(i,i) = pow(dynamic_cast<RooRealVar*>(arg)->getError(),2);
+      }
+      
+    }
     i++;
   }
+  
+  
+  setInitParList(floatParsFinal());
   setCovarianceMatrix(cov);
 }
 
@@ -63,11 +84,13 @@ TRooFitResult::TRooFitResult(const char* constPars) : RooFitResult() {
   while(nameToken.NextToken()) {
       TString subName = (TString)nameToken;
       //split around "=" sign
-      TString parName = subName(0,subName.Index("="));
-      TString parVal = subName(subName.Index("=")+1,subName.Length());
+      if(subName.Contains("=")) {
+        TString parName = subName(0,subName.Index("="));
+        TString parVal = subName(subName.Index("=")+1,subName.Length());
+        RooRealVar* v = new RooRealVar(parName,parName,parVal.Atof());
+        pars.addOwned(*v); //so that will delete when done
+      }
       
-      RooRealVar* v = new RooRealVar(parName,parName,parVal.Atof());
-      pars.addOwned(*v); //so that will delete when done
 
   }
 
