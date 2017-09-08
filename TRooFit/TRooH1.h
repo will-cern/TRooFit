@@ -48,9 +48,10 @@ public:
   inline virtual ~TRooAbsH1() { SafeDelete(fDrawHistogram); SafeDelete(fThisWithConstraints); }
   
   
-  //derived classes must implement these methods
-  virtual const char* GetName() const = 0;
-  virtual const char* GetTitle() const = 0;
+  //derived classes must implement this method
+  virtual const char* GetName() const = 0; 
+  //derived classes must implement this method
+  virtual const char* GetTitle() const = 0; 
   virtual Double_t getVal(const RooArgSet* nset = 0) const = 0;
   virtual Double_t getVal(const RooArgSet& nset) const = 0;
   virtual TIterator* clientIterator() const = 0;
@@ -156,7 +157,7 @@ protected:
   RooProdPdf* fThisWithConstraints = 0; //constructed in 'model' method.
 
 private:
-    ClassDef(TRooAbsH1,1) // Your description goes here...
+    ClassDef(TRooAbsH1,1) // The Abstract Base class for all TRooFit pdfs
 };
 
 
@@ -283,7 +284,7 @@ protected:
   
 private:
 
-  ClassDef(TRooH1,1) // Your description goes here...
+  ClassDef(TRooH1,1) // The base class for all TRooFit histograms (TRooHxD)
 };
 
 
@@ -302,7 +303,7 @@ public:
   virtual inline void SetBinContent(double val) { SetBinContent(1,val); } //set value without creating a stat uncert
 
 private:
-  ClassDef(TRooH0D,1)
+  ClassDef(TRooH0D,1) //  A zero-bin (simple event count) TRooFit histogram [do not use because of RooFit problems]
 };
  
 #endif

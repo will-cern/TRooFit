@@ -359,9 +359,16 @@ TRooH1* TRooH1::createTransFactor( TRooH1* transferFrom ) {
   return transFactor;
 }
 
-Double_t TRooAbsH1::missingEvents() const  { return (fMissingBin) ? fMissingBin->getVal() : 0.; }
-
 bool TRooAbsH1::addNormFactor( RooAbsReal& factor ) {
+  //Add an overall normalization factor to this TRooFit pdf 
+  //If you want the factor to be constrained, you should specify a 
+  //constraintType property on the factor 
+  //
+  //Available constraintTypes: (set with factor.setStringAttribute("constraintType","TYPE") )
+  //   normal : constrained by 0, with stdev = 1
+  //   gaussian(x,y) : constrained by x, with stdev = y    [gaussian(0,1) == normal]
+  
+
   if(fNormFactors.find( factor )) return false;
   fNormFactors.add( factor ); fNormFactors.setName("normFactors");
   if(fMissingBin) { fMissingBin->addNormFactor( factor ); }
@@ -375,6 +382,10 @@ bool TRooAbsH1::addNormFactor( RooAbsReal& factor ) {
 }
 
 bool TRooAbsH1::addShapeFactor( int bin, RooAbsReal& factor ) {
+  //Add a normalization factor to a specific bin of this TRooFit pdf 
+  //If you want the factor to be constrained, you should specify a 
+  //constraintType property on the factor. See TRooAbsH1::addNormFactor for more info.
+
   if(!fShapeFactors.find( factor )) {
     fShapeFactors.add( factor ); fShapeFactors.setName("shapeFactors");
     //need to also tell all clients that we have a new parameter to depend on
@@ -389,6 +400,9 @@ bool TRooAbsH1::addShapeFactor( int bin, RooAbsReal& factor ) {
 }
 
 bool TRooAbsH1::addShapeFactor( const char* bin, RooAbsReal& factor ) {
+  //Same as the other addShapeFactor method, but can be used when the 
+  //first (i.e. x-axis) observable of this histogram is a discrete variable
+
   //first observable must be a category
   if(GetDimension()==0) return addShapeFactor(1,factor);
   
@@ -408,6 +422,16 @@ bool TRooAbsH1::addShapeFactor( const char* bin, RooAbsReal& factor ) {
 
 
 bool TRooH1::addParameter( RooAbsArg& arg ) { 
+  //Use this method to turn this TRooFit histogram into a function of the given parameter, arg.
+  //All the previously filled values of the histogram will be assumed to correspond 
+  //to the current value of the parameter 
+  //
+  //You can then change the value of the parameter and start to re-fill the histogram 
+  //This will then make the histogram correspond to a coherent variation. 
+  //
+  //Linear interpolation of the bin contents is performed for intermediate values of the 
+  //parameter.
+
   if(fParameters.find(arg)) return false; //already added
   if(fData) {
     if(!arg.InheritsFrom(RooAbsCategory::Class())) {
@@ -1351,7 +1375,7 @@ void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool inclu
       double x = low + i*(high-low)/(nPoints-1);
       if(obs[0]) obs[0]->setVal( x );
       graphToFill->SetPoint(i, x, getVal(fObservables)*expec );
-      if(includeErrors) {
+      if(includeErrors && r) {
         (static_cast<TGraphErrors*>(graphToFill))->SetPointError(i,0,getError(*r));
       }
     }
@@ -1864,16 +1888,22 @@ void TRooAbsH1::Paint(Option_t*) {
 #include "TPad.h"
 void TRooAbsH1::Draw(Option_t *option)
 {
-   TRooAbsH1::Draw(TRooFitResult(),option);
+   TRooAbsH1::Draw(TRooFitResult(option),option);
 }
 
 void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
+  //Main Draw method for TRooFit pdfs 
+  //See the concrete implementations for more details:
+  //    TRooH1D::Draw 
+  //    TRooHStack::Draw 
+  //    TRooHPdfStack::Draw 
+
   TString opt = option;
   opt.ToLower();
   
   TRooFitResult* r2 = 0;
   
-  if(r.floatParsFinal().getSize()) {
+  if(r.floatParsFinal().getSize()|| r.constPars().getSize()) {
     if(opt.Contains("init")) {
       //request to draw initial parameters instead of final
       r2 = new TRooFitResult(r.floatParsInit());
@@ -1933,7 +1963,7 @@ void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
       (*dynamic_cast<TAttLine*>(g)) = *this;
       (*dynamic_cast<TAttMarker*>(g)) = *this;
       
-      fillGraph(g,r2,false/*no errors because need a roofitresult to do that*/);
+      fillGraph(g,r2,true);
       
       if(fObservables.getSize()) {
         RooAbsArg& arg = fObservables[0];
@@ -1979,4 +2009,12 @@ void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
   
   
 
+}
+
+
+Double_t TRooAbsH1::missingEvents() const  { 
+  //Get value of the missingEvents bin
+  //EXPERIMENTAL FEATURE: do not use
+
+  return (fMissingBin) ? fMissingBin->getVal() : 0.; 
 }

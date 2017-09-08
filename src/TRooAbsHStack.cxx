@@ -201,7 +201,7 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
 #include "TPad.h"
 void TRooAbsHStack::Draw(Option_t *option)
 {
-   TRooAbsHStack::Draw(TRooFitResult(),option);
+   TRooAbsHStack::Draw(TRooFitResult(option),option);
 }
 
 
@@ -213,7 +213,7 @@ void TRooAbsHStack::Draw(const TRooFitResult& r, Option_t* option) {
   TRooFitResult* r2 = 0;
   bool hadInit=false;
   
-  if(r.floatParsFinal().getSize()>0) { //wont have any pars if was doing a straightforward draw
+  if(r.floatParsFinal().getSize()>0 || r.constPars().getSize()>0) { //wont have any pars if was doing a straightforward draw
     if(opt.Contains("init")) {
       //request to draw initial parameters instead of final
       r2 = new TRooFitResult(r.floatParsInit());

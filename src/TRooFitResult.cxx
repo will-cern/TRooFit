@@ -50,13 +50,16 @@ TRooFitResult::TRooFitResult(const char* name, const char* title, const RooArgLi
   
 }
 
-TRooFitResult::TRooFitResult(const char* finalPars) : RooFitResult() {
-  
+TRooFitResult::TRooFitResult(const char* constPars) : RooFitResult() {
+  //constructor that takes a string "x=y,a=b" etc ... copies those into constPars
+  //This can be used for quickly checking what a TRooFit histogram looks like 
+  //at a given parameter value ... e.g. 
+  // h.Draw("param=2.0")
 
   //parse the finalPars expression for "x=y" terms
   RooArgList pars;
   
-  TStringToken nameToken(finalPars,",");
+  TStringToken nameToken(constPars,",");
   while(nameToken.NextToken()) {
       TString subName = (TString)nameToken;
       //split around "=" sign
@@ -76,6 +79,8 @@ TRooFitResult::TRooFitResult(const char* finalPars) : RooFitResult() {
 }
 
 void TRooFitResult::Draw(Option_t* option) {
+  //Option: pull - draws pull plot for floating variables (provided their initial error was nonzero)
+
   TString opt(option);
   opt.ToLower();
   if(opt.Contains("pull")) {
