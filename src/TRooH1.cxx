@@ -1214,15 +1214,18 @@ Double_t TRooH1::evaluate() const
       //add the raw values too
       TH1* hist = GetHist(pset);
       
-      //calculate bin volume
-      double binVol = 1;
-      int bb[3]; hist->GetBinXYZ(bin,bb[0],bb[1],bb[2]);
-      for(int i=0;i<hist->GetDimension();i++) {
-        TAxis* ax = 0; if(i==0) ax = hist->GetXaxis(); else if(i==1) ax = hist->GetYaxis(); //FIXME: assumes 2D at most
-        binVol *= ax->GetBinWidth(bb[i]);
+      //calculate bin volume, only if necessary though .. 
+      
+      double val = hist->GetBinContent(bin);
+      if(val) {
+        int bb[3]; hist->GetBinXYZ(bin,bb[0],bb[1],bb[2]);
+        for(int i=0;i<hist->GetDimension();i++) {
+          TAxis* ax = 0; if(i==0) ax = hist->GetXaxis(); else if(i==1) ax = hist->GetYaxis(); //FIXME: assumes 2D at most
+          val /= ax->GetBinWidth(bb[i]);
+        }
       }
       
-      out += hist->GetBinContent(bin) / binVol;
+      out += val;
     } else {
       //got here, must interpolate
       //loop over parameters, and use upSet and downSet to compute interpolated result
