@@ -36,10 +36,20 @@ public:
      
      
      }
-  TRooH1D(const char *name, const char *title, RooRealVar& x, int bins) : TRooH1(name,title,x,{bins},{x.getMin()},{x.getMax()}) {
+  TRooH1D(const char *name, const char *title, RooRealVar& x, int nbins) : TRooH1(name,title,x,{nbins},{x.getMin()},{x.getMax()}) {
     //Constructor for use with continuous variables only, where you explicitly specify the number of bins
+    //The min and max are taken from the RooRealVar 
    
    }
+   
+   TRooH1D(const char *name, const char *title, RooRealVar& x, int nbins, Double_t* bins) : 
+    TRooH1(name,title,x,{nbins},{bins}) {
+      //Constructor for use with continuous variables only, where you explicitly specify the number of bins
+      //You also specify the binning
+     
+     
+     }
+   
   
   virtual void Draw(const TRooFitResult& r, Option_t* option = "") { 
     //Draw the TRooH1D, at the values of parameters given by the TRooFitResult's finalPars (r.floatParsFinal())
