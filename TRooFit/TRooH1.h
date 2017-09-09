@@ -225,7 +225,12 @@ public:
   
   
 
-  TH1* GetHist(unsigned int paramSet) const { if(paramSet>=fHists.size()) return 0; return fHists[paramSet]; }
+  TH1* GetHist(unsigned int paramSet) const { 
+    //Returns the raw histogram associated to the given parameter spacepoint (paramSet)
+    //You can check the current parameter values put you on spacepoint with TRooH1::getParamSet
+    if(paramSet>=fHists.size()) return 0; return fHists[paramSet]; 
+    
+  }
 
   
   

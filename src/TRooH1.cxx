@@ -85,6 +85,8 @@ TRooH1::TRooH1(const char *name, const char *title,
    fTransFactor("!transFactor","transFactor",this)*/
    
 { 
+  //Only experts should construct TRooH1 directly. Please use derived classes (e.g. TRooH1D)
+
   //FIXME: should do checks on hist dimensions 
   fHists.push_back( (TH1*)hist->Clone(name) );
  fHists[0]->SetDirectory(0);
@@ -102,6 +104,7 @@ TRooH1::TRooH1(const char *name, const char *title,
    fTransFactor("!transFactor","transFactor",this)*/
    
 { 
+  //Only experts should construct TRooH1 directly. Please use derived classes (e.g. TRooH1D)
 
  
   //add binning to the continuous observables
@@ -160,6 +163,8 @@ TRooH1::TRooH1(const char *name, const char *title,
    fValues("!vals","!vals",this)/*,
    fTransFactor("!transFactor","transFactor",this)*/
 { 
+  //Only experts should construct TRooH1 directly. Please use derived classes (e.g. TRooH1D)
+
   //add binning to the continuous observables
   //also store the binnings and category sizes
   int j=0;
@@ -284,8 +289,10 @@ void TRooH1::isData(bool forceBinned) {
   
 }
 
-//we will be the numerator of the transfer factor 
+ 
 TRooH1* TRooH1::createTransFactor( TRooH1* transferFrom ) {
+  //A transFactor is ..
+
   if(fTransFactor) {
     Error("createTransFactor","%s: Transfer factor already exists",GetName());
     return fTransFactor;//static_cast<TRooH1*>(fTransFactor.absArg());
@@ -993,6 +1000,10 @@ Double_t TRooAbsH1::GetBinContent(const char* bin, const RooFitResult* r) const 
 }
 
 Int_t TRooH1::getParamSet() const {
+  //Returns the ID of the current parameter spacepoint 
+  //Or if the state of the parameters is an unknown point
+  //then this method will return -1.
+
   if(fParameters.getSize()==0) return 0;
   
   //compare parameter values up to a certain 'precision' for equality
@@ -1112,10 +1123,18 @@ RooProdPdf* TRooAbsH1::buildConstraints(const RooArgSet& obs, const char* systGr
   return out;
 }
 
-const std::vector<double>& TRooH1::GetParamSet(int idx) const { return fParameterSnapshots[idx]; }
+const std::vector<double>& TRooH1::GetParamSet(int idx) const { 
+  //Return the values of the parameters corresponding to paramSet = idx
+  //The order of the parameters can be seen through the Print method 
+  
+  return fParameterSnapshots[idx]; 
+}
 
 Double_t TRooH1::evaluate() const 
 {
+  //The main roofit evaluation method. Users should not call this directly 
+  //It is computing the pdf value (the probability density) 
+
 //std::cout << "rangeName = " << GetRangeName() << " "; fObservables.Print("v"); 
 
   double out = 0;
