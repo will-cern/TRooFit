@@ -3,6 +3,23 @@
 
 #include "TMath.h"
 
+//___________________________________
+/* BEGIN_HTML
+<p>A TRooHPdfStack is the TRooFit version of a RooAddPdf</p>
+<p>You should think of the value of this pdf as being the sum of a sub-pdfs, where each pdf
+is given a coefficient corresponding to the fraction of expectedEvents contributed by that pdf</p>
+
+<p>i.e. pdfValue = Sum(i) coef_i*pdfValue_i, where coef_i is the fraction of total expected events of that pdf. 
+The coef_i are automatically recomputed </p>
+
+<p>Each subpdf is automatically individually normalized to 1, unlike in a TRooHStack of pdfs. </p>
+
+<p>TRooHPdfStack can only combine actual pdfs, whereas a TRooHStack can combine any function (RooAbsReal).</p>
+
+</p>
+END_HTML */
+//____________________________________
+
 ClassImp(TRooHPdfStack) 
 
 using namespace std;

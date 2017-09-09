@@ -7,6 +7,16 @@
 
 using namespace std;
 
+//___________________________________
+/* BEGIN_HTML
+<p>A TRooHStack is the TRooFit version of a RooRealSumPdf</p>
+<p>You should think of the value of this pdf as being the sum of sub-function values</p>
+
+
+</p>
+END_HTML */
+//____________________________________
+
 
 TRooAbsHStack::~TRooAbsHStack() {
  SafeDelete(fStack); //FIXME: should delete the contained hists too!
