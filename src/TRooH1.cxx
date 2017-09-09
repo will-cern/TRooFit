@@ -1402,14 +1402,17 @@ void TRooAbsH1::fillHistogram(TH1* histToFill, const RooFitResult* r, bool inclu
 
 void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints) const {
   if(nPoints>0) {
+    TRooFitResult* myR = 0;
     if(includeErrors) {
       if(graphToFill->IsA() != TGraphErrors::Class()) {
         Error("fillGraph","Must receive TGraphErrors to fill errors. Will skip error filling");
         includeErrors = false;
       }
       if(r==0) {
-         Error("fillGraph","Must pass a RooFitResult to propagate errors for. Will skip error filling");
-         includeErrors=false;
+        //default to propgating the uncertainties of all parameters
+        RooArgSet* params = getParams(fObservables);
+        myR = new TRooFitResult(*params); r = myR;
+        delete params;
       }
     }
     //sample between min and max with nPoints
@@ -1424,11 +1427,12 @@ void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool inclu
       double x = low + i*(high-low)/(nPoints-1);
       if(obs[0]) obs[0]->setVal( x );
       graphToFill->SetPoint(i, x, getVal(fObservables)*expec );
-      if(includeErrors && r) {
+      if(includeErrors) {
         (static_cast<TGraphErrors*>(graphToFill))->SetPointError(i,0,getError(*r));
       }
     }
     for(int i=0;i<3;i++) if(obs[i]) obs[i]->setVal(tmpVals[i]);
+    if(myR) delete myR;
   }
 }
 
@@ -1994,7 +1998,8 @@ void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
          auto itr = fDrawHistograms.begin();
          while( itr != fDrawHistograms.end() ) {
           if(itr->pad==gPad) {
-            SafeDelete(itr->hist);SafeDelete(itr->postHist);
+            if(itr->hist!=itr->postHist) SafeDelete(itr->postHist);
+            SafeDelete(itr->hist);
             SafeDelete(itr->fr);
             fDrawHistograms.erase(itr);
           } else {
@@ -2024,7 +2029,7 @@ void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
       (*dynamic_cast<TAttLine*>(g)) = *this;
       (*dynamic_cast<TAttMarker*>(g)) = *this;
       
-      fillGraph(g,r2,true);
+      fillGraph(g,r2,opt.Contains("e"));
       
       if(fObservables.getSize()) {
         RooAbsArg& arg = fObservables[0];
@@ -2040,6 +2045,13 @@ void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
       }
       
       opt.ReplaceAll("pdf","");
+      
+      if(opt.Contains("e") && opt.Contains("l")) {
+        //want to ensure line appears above error band, so draw put a copy in the posthist ..
+        fDrawHistograms.back().postHist = g;
+        fDrawHistograms.back().postHistOpt = "lx"; //draws as line without error bars
+      }
+      
     } else { 
       TH1* hist = TRooAbsH1::createOrAdjustHistogram( 0 );
       fDrawHistograms.back().hist = hist;
@@ -2053,6 +2065,7 @@ void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
           errHist->SetFillStyle(fillType);errHist->SetMarkerStyle(0);errHist->SetFillColor(hist->GetLineColor());
           errHist->SetOption("e2same");
           fDrawHistograms.back().postHist = errHist;
+          fDrawHistograms.back().postHistOpt = "e2same";
           opt.ReplaceAll(TString::Format("e%d",fillType),"");
           //since we are showing error bar, the main hist should only be drawn as a line
           opt += "hist";
@@ -2061,10 +2074,11 @@ void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
       
       
     }
-    fDrawHistograms.back().opt = opt;
+    
+    fDrawHistograms.back().opt = opt; //have to store opt separately because not all object types we can SetOption on
     fDrawHistograms.back().fr = r2;
     gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().hist , opt ); //adding histogram directly because cant figure out how to get clickable axis without it
-    if(fDrawHistograms.back().postHist) gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().postHist , fDrawHistograms.back().postHist->GetOption() ); //opt gets taken from fOption in hist
+    if(fDrawHistograms.back().postHist) gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().postHist , fDrawHistograms.back().postHistOpt ); 
    }
   
   

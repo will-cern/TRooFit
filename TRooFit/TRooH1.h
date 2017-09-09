@@ -137,6 +137,7 @@ protected:
     TObject* postHist = 0; //a secondary hist or graph, drawn after the first
     TRooFitResult* fr = 0; //the associated fit result for the parameter snapshot used to fill the histogram (optional)
     TString opt; //the draw option
+    TString postHistOpt; //the posthist draw option
   };
   std::vector<DrawnHistogram> fDrawHistograms; //!
   
