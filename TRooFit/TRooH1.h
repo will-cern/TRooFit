@@ -113,7 +113,7 @@ public:
   RooProdPdf* buildConstraints(const RooArgSet& obs, const char* systGroups="", bool addSelf=false) const;
   
   virtual void Draw(Option_t* option = "");
-  virtual void Draw(const TRooFitResult& r, Option_t* option = "");
+  virtual void Draw(Option_t* option,const TRooFitResult& r);
   virtual void Paint(Option_t* option = "");
   
   //other functions

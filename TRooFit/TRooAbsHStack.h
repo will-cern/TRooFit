@@ -29,7 +29,7 @@ public:
 
   virtual void Paint(Option_t* option = "");
 
-  void Draw(const TRooFitResult& r, Option_t* option = "");
+  void Draw(Option_t* option,const TRooFitResult& r);
   void Draw(Option_t* option = "");
   
   void Add(RooAbsReal* func);

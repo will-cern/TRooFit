@@ -211,11 +211,11 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
 #include "TPad.h"
 void TRooAbsHStack::Draw(Option_t *option)
 {
-   TRooAbsHStack::Draw(TRooFitResult(option),option);
+   TRooAbsHStack::Draw(option,TRooFitResult(option));
 }
 
 
-void TRooAbsHStack::Draw(const TRooFitResult& r, Option_t* option) {
+void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
   TString opt = option;
   opt.ToLower();
   
@@ -272,7 +272,7 @@ void TRooAbsHStack::Draw(const TRooFitResult& r, Option_t* option) {
    
    if(opt.Contains("pdf")) {
     //FIXME: ideally would draw a stack of pdfs (in a TMultiGraph?)
-    TRooAbsH1::Draw(r,opt);
+    TRooAbsH1::Draw(opt,r);
    
    } else if(!opt.Contains("hist")) {
     fDrawStacks.emplace_back( DrawnStack() );
@@ -299,14 +299,14 @@ void TRooAbsHStack::Draw(const TRooFitResult& r, Option_t* option) {
     
     //if drawing with option "e3XXX" then need to also draw as a histogram
     if(fillType) {
-        TRooAbsH1::Draw(r,TString::Format("%s e%dsame",(hadInit)?"init":"",fillType));
+        TRooAbsH1::Draw(TString::Format("%s e%dsame",(hadInit)?"init":"",fillType),r);
         //FIXME: would like to have stack's maximum match up to error bar maximum
     }
     
    } else {
     //not drawing the stack, pass onto parent class to draw as a hist instead
     opt.ReplaceAll("hist","");
-    TRooAbsH1::Draw(r,opt);
+    TRooAbsH1::Draw(opt,r);
    }
   
 

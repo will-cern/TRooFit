@@ -51,7 +51,7 @@ public:
      }
    
   
-  virtual void Draw(const TRooFitResult& r, Option_t* option = "") { 
+  virtual void Draw(Option_t* option,const TRooFitResult& r) { 
     //Draw the TRooH1D, at the values of parameters given by the TRooFitResult's finalPars (r.floatParsFinal())
     //
     //Bin errors are calculated using the covariance matrix of the TRooFitResult
@@ -63,7 +63,7 @@ public:
     //   pdf : Will draw TRooH1D as a TGraphErrors instead (samples 100 points), the value 
     //         of which will be the pdf density
     
-    TRooAbsH1::Draw(r,option); 
+    TRooAbsH1::Draw(option,r); 
   
   }
   

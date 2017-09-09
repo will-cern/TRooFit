@@ -1953,10 +1953,10 @@ void TRooAbsH1::Draw(Option_t *option)
 
   //FIXME: should really remove from option any bits that got used successfully for constPars construction
 
-   TRooAbsH1::Draw(TRooFitResult(option),option);
+   TRooAbsH1::Draw(option,TRooFitResult(option));
 }
 
-void TRooAbsH1::Draw(const TRooFitResult& r, Option_t* option) {
+void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
   //Main Draw method for TRooFit pdfs 
   //See the concrete implementations for more details:
   //    TRooH1D::Draw 

@@ -45,7 +45,7 @@ public:
   //virtual const char* GetRangeName() const { if(fRooHists.getSize()==0) return 0; return fRooHists[0].GetName(); }
   virtual void Paint(Option_t* option = "") {  TRooAbsHStack::Paint(option); }
   
-  virtual void Draw(const TRooFitResult& r, Option_t* option = "") { TRooAbsHStack::Draw(r,option); }
+  virtual void Draw(Option_t* option,const TRooFitResult& r) { TRooAbsHStack::Draw(option,r); }
   virtual void Draw(Option_t* option = "") { TRooAbsHStack::Draw(option); }
   
   //using TRooAbsHStack::Draw;
