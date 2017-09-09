@@ -1151,8 +1151,10 @@ Double_t TRooH1::evaluate() const
     //loop over parameter snapshots, assessing which sets are valid (discrete params must match exactly)
     //if we find an exact match, we go with that
     
-    std::vector<int> upSet(fParameters.getSize(),0); 
-    std::vector<int> downSet(fParameters.getSize(),0); 
+    //goal is that for each parameter to obtain the spacepoint IDs for the two closest valid spacepoints
+    
+    std::vector<int> upSet(fParameters.getSize(),-1); 
+    std::vector<int> downSet(fParameters.getSize(),-1); 
     int nomSet = -1;
     
     int pset=-1;
@@ -1161,10 +1163,12 @@ Double_t TRooH1::evaluate() const
     } else {
     
       int i=0;
+      std::vector<int> setUp;std::vector<int> setDown; //get filled with parameter indices that should get set to up/down
       for(auto& parVals : fParameterSnapshots) {
         bool match(true); bool invalid(false);
         RooFIter parItr(fParameters.fwdIterator());
-        int j=0; int upIdx=-1;int downIdx=-1;
+        int j=0; 
+        setUp.clear();setDown.clear();
         while(auto par = parItr.next() ) {
           RooAbsCategory* cat = dynamic_cast<RooAbsCategory*>(par);
           if(cat) {
@@ -1173,11 +1177,22 @@ Double_t TRooH1::evaluate() const
             }
           } else {
             //record if this is up/down/nom variation for this parameter
-            double parVal = parVals[j];
-            if(fabs(parVal - ((RooAbsReal*)par)->getVal()) > 1e-9) match=false;
-            int type(parVal*1.01); //0 if nominal, 1 is up, -1 if down
-            if(type==1) upIdx=j;
-            else if(type==-1) downIdx=j;
+            double parVal = ((RooAbsReal*)par)->getVal();
+            double parDiff = fabs(parVal - parVals[j]);
+            if(parDiff > 1e-9) match=false;
+            
+            
+            if(upSet[j]==-1) setUp.push_back(j); //if valid, will
+            else if(downSet[j]==-1) setDown.push_back(j);
+            else {
+              //replace the one that is further away 
+              double upDiff = fabs(fParameterSnapshots[upSet[j]][j] - parVal);
+              double downDiff = fabs(fParameterSnapshots[downSet[j]][j] - parVal);
+              if(parDiff<upDiff || parDiff<downDiff) {
+                if(upDiff>downDiff) setUp.push_back(j);
+                else setDown.push_back(j);
+              }
+            }
           }
           j++;
         }
@@ -1186,36 +1201,33 @@ Double_t TRooH1::evaluate() const
           break; //can just stop right now, found a perfect match
         }
         if(!invalid) { //if snapshot featured a variation up or down, store that
-          if(upIdx>=0) upSet[upIdx]=i;
-          if(downIdx>=0) downSet[downIdx]=i;
-          if(upIdx==-1 && downIdx==-1) {
-            //this must be the nominal paramset for this category combo
-            nomSet = i;
-          }
+          if(nomSet==-1) nomSet=i; //the first valid set is used as the nom set
+          //signal which parameters this snapshot is a valid variation for
+          for(auto& j : setUp) upSet[j]=i;
+          for(auto& j : setDown) downSet[j]=i;
         }
         i++;
       }
     }
     
-    
+    //add the functional bin values
+    if(fFunctionalBinValues.find(-1)!=fFunctionalBinValues.end()) {
+      for(auto& vals : fFunctionalBinValues.at(-1)) {
+        out += static_cast<RooAbsReal&>(fValues[vals]).getVal();
+      }
+    }
+    if(fFunctionalBinValues.find(bin) != fFunctionalBinValues.end()) {
+      for(auto& vals : fFunctionalBinValues.at(bin)) {
+        out += static_cast<RooAbsReal&>(fValues[vals]).getVal();
+      }
+    }
     
 
     if(pset!=-1) {
-      if(fFunctionalBinValues.find(-1)!=fFunctionalBinValues.end()) {
-        for(auto& vals : fFunctionalBinValues.at(-1)) {
-          out += static_cast<RooAbsReal&>(fValues[vals]).getVal();
-        }
-      }
-      if(fFunctionalBinValues.find(bin) != fFunctionalBinValues.end()) {
-        for(auto& vals : fFunctionalBinValues.at(bin)) {
-          out += static_cast<RooAbsReal&>(fValues[vals]).getVal();
-        }
-      }
       //add the raw values too
       TH1* hist = GetHist(pset);
       
       //calculate bin volume, only if necessary though .. 
-      
       double val = hist->GetBinContent(bin);
       if(val) {
         int bb[3]; hist->GetBinXYZ(bin,bb[0],bb[1],bb[2]);
@@ -1226,41 +1238,43 @@ Double_t TRooH1::evaluate() const
       }
       
       out += val;
-    } else {
+    } else if(nomSet!=-1) { //can only interpolate when there's a valid parameter spacepoint
       //got here, must interpolate
       //loop over parameters, and use upSet and downSet to compute interpolated result
-      if(nomSet==-1) return 0; //no nominal set was available for the combination of discrete parameters
-      double nomVal = GetHist(nomSet)->GetBinContent(bin);
-      out += nomVal;
+      TH1* hist = GetHist(nomSet);
+      double nomVal = hist->GetBinContent(bin);
+      double val = nomVal;
+
       RooFIter parItr(fParameters.fwdIterator());
       int i=-1;
       while(auto par = parItr.next() ) {
         i++;
         if(par->InheritsFrom( RooAbsCategory::Class() ) ) continue;
-        if(upSet[i]==0&&downSet[i]==0) continue; //no variation for this parameter
-        double parVal = ((RooAbsReal*)par)->getVal();
+        if(upSet[i]==-1||downSet[i]==-1) continue; //no variation for this parameter (need at least two points)
         
+        //now calculate the value based on interpolation between these two points 
         
+        double y_down = GetHist( downSet[i] )->GetBinContent(bin);
+        double x_down = fParameterSnapshots[downSet[i]][i];
+        double y_up = GetHist( upSet[i] )->GetBinContent(bin);
+        double x_up = fParameterSnapshots[upSet[i]][i];
         
-        //piecewise linear
-        if( (parVal>0 && upSet[i]) || (parVal<0 && !downSet[i]) ) {
-            out += parVal*( GetHist( upSet[i] )->GetBinContent(bin) - nomVal );
-        } else {
-            out += parVal*( nomVal - GetHist( downSet[i] )->GetBinContent(bin) );
+        double tmpVal = ((y_up-y_down)/(x_up-x_down))*(((RooAbsReal*)par)->getVal() - x_down) + y_down;
+        
+        val += (tmpVal - nomVal);
+
+        
+      }
+      
+      if(val) { //divide by bin volume if it's necessary to
+        int bb[3]; hist->GetBinXYZ(bin,bb[0],bb[1],bb[2]);
+        for(int i=0;i<hist->GetDimension();i++) {
+          TAxis* ax = 0; if(i==0) ax = hist->GetXaxis(); else if(i==1) ax = hist->GetYaxis(); //FIXME: assumes 2D at most
+          val /= ax->GetBinWidth(bb[i]);
         }
-        
       }
       
-      //calculate bin volume
-      TH1* hist = GetHist(nomSet);
-      double binVol = 1;
-      int bb[3]; hist->GetBinXYZ(bin,bb[0],bb[1],bb[2]);
-      for(int i=0;i<hist->GetDimension();i++) {
-        TAxis* ax = 0; if(i==0) ax = hist->GetXaxis(); else if(i==1) ax = hist->GetYaxis(); //FIXME: assumes 2D at most
-        binVol *= ax->GetBinWidth(bb[i]);
-      }
-      
-      out /= binVol;
+      out += val;
     }
   }
 
