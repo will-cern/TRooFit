@@ -106,6 +106,7 @@ void TRooAbsHStack::Add(TRooH1* hist) {
         Info("Add","Combining StatFactors: Replacing %s with %s in %s",s->GetName(),ss->GetName(),hist->GetName());
         hist->fStatFactors.replace(*s,*ss);
         hist->fShapeFactors.replace(*s,*ss);
+        hist->removeServer(*ss);hist->addServer(*ss); //THIS IS NECESSARY ... bug in RooListProxy::replace ... was causing statFactor to lose its valueServer status!!!
         ss->setStringAttribute("sumw",Form("%f",(TString(ss->getStringAttribute("sumw")).Atof() + TString(s->getStringAttribute("sumw")).Atof())));
         ss->setStringAttribute("sumw2",Form("%f",(TString(ss->getStringAttribute("sumw2")).Atof() + TString(s->getStringAttribute("sumw2")).Atof())));
         delete s;
