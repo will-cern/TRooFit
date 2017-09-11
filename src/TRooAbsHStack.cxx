@@ -142,6 +142,14 @@ THStack* TRooAbsHStack::GetStack(const RooFitResult* fr) const {
   return fStack;
 }
 
+TAxis* TRooAbsHStack::GetXaxis() const {
+  //Returns the x-axis of the last drawn stack, if there is one avaiable 
+  
+  if(fDrawStacks.size() && fDrawStacks.back().stack) return fDrawStacks.back().stack->GetXaxis();
+  return 0;
+  
+}
+
 
 THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool noRestyle) const {
   //Fill the provided stack
@@ -332,6 +340,7 @@ void TRooAbsHStack::Paint(Option_t* option) {
     if(fDrawStacks.size()) {
        //fDrawStacks.back().stack->SetMinimum(GetMinimum());
        //fDrawStacks.back().stack->SetMaximum(GetMaximum()); //NOTE: maybe move this min max setting into 'styleStack' function
+       
     }
  
     //fill the stacks and paint them
