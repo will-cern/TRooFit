@@ -4,6 +4,7 @@
 #include "TMath.h"
 
 #include "TRooFit/TRooHStack.h"
+#include "RooRealVar.h"
 
 using namespace std;
 
@@ -60,11 +61,13 @@ void TRooAbsHStack::Add(RooAbsReal* func) {
   reinit();
 }
 
-void TRooAbsHStack::Add(TRooH1* hist) {
+void TRooAbsHStack::Add(TRooH1* hist, bool acquireStatFactors) {
   //Add a component (a TRooH1) to the stack 
   //
   //statFactors are automatically acquired and combined by the stack 
   //This is known as 'Beeston-Barlow lite'
+  //To add a TRooH1 without its stat factors being acquired, set acquireStatFactors=false
+  
 
   //if this is the first one, take observables from it 
   if(!firstHistogram()) {
@@ -81,50 +84,55 @@ void TRooAbsHStack::Add(TRooH1* hist) {
   //claim all statFactors as my own, if I can
   //binning must be consistent
   
-  bool consistent(true);
-  try {
-    //TH1::CheckConsistency(hist->fHists[0],fHists[0]);
-  } catch(...) {
-    consistent = false;
-  }
+  if(acquireStatFactors) {
   
-  
-  if(hist->fStatFactors.isOwning() && consistent) {
-    hist->fStatFactors.releaseOwnership();
-    hist->fStatFactors.setName("!statFactors"); //hide from prints
+    bool consistent(true);
+    try {
+      //TH1::CheckConsistency(hist->fHists[0],fHists[0]);
+    } catch(...) {
+      consistent = false;
+    }
     
-    //need to combine common stat factors before adding these new ones
-    //this includes updating hist->fShapeFactors to reference the new, common, statFactor
-    for(int i=0;i<fStatFactors.getSize();i++) {
-      RooAbsArg* ss = fStatFactors.at(i);
-      int binNum = TString(ss->getStringAttribute("statBinNumber")).Atoi();
-      for(int j=0;j<hist->fStatFactors.getSize();j++) {
-        RooAbsArg* s = hist->fStatFactors.at(j);
-        if(binNum != TString(s->getStringAttribute("statBinNumber")).Atoi()) continue;
-        //found a match, need to replace!
-        //combine sumw and sumw2 attributes
-        Info("Add","Combining StatFactors: Replacing %s with %s in %s",s->GetName(),ss->GetName(),hist->GetName());
-        hist->fStatFactors.replace(*s,*ss);
-        hist->fShapeFactors.replace(*s,*ss);
-        hist->removeServer(*ss);hist->addServer(*ss); //THIS IS NECESSARY ... bug in RooListProxy::replace ... was causing statFactor to lose its valueServer status!!!
-        ss->setStringAttribute("sumw",Form("%f",(TString(ss->getStringAttribute("sumw")).Atof() + TString(s->getStringAttribute("sumw")).Atof())));
-        ss->setStringAttribute("sumw2",Form("%f",(TString(ss->getStringAttribute("sumw2")).Atof() + TString(s->getStringAttribute("sumw2")).Atof())));
-        delete s;
-        break;
+    
+    if(hist->fStatFactors.isOwning() && consistent) {
+      hist->fStatFactors.releaseOwnership();
+      hist->fStatFactors.setName("!statFactors"); //hide from prints
+      
+      //need to combine common stat factors before adding these new ones
+      //this includes updating hist->fShapeFactors to reference the new, common, statFactor
+      for(int i=0;i<fStatFactors.getSize();i++) {
+        RooAbsArg* ss = fStatFactors.at(i);
+        int binNum = TString(ss->getStringAttribute("statBinNumber")).Atoi();
+        for(int j=0;j<hist->fStatFactors.getSize();j++) {
+          RooAbsArg* s = hist->fStatFactors.at(j);
+          if(binNum != TString(s->getStringAttribute("statBinNumber")).Atoi()) continue;
+          //found a match, need to replace!
+          //combine sumw and sumw2 attributes
+          Info("Add","Combining StatFactors: Replacing %s with %s in %s",s->GetName(),ss->GetName(),hist->GetName());
+          hist->fStatFactors.replace(*s,*ss);
+          hist->fShapeFactors.replace(*s,*ss);
+          hist->removeServer(*ss);hist->addServer(*ss); //THIS IS NECESSARY ... bug in RooListProxy::replace ... was causing statFactor to lose its valueServer status!!!
+          ss->setStringAttribute("sumw",Form("%f",(TString(ss->getStringAttribute("sumw")).Atof() + TString(s->getStringAttribute("sumw")).Atof())));
+          ss->setStringAttribute("sumw2",Form("%f",(TString(ss->getStringAttribute("sumw2")).Atof() + TString(s->getStringAttribute("sumw2")).Atof())));
+          ((RooRealVar*)ss)->setError(sqrt((TString(ss->getStringAttribute("sumw2")).Atof()))/(TString(ss->getStringAttribute("sumw")).Atof()));
+          
+          delete s;
+          break;
+        }
       }
+      //rename the vars to match my name, to avoid confusion, and add them to my stat factors
+      RooFIter iter = hist->fStatFactors.fwdIterator();
+      while( RooAbsArg* arg = iter.next() ) {
+        if(fStatFactors.find(*arg)) continue;
+        TString oldName(arg->GetName()); //dont correct the ones we already replaced above
+        TString newName(oldName.Replace(0,strlen(hist->GetName()),GetName()));
+        arg->SetName(newName);
+        fStatFactors.addOwned(*arg);
+      }
+      if(fStatFactors.getSize()) fStatFactors.setName("statFactors");
+    } else {
+      Info("Add","Cannot acquire statFactors of %s",hist->GetName());
     }
-    //rename the vars to match my name, to avoid confusion, and add them to my stat factors
-    RooFIter iter = hist->fStatFactors.fwdIterator();
-    while( RooAbsArg* arg = iter.next() ) {
-      if(fStatFactors.find(*arg)) continue;
-      TString oldName(arg->GetName()); //dont correct the ones we already replaced above
-      TString newName(oldName.Replace(0,strlen(hist->GetName()),GetName()));
-      arg->SetName(newName);
-      fStatFactors.addOwned(*arg);
-    }
-    if(fStatFactors.getSize()) fStatFactors.setName("statFactors");
-  } else {
-    Info("Add","Cannot acquire statFactors of %s",hist->GetName());
   }
   
   reinit();
