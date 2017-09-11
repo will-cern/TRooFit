@@ -27,6 +27,9 @@ using namespace std;
 TRooHPdfStack::TRooHPdfStack(const char* name, const char* title) : RooAddPdf(name,title),
   TRooAbsHStack(RooArgList(),this)
 {
+  //Constructor for a TRooHPdfStack, specify just the name and title 
+  //
+  //You then add components to the stack with TRooAbsHStack::Add
   _allExtendable = kTRUE;
 }
 
@@ -34,12 +37,14 @@ TRooHPdfStack::TRooHPdfStack(const TRooHPdfStack& other, const char* name) :
    RooAddPdf(other,name),
    TRooAbsHStack(other,this)
 { 
+  //Copy Constructor
   _allExtendable = kTRUE;
 } 
 
 
 void TRooHPdfStack::reinit() {
-  //this method is called when new components are added to the stack 
+  //internal method that is called when new components are added to the stack 
+  //resets the integral managers etc etc
   
   //recreate the pdf iterator
   delete _pdfIter;
@@ -58,6 +63,12 @@ void TRooHPdfStack::reinit() {
 //_____________________________________________________________________________
 Double_t TRooHPdfStack::getValV(const RooArgSet* nset) const
 {
+  //Evaluates the TRooHPdfStack's raw value (if nset=0) or pdf value (if nset=observables)
+  //The implementation is identical to RooAddPdf::getValV but with some minor 
+  //changes so suppress warnings about negative values
+  //
+  //You can force the RooAddPdf implementation to be used by using TRooAbsH1::setRooFitValV(true)
+
   if(kUseAbsPdfValV) return RooAddPdf::getValV(nset);
   ///THIS CODE IS COPIED FROM BUT SLIGHTLY MODIFIED VERSION OF RooAbsPdf::getValV
   ///DONE TO SUPPRESS WARNINGS ABOUT NEGATIVE VALUES

@@ -44,6 +44,11 @@ Double_t TRooAbsHStack::missingEvents() const {
 }
 
 void TRooAbsHStack::Add(RooAbsReal* func) {
+  //Add a generic function to the stack
+  //
+  //If the function is a PDF (Inherits from RooAbsPdf), and you are adding to a TRooHStack, then 
+  //the pdf must be extended (i.e. can provide an expectedEvents)
+
   if(this->IsA() == TRooHStack::Class()) {
     //must be extendable to be added
     if(func->InheritsFrom(RooAbsPdf::Class()) && !static_cast<RooAbsPdf*>(func)->canBeExtended()) {
@@ -56,6 +61,11 @@ void TRooAbsHStack::Add(RooAbsReal* func) {
 }
 
 void TRooAbsHStack::Add(TRooH1* hist) {
+  //Add a component (a TRooH1) to the stack 
+  //
+  //statFactors are automatically acquired and combined by the stack 
+  //This is known as 'Beeston-Barlow lite'
+
   //if this is the first one, take observables from it 
   if(!firstHistogram()) {
     fObservables.add(hist->fObservables);  
@@ -120,6 +130,8 @@ void TRooAbsHStack::Add(TRooH1* hist) {
 }
 
 THStack* TRooAbsHStack::GetStack(const RooFitResult* fr) const {
+  //Construct a THStack. User takes ownership
+
   if(!fStack) { 
     fStack = new THStack(Form("%s_stack",GetName()),GetTitle()); 
     //transfer min and max to stack 
@@ -132,6 +144,8 @@ THStack* TRooAbsHStack::GetStack(const RooFitResult* fr) const {
 
 
 THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool noRestyle) const {
+  //Fill the provided stack
+
   TList existingHists;
   
   

@@ -12,6 +12,10 @@ using namespace std;
 TRooHStack::TRooHStack(const char* name, const char* title) : RooRealSumPdf(name,title),
   TRooAbsHStack(RooArgList(),this)
 {
+  //Constructor for a TRooHStack, specify just the name and title 
+  //
+  //You then add components to the stack with TRooAbsHStack::Add
+
   _extended = true; _haveLastCoef = true;
 }
 
@@ -19,12 +23,16 @@ TRooHStack::TRooHStack(const TRooHStack& other, const char* name) :
    RooRealSumPdf(other,name),
    TRooAbsHStack(other,this)
 { 
+  //Copy constructor
+
   _extended = true; _haveLastCoef = true;
 } 
 
 
 void TRooHStack::reinit() {
-  //this method is called when new components are added to the stack 
+  //internal method that is called when new components are added to the stack 
+  //resets the integral managers etc etc 
+  
   
   //recreate the func iterator
   delete _funcIter;
@@ -49,6 +57,8 @@ void TRooHStack::reinit() {
 }
 
 void TRooHStack::printMetaArgs(ostream& os) const {
+  //internal method that is called when Print method is called 
+
   //don't print coefficients since we made all of them const = 1
  // Customized printing of arguments of a RooRealSumPdf to more intuitively reflect the contents of the
   // product operator construction
@@ -74,6 +84,12 @@ void TRooHStack::printMetaArgs(ostream& os) const {
 //_____________________________________________________________________________
 Double_t TRooHStack::getValV(const RooArgSet* nset) const
 {
+  //Evaluates the TRooHStack's raw value (if nset=0) or pdf value (if nset=observables)
+  //The implementation is identical to RooRealSumPdf::getValV but with some minor 
+  //changes so suppress warnings about negative values
+  //
+  //You can force the RooRealSumPdf implementation to be used by using TRooAbsH1::setRooFitValV(true)
+
   if(kUseAbsPdfValV) return RooRealSumPdf::getValV(nset);
   ///THIS CODE IS COPIED FROM BUT SLIGHTLY MODIFIED VERSION OF RooAbsPdf::getValV
   ///DONE TO SUPPRESS WARNINGS ABOUT NEGATIVE VALUES
