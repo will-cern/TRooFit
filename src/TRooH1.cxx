@@ -63,6 +63,8 @@ TRooAbsH1::TRooAbsH1(const RooArgList& observables, RooAbsArg* me) :
   fObservables.add(observables);
   fStatFactors.takeOwnership();//default is to own the stat factors .. TRooHStacks can acquire ownership though
   UseCurrentStyle();
+  
+  
 }
 
 TRooH1::TRooH1(const char* name, const char* title) : TRooH1(name,title,RooArgList(),{},{},{}) {
@@ -93,6 +95,7 @@ TRooH1::TRooH1(const char *name, const char *title,
  fHists[0]->SetDirectory(0);
   fParameterSnapshots.resize(1); //creates an empty vector
   fDummyHist = fHists[0];
+  setAttribute("NeverConstant",true); //stops these objects being 'cached' away, because they rarely should be
   
 }
 
@@ -153,7 +156,7 @@ TRooH1::TRooH1(const char *name, const char *title,
  
   fParameterSnapshots.resize(1); //creates an empty vector
   fDummyHist = fHists[0];
-  
+  setAttribute("NeverConstant",true); //stops these objects being 'cached' away, because they rarely should be
  
 } 
 
@@ -211,7 +214,7 @@ TRooH1::TRooH1(const char *name, const char *title,
  
   fParameterSnapshots.resize(1); //creates an empty vector
   fDummyHist = fHists[0];
-  
+  setAttribute("NeverConstant",true); //stops these objects being 'cached' away, because they rarely should be
 } 
 
 
@@ -515,6 +518,7 @@ void TRooH1::FillMissing(double w) {
   }
   fMissingBin->Fill(w);
 }
+
 void TRooH1::SetMissingContent(double w) {
   if(!fMissingBin) {
     fMissingBin = new TRooH0D(Form("%s_missed",GetName()),Form("Missed part of %s",GetTitle()));
@@ -526,6 +530,19 @@ void TRooH1::SetMissingContent(double w) {
     }
   }
   fMissingBin->SetBinContent(1,w);
+}
+
+void TRooH1::SetMissingError(double w) {
+  if(!fMissingBin) {
+    fMissingBin = new TRooH0D(Form("%s_missed",GetName()),Form("Missed part of %s",GetTitle()));
+    fMissingBinProxy.setArg(*fMissingBin);
+    fMissingBinProxy.SetName("missing"); //so it shows up in Print
+    //propagate all normFactors!
+    for(int i=0;i<fNormFactors.getSize();i++) {
+      fMissingBin->addNormFactor(static_cast<RooAbsReal&>(fNormFactors[i]));
+    }
+  }
+  fMissingBin->SetBinError(1,w);
 }
 
 
@@ -658,7 +675,9 @@ Int_t TRooH1::Fill( RooAbsReal& val ) {
 }
 
 RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
-    //create a stat factor for this bin, unless one already exists
+    //Obtain the statFactor for the given bin 
+    //If createIf = true, then will also create the statFactor 
+    //if it doesn't exist. 
 
     if(fBinsShapeFactors.find(bin)!=fBinsShapeFactors.end()) {
       for(auto fIdx : fBinsShapeFactors.at(bin)) {
@@ -1263,13 +1282,25 @@ Double_t TRooH1::evaluate() const
     
     //add the functional bin values
     if(fFunctionalBinValues.find(-1)!=fFunctionalBinValues.end()) {
+      double binVol = 1.;
+      int bb[3]; fDummyHist->GetBinXYZ(bin,bb[0],bb[1],bb[2]);
+      for(int i=0;i<fDummyHist->GetDimension();i++) {
+        TAxis* ax = 0; if(i==0) ax = fDummyHist->GetXaxis(); else if(i==1) ax = fDummyHist->GetYaxis(); //FIXME: assumes 2D at most
+        binVol *= ax->GetBinWidth(bb[i]);
+      }
       for(auto& vals : fFunctionalBinValues.at(-1)) {
-        out += static_cast<RooAbsReal&>(fValues[vals]).getVal();
+        out += static_cast<RooAbsReal&>(fValues[vals]).getVal()/binVol; //should we divide these by bin volume!!?? perhaps only if is function of observables
       }
     }
     if(fFunctionalBinValues.find(bin) != fFunctionalBinValues.end()) {
+      double binVol = 1.;
+      int bb[3]; fDummyHist->GetBinXYZ(bin,bb[0],bb[1],bb[2]);
+      for(int i=0;i<fDummyHist->GetDimension();i++) {
+        TAxis* ax = 0; if(i==0) ax = fDummyHist->GetXaxis(); else if(i==1) ax = fDummyHist->GetYaxis(); //FIXME: assumes 2D at most
+        binVol *= ax->GetBinWidth(bb[i]);
+      }
       for(auto& vals : fFunctionalBinValues.at(bin)) {
-        out += static_cast<RooAbsReal&>(fValues[vals]).getVal();
+        out += static_cast<RooAbsReal&>(fValues[vals]).getVal()/binVol; //should we divide these by bin volume!!?? perhaps only if is function of observables
       }
     }
     

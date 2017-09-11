@@ -262,6 +262,7 @@ public:
 
   void FillMissing(double w=1.); //adds a missing event ... this wont contribute to expectedEvents (or integral) but will affect getVal(x) results
   void SetMissingContent(double w);
+  void SetMissingError(double w);
 
   //we will need to do some trickery if a NormFactor or ShapeFactor depends on our observables!
   //virtual Int_t getAnalyticalIntegralWN(RooArgSet& allVars, RooArgSet& analVars, const RooArgSet* normSet, const char* rangeName) const; 
