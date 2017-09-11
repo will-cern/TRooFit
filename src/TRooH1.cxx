@@ -663,53 +663,72 @@ Int_t TRooH1::Fill( double x , double w ) {
 
 RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
     //create a stat factor for this bin, unless one already exists
-    RooRealVar* statFactor = 0;
+
     if(fBinsShapeFactors.find(bin)!=fBinsShapeFactors.end()) {
       for(auto fIdx : fBinsShapeFactors.at(bin)) {
-        if(fStatFactors.find(*fShapeFactors.at(fIdx))) { statFactor=(RooRealVar*)fShapeFactors.at(fIdx); break; }
+        if(fStatFactors.find(*fShapeFactors.at(fIdx))) { return (RooRealVar*)fShapeFactors.at(fIdx); }
       }
     }
-    if(!statFactor) {
-      TRooHStack* stack = 0;
-      if(!fStatFactors.isOwning()) { //stack owns stat 
-        //look for a stack in our clients ... add our stat factor there
-        std::unique_ptr<TIterator> clients(clientIterator());
-        
-        while(TObject* a = clients->Next()) {
-          if(a->IsA() == TRooHStack::Class()) { stack = (TRooHStack*)a; break; }
-        }
-        if(!stack) { std::cout << "COULD NOT FIND MY STACK!???" << std::endl; }
-        else {
-          //see if there's a good stat variable in the stack we can use
-          RooFIter statFactors = stack->fStatFactors.fwdIterator();
-          RooRealVar* factor;
-          while( ( factor = (RooRealVar*)statFactors.next() ) ) {
-            if(TString(factor->getStringAttribute("statBinNumber")).Atoi()==bin) {
-              statFactor = factor; break;
-            }
+    
+    //first check if we are a stack ... because possible we can find a stat factor from the components
+    if(dynamic_cast<TObject*>(this)->InheritsFrom(TRooAbsHStack::Class())) {
+      RooFIter statFactors = fStatFactors.fwdIterator();
+      RooRealVar* factor;
+      while( ( factor = (RooRealVar*)statFactors.next() ) ) {
+        if(TString(factor->getStringAttribute("statBinNumber")).Atoi()==bin) return factor;
+      }
+    }
+    
+    
+    if(!createIf) return 0; //stop here 
+    
+    //ok, going to create a statFactor ... first check if we are actually part of a stack
+    TRooAbsHStack* stack = 0;
+    if(!fStatFactors.isOwning()) { //stack owns stat 
+      //look for a stack in our clients ... add our stat factor there
+      std::unique_ptr<TIterator> clients(clientIterator());
+      
+      while(TObject* a = clients->Next()) {
+        if(a->InheritsFrom(TRooAbsHStack::Class())) { stack = (TRooAbsHStack*)a; break; }
+      }
+      if(!stack) { std::cout << "COULD NOT FIND MY STACK!???" << std::endl; }
+      else {
+        //see if there's a good stat variable in the stack we can use
+        RooFIter statFactors = stack->fStatFactors.fwdIterator();
+        RooRealVar* factor;
+        while( ( factor = (RooRealVar*)statFactors.next() ) ) {
+          if(TString(factor->getStringAttribute("statBinNumber")).Atoi()==bin) {
+            //found a good statFactor .. we now must add the content and sumw2 of ourselves
+            factor->setStringAttribute("constraintType","statPoisson");
+            factor->setStringAttribute("sumw",Form("%f",(TString(factor->getStringAttribute("sumw")).Atof() + getNominalHist()->GetBinContent(bin)))); 
+            factor->setStringAttribute("sumw2",Form("%f",(TString(factor->getStringAttribute("sumw2")).Atof() + pow(getNominalHist()->GetBinError(bin),2)))); 
+            factor->setError(sqrt((TString(factor->getStringAttribute("sumw2")).Atof()))/(TString(factor->getStringAttribute("sumw")).Atof()));
+            addShapeFactor( bin, *factor );
+            return factor;
           }
         }
       }
-      if(!statFactor && createIf) { //still no stat factor, so create one 
-        statFactor = new RooRealVar(Form("%s_stat_bin%d",(stack)?stack->GetName():GetName(),bin),Form("Stat factor bin %d",bin),1,0,5);
-        statFactor->setStringAttribute("statBinNumber",Form("%d",bin));
-        statFactor->setStringAttribute("constraintType","statPoisson");
-        statFactor->setStringAttribute("sumw",Form("%f",getNominalHist()->GetBinContent(bin))); 
-        statFactor->setStringAttribute("sumw2",Form("%f",pow(getNominalHist()->GetBinError(bin),2))); 
-        if(getNominalHist()->GetBinError(bin)) {
-          statFactor->setError(sqrt((TString(statFactor->getStringAttribute("sumw2")).Atof()))/(TString(statFactor->getStringAttribute("sumw")).Atof()));
-        }
-        if(!stack) {
-          fStatFactors.addOwned(*statFactor); fStatFactors.setName("statFactors");
-        } else {
-          stack->fStatFactors.addOwned(*statFactor); //add to stack's statFactors
-          fStatFactors.add(*statFactor); //add to my own list of stat factors
-        }
-        
-      }
-      if(statFactor) addShapeFactor(bin,*statFactor);
     }
+    
+    //got here, ok just have to create a new factor 
+    RooRealVar* statFactor = new RooRealVar(Form("%s_stat_bin%d",(stack)?stack->GetName():GetName(),bin),Form("Stat factor bin %d",bin),1,0,5);
+    statFactor->setStringAttribute("statBinNumber",Form("%d",bin));
+    statFactor->setStringAttribute("constraintType","statPoisson");
+    statFactor->setStringAttribute("sumw",Form("%f",getNominalHist()->GetBinContent(bin))); 
+    statFactor->setStringAttribute("sumw2",Form("%f",pow(getNominalHist()->GetBinError(bin),2))); 
+    if(getNominalHist()->GetBinError(bin)) {
+      statFactor->setError(sqrt((TString(statFactor->getStringAttribute("sumw2")).Atof()))/(TString(statFactor->getStringAttribute("sumw")).Atof()));
+    }
+    if(!stack) {
+      fStatFactors.addOwned(*statFactor); fStatFactors.setName("statFactors");
+    } else {
+      stack->fStatFactors.addOwned(*statFactor); //add to stack's statFactors
+      fStatFactors.add(*statFactor); //add to my own list of stat factors
+    }
+    addShapeFactor(bin,*statFactor);
     return statFactor; 
+    
+
 }
 
 //used in modifying methods, like SetBinContent, Fill, SetBinError etc
