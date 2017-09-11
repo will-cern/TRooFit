@@ -195,7 +195,7 @@ public:
 	      const RooArgList& observables, std::vector<int>&& bins, std::vector<double>&& min, std::vector<double>&& max );
 
   TRooH1(const char *name, const char *title,
-	      const RooArgList& observables, std::vector<int>&& bins, std::vector<Double_t*>&& binEdges );
+	      const RooArgList& observables, std::vector<int>&& bins, std::vector<const Double_t*>&& binEdges );
   
   TRooH1(const TRooH1& other, const char* name=0) ;
   virtual TObject* clone(const char* newname) const { return new TRooH1(*this,newname); }

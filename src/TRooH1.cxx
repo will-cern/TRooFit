@@ -157,7 +157,7 @@ TRooH1::TRooH1(const char *name, const char *title,
 } 
 
  TRooH1::TRooH1(const char *name, const char *title, 
-                        const RooArgList& observables, std::vector<int>&& bins, std::vector<Double_t*>&& binEdges ) :
+                        const RooArgList& observables, std::vector<int>&& bins, std::vector<const Double_t*>&& binEdges ) :
    RooAbsPdf(name,title), TRooAbsH1(observables,this),
    fParameters("!pars","pars",this),
    fValues("!vals","!vals",this)/*,
@@ -554,12 +554,17 @@ Bool_t TRooH1::Add(const TH1* h1 , Double_t c1) {
       for(int j=1;j<=h1->GetNbinsY();j++) {
         for(int k=1;k<=h1->GetNbinsZ();k++) {
           int bin = h1->GetBin(i,j,k);
-          RooRealVar* statFactor = getStatFactor(bin, true);
-          //update the sumw and sumw2 attribute of the stat factor
-          statFactor->setStringAttribute("sumw",Form("%f",(TString(statFactor->getStringAttribute("sumw")).Atof() + h1->GetBinContent(bin))));
-          statFactor->setStringAttribute("sumw2",Form("%f",(TString(statFactor->getStringAttribute("sumw2")).Atof() + pow(h1->GetBinError(bin),2))));
-          //will also set the error to sqrt(sumw2)/sumw
-          statFactor->setError(sqrt((TString(statFactor->getStringAttribute("sumw2")).Atof()))/(TString(statFactor->getStringAttribute("sumw")).Atof()));
+          if(!h1->GetBinError(bin)) continue; //don't need to adjust if there was no error
+          RooRealVar* statFactor = getStatFactor(bin); //first try without creating 
+          if(!statFactor) { 
+            statFactor = getStatFactor(bin, true);  //automatically sets sumw and sumw2 for us when creating a new statFactor
+          } else {
+            //update the sumw and sumw2 attribute of the stat factor
+            statFactor->setStringAttribute("sumw",Form("%f",(TString(statFactor->getStringAttribute("sumw")).Atof() + h1->GetBinContent(bin))));
+            statFactor->setStringAttribute("sumw2",Form("%f",(TString(statFactor->getStringAttribute("sumw2")).Atof() + pow(h1->GetBinError(bin),2))));
+            //will also set the error to sqrt(sumw2)/sumw
+            statFactor->setError(sqrt((TString(statFactor->getStringAttribute("sumw2")).Atof()))/(TString(statFactor->getStringAttribute("sumw")).Atof()));
+          }
         }
       }
     }
@@ -690,7 +695,10 @@ RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
         statFactor->setStringAttribute("statBinNumber",Form("%d",bin));
         statFactor->setStringAttribute("constraintType","statPoisson");
         statFactor->setStringAttribute("sumw",Form("%f",getNominalHist()->GetBinContent(bin))); 
-        statFactor->setStringAttribute("sumw2",Form("%f",getNominalHist()->GetBinError(bin))); 
+        statFactor->setStringAttribute("sumw2",Form("%f",pow(getNominalHist()->GetBinError(bin),2))); 
+        if(getNominalHist()->GetBinError(bin)) {
+          statFactor->setError(sqrt((TString(statFactor->getStringAttribute("sumw2")).Atof()))/(TString(statFactor->getStringAttribute("sumw")).Atof()));
+        }
         if(!stack) {
           fStatFactors.addOwned(*statFactor); fStatFactors.setName("statFactors");
         } else {

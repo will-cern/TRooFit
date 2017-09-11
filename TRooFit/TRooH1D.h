@@ -42,7 +42,7 @@ public:
    
    }
    
-   TRooH1D(const char *name, const char *title, RooRealVar& x, int nbins, Double_t* bins) : 
+   TRooH1D(const char *name, const char *title, RooRealVar& x, int nbins, const Double_t* bins) : 
     TRooH1(name,title,x,{nbins},{bins}) {
       //Constructor for use with continuous variables only, where you explicitly specify the number of bins
       //You also specify the binning
