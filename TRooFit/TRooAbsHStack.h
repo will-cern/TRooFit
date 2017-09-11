@@ -45,7 +45,7 @@ public:
   Double_t GetMinimum() const { return fMinimum; }
   Double_t GetMaximum() const { return fMaximum; }
 
-  TAxis* GetXaxis() const;
+  virtual TAxis* GetXaxis() const;
 
 
 protected:

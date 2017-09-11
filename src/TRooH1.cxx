@@ -298,6 +298,8 @@ RooAbsReal* TRooAbsH1::createIntegralWM(const RooArgSet& iset,const char* rangeN
   //Returns a function that represents the integral (over iset), including the 'missing events' 
   //user is responsible for deleting the function 
   
+  //FIXME: Will need overriding in stacks, to combine all missing bins
+  
   RooAbsReal* inte = dynamic_cast<const RooAbsReal*>(this)->createIntegral(iset,rangeName);
   
   if(!fMissingBin) return inte;
@@ -526,43 +528,7 @@ void TRooH1::SetMissingContent(double w) {
   fMissingBin->SetBinContent(1,w);
 }
 
-//fill every bin with this function
-Int_t TRooH1::Fill( RooAbsReal& val ) {
-  bool hasVal = fValues.find(val);
-  if(!hasVal) fValues.add(val);
 
-  setValueDirty();
-  TIterator* citer(clientIterator());//std::unique_ptr<TIterator> citer(clientIterator());
-  while( RooAbsArg* client = (RooAbsArg*)( citer->Next() ) ) {
-    if(!hasVal) client->addServer(val);
-    client->setValueDirty();client->setShapeDirty();
-  }
-  delete citer;
-  
-  int pset = getParamSet();
-  
-  if(pset==-1) { //need to create a new hist, clone the "nominal" hist
-    std::vector<double> parVals;
-    //get the current paramter values
-    RooFIter parItr(fParameters.fwdIterator());
-    while(auto par = parItr.next() ) {
-      if(par->InheritsFrom( RooAbsCategory::Class() )) {
-        parVals.push_back( ((RooAbsCategory*)par)->getIndex() );
-      } else {
-        parVals.push_back( ((RooAbsReal*)par)->getVal() );
-      }
-    }
-    fParameterSnapshots.push_back(parVals);
-    fHists.push_back( (TH1*)fHists[0]->Clone( Form("%s_variation%d",GetName(),int(fParameterSnapshots.size()))) ); 
-    fHists.back()->SetDirectory(0);
-    fHists.back()->Reset();
-    pset = fParameterSnapshots.size()-1;
-  }
-  
-  
-  fFunctionalBinValues[-1].push_back(fValues.index(&val));
-  return 0;
-}
 
 Bool_t TRooH1::Add(const TH1* h1 , Double_t c1) {
   int pset = getOrCreateParamSet();
@@ -591,44 +557,12 @@ Bool_t TRooH1::Add(const TH1* h1 , Double_t c1) {
   return out;
 }
 
-void TRooH1::SetBinContent( const char* name , double w ) {
-  //first observable must be a category
-  if(GetDimension()==0) SetBinContent(1,w);
-  
-  RooCategory* cat = dynamic_cast<RooCategory*>(&fObservables[0]);
-  if(!cat) {
-    Error("SetBinContent","%s is not a category, cannot fill",fObservables[0].GetName());
-    return;
-  }
-  auto type = cat->lookupType(name);
-  if(!type) {
-    Error("SetBinContent","%s unknown label in %s",name,fObservables[0].GetName());
-    return;
-  }
-  SetBinContent( type->getVal() + 1 , w );
-  
-}
-
-Int_t TRooH1::Fill( const char* name , double w ) {
-  //first observable must be a category
-  
-  if(GetDimension()==0) return Fill(0.,w);
-  
-  RooCategory* cat = dynamic_cast<RooCategory*>(&fObservables[0]);
-  if(!cat) {
-    Error("Fill","%s is not a category, cannot fill",fObservables[0].GetName());
-    return -1;
-  }
-  auto type = cat->lookupType(name);
-  if(!type) {
-    Error("Fill","%s unknown label in %s",name,fObservables[0].GetName());
-    return -1;
-  }
-  return Fill( type->getVal() , w );
-  
-}
 
 Int_t TRooH1::Fill( double x , double w ) {
+  //The usual histogram Fill method
+  //This method will trigger the automatic creation of parameters (as necessary) 
+  // to represent the statistical uncertainty in the filled bin 
+
   int pset = getOrCreateParamSet();
   
   int bin = (fObservables.getSize()==0) ? 1 : FindFixBin(x);
@@ -675,10 +609,53 @@ Int_t TRooH1::Fill( double x , double w ) {
   //FIXME: propagate changes to transFactor if there is one!
   
 }
+
+Int_t TRooH1::Fill( const char* name , double w ) {
+  //Same as above, but can use name of Category type
   
-// void TRooH1::SetBinContent( int bin, RooAbsReal& val ) {
-//   
-// }
+  if(GetDimension()==0) return Fill(0.,w);
+  
+  RooCategory* cat = dynamic_cast<RooCategory*>(&fObservables[0]);
+  if(!cat) {
+    Error("Fill","%s is not a category, cannot fill",fObservables[0].GetName());
+    return -1;
+  }
+  auto type = cat->lookupType(name);
+  if(!type) {
+    Error("Fill","%s unknown label in %s",name,fObservables[0].GetName());
+    return -1;
+  }
+  return Fill( type->getVal() , w );
+  
+}
+
+  
+Int_t TRooH1::Fill( Double_t x, RooAbsReal& val ) {
+  //Fills (i.e. adds) a function to bin at x value, 
+  if(fValues.index(&val)==-1) fValues.add(val);
+
+  getOrCreateParamSet(); //do this to create a paramSet at the current state
+  
+  int bin = (fObservables.getSize()==0) ? 1 : FindFixBin(x);
+  if(fObservables.getSize()==0) { bin = -1; } 
+  
+  fFunctionalBinValues[bin].push_back(fValues.index(&val)); //FIXME: add checks on validity of bin!
+  return fValues.index(&val);
+  
+}
+
+
+Int_t TRooH1::Fill( RooAbsReal& val ) {
+  //fill every bin with this function
+  
+  if(fValues.index(&val)==-1) fValues.add(val);
+
+  getOrCreateParamSet(); //do this to create a paramSet at the current state
+    
+  fFunctionalBinValues[-1].push_back(fValues.index(&val)); //FIXME: add checks on validity of bin!
+  return 0;
+  
+}
 
 RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
     //create a stat factor for this bin, unless one already exists
@@ -790,6 +767,8 @@ Int_t TRooH1::getOrCreateParamSet() {
 }
 
 void TRooH1::SetBinContent( int bin, double val ) {
+  //Set the contents of a given bin
+
   int pset = getOrCreateParamSet();
   //update the statFactor's sumw, if necessary
   if(pset==0 && fHists[pset]->GetBinContent(bin)) {
@@ -802,6 +781,27 @@ void TRooH1::SetBinContent( int bin, double val ) {
   }
   fHists[pset]->SetBinContent(bin,val);
   //FIXME: propagate changes to transFactor if there is one!
+}
+
+void TRooH1::SetBinContent( const char* name , double w ) {
+  //Set the contents of a given bin 
+  //The first observable of this TRooH1 must be a RooCategory
+
+  //first observable must be a category
+  if(GetDimension()==0) SetBinContent(1,w);
+  
+  RooCategory* cat = dynamic_cast<RooCategory*>(&fObservables[0]);
+  if(!cat) {
+    Error("SetBinContent","%s is not a category, cannot fill",fObservables[0].GetName());
+    return;
+  }
+  auto type = cat->lookupType(name);
+  if(!type) {
+    Error("SetBinContent","%s unknown label in %s",name,fObservables[0].GetName());
+    return;
+  }
+  SetBinContent( type->getVal() + 1 , w );
+  
 }
 
 void TRooH1::SetBinError( int bin, double error ) {
@@ -1043,6 +1043,11 @@ Double_t TRooAbsH1::GetBinContent(const char* bin, const RooFitResult* r) const 
   }
   return GetBinContent( type->getVal() + 1 , r );
   
+}
+
+TAxis* TRooAbsH1::GetXaxis() const {
+  //Retrieve the x-axis
+  return fDummyHist->GetXaxis();
 }
 
 Int_t TRooH1::getParamSet() const {
