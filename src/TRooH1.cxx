@@ -20,6 +20,7 @@
 #include "RooPoisson.h"
 #include "RooGaussian.h"
 #include "RooProduct.h"
+#include "RooAddition.h"
 #include "RooConstVar.h"
 
 #include "RooDataSet.h"
@@ -247,6 +248,8 @@ TRooAbsH1::TRooAbsH1(const TRooAbsH1& other, RooAbsArg* me) :
 
 
 void TRooH1::isData(bool forceBinned) {
+  //EXPERIMENTAL: do not use
+
   if(fData) { Warning("isData","Already configured for data"); return; }
   
   
@@ -286,6 +289,22 @@ void TRooH1::isData(bool forceBinned) {
     obsAndCat.add(*fDataWeightVar);
     fData = new RooDataSet(Form("%s_data",GetName()),GetTitle(),obsAndCat,fDataWeightVar->GetName());
   }
+  
+}
+
+RooAbsReal* TRooAbsH1::createIntegralWM(const RooArgSet& iset,const char* rangeName) const {
+  //Create integral with missing events include (WM=With Missing)
+  //
+  //Returns a function that represents the integral (over iset), including the 'missing events' 
+  //user is responsible for deleting the function 
+  
+  RooAbsReal* inte = dynamic_cast<const RooAbsReal*>(this)->createIntegral(iset,rangeName);
+  
+  if(!fMissingBin) return inte;
+  
+  //add the missing component 
+  return new RooAddition(Form("intWM_%s",GetName()),Form("Integral of %s with missing events",GetTitle()),RooArgList(*inte,*fMissingBin));
+  
   
 }
 

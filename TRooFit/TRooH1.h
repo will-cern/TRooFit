@@ -63,6 +63,7 @@ public:
   virtual TH1* getNominalHist() const = 0; //retrieves the underlying nominal histogram
   
   virtual Double_t missingEvents() const; //default implementation just checks fMissingBin - override in stacks to combine components
+  virtual RooAbsReal* createIntegralWM(const RooArgSet& iset,const char* rangeName = 0) const;
   
   void UseCurrentStyle();
   
