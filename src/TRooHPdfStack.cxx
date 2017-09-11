@@ -47,6 +47,11 @@ void TRooHPdfStack::reinit() {
   
   if(_coefCache) delete[] _coefCache;
   _coefCache = new Double_t[_pdfList.getSize()];
+  
+  //reset the integration manager
+  _normMgr.reset();
+  //NOTE: maybe want to set _norm = 0 too ... depends if we see problems?
+  
 }
 
 

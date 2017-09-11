@@ -38,6 +38,14 @@ void TRooHStack::reinit() {
   //recreate iterator
   delete _coefIter;
   _coefIter = _coefList.createIterator();
+  
+  //reset the integration manager (what's the diff to below??)
+  _normIntMgr.reset();
+  
+  //reset the RooAbsPdf integration manager
+  _normMgr.reset();
+  //NOTE: maybe want to set _norm = 0 too ... depends if we see problems?
+  
 }
 
 void TRooHStack::printMetaArgs(ostream& os) const {
