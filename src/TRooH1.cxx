@@ -2071,33 +2071,54 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
     fDrawHistograms.emplace_back( DrawnHistogram() );
     fDrawHistograms.back().pad = gPad;
     if(opt.Contains("pdf")) {
-      TGraph* g = new TGraphErrors; //FIXME: at some point want to make with asymm errors
-      g->SetName(GetName());g->SetTitle(GetTitle());
-      fDrawHistograms.back().hist = g;
-      TRooAbsH1::createOrAdjustHistogram( g->GetHistogram() );
+      TGraph* g = 0;
+      TH1* h = 0;
       
-      (*dynamic_cast<TAttFill*>(g)) = *this;
-      (*dynamic_cast<TAttLine*>(g)) = *this;
-      (*dynamic_cast<TAttMarker*>(g)) = *this;
-      
-      fillGraph(g,r2,opt.Contains("e"));
+      if(opt.Contains("hist")) { //draw as hist instead
+        h = TRooAbsH1::createOrAdjustHistogram( 0 );
+        fDrawHistograms.back().hist = h;
+        fillHistogram(h,r2,opt.Contains("e"));
+        
+        for(int i=1;i<=h->GetNbinsX();i++) {
+          for(int j=1;j<=h->GetNbinsY();j++) {
+            for(int k=1;k<=h->GetNbinsZ();k++) {
+              int bin = h->GetBin(i,j,k);
+              double binVolume = h->GetXaxis()->GetBinWidth(i)*h->GetYaxis()->GetBinWidth(j)*h->GetZaxis()->GetBinWidth(k);
+              h->SetBinContent(bin,h->GetBinContent(bin)/binVolume);
+              h->SetBinError(bin,h->GetBinError(bin)/binVolume);
+            }
+          }
+        }
+        
+        opt.ReplaceAll("hist","");
+      } else {
+        g = new TGraphErrors; //FIXME: at some point want to make with asymm errors
+        g->SetName(GetName());g->SetTitle(GetTitle());
+        fDrawHistograms.back().hist = g;
+        TRooAbsH1::createOrAdjustHistogram( g->GetHistogram() );
+        fillGraph(g,r2,opt.Contains("e"));
+        (*dynamic_cast<TAttFill*>(g)) = *this;
+        (*dynamic_cast<TAttLine*>(g)) = *this;
+        (*dynamic_cast<TAttMarker*>(g)) = *this;
+        h = g->GetHistogram();
+      }
       
       if(fObservables.getSize()) {
         RooAbsArg& arg = fObservables[0];
         RooAbsReal* argreal = dynamic_cast<RooAbsReal*>(&arg);
         if(argreal && strlen(argreal->getUnit())) {
-          g->GetHistogram()->GetXaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
-          g->GetHistogram()->GetYaxis()->SetTitle(Form("dN/d%s [%s^{-1}]",arg.GetTitle(),argreal->getUnit()));
+          h->GetXaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
+          h->GetYaxis()->SetTitle(Form("dN/d%s [%s^{-1}]",arg.GetTitle(),argreal->getUnit()));
         } else {
-          g->GetHistogram()->GetXaxis()->SetTitle(arg.GetTitle());
-          g->GetHistogram()->GetYaxis()->SetTitle(Form("dN/d%s",arg.GetTitle()));
+          h->GetXaxis()->SetTitle(arg.GetTitle());
+          h->GetYaxis()->SetTitle(Form("dN/d%s",arg.GetTitle()));
         }
         
       }
       
       opt.ReplaceAll("pdf","");
       
-      if(opt.Contains("e") && opt.Contains("l")) {
+      if(opt.Contains("e") && opt.Contains("l") && g) {
         //want to ensure line appears above error band, so draw put a copy in the posthist ..
         fDrawHistograms.back().postHist = g;
         fDrawHistograms.back().postHistOpt = "lx"; //draws as line without error bars
