@@ -96,6 +96,11 @@ TRooH1::TRooH1(const char *name, const char *title,
   fParameterSnapshots.resize(1); //creates an empty vector
   fDummyHist = fHists[0];
   setAttribute("NeverConstant",true); //stops these objects being 'cached' away, because they rarely should be
+  //if we didn't stop it being constant, if we just had a TRooH1 with nothing but values in it (no errors),
+  //RooFit seems to think that the TRooH1 is constant, not even depending on the observables!!?? ... 
+  //saw this through a TRooHStack where one component was nothing but values, and was effectively 'ignored' by RooFit in the fit 
+  //because it said it was caching it away
+    RooMsgService::instance().getStream(RooFit::INFO).removeTopic(RooFit::NumIntegration); //stop info message every time
   
 }
 
@@ -157,7 +162,7 @@ TRooH1::TRooH1(const char *name, const char *title,
   fParameterSnapshots.resize(1); //creates an empty vector
   fDummyHist = fHists[0];
   setAttribute("NeverConstant",true); //stops these objects being 'cached' away, because they rarely should be
- 
+  RooMsgService::instance().getStream(RooFit::INFO).removeTopic(RooFit::NumIntegration); //stop info message every time
 } 
 
  TRooH1::TRooH1(const char *name, const char *title, 
@@ -215,6 +220,7 @@ TRooH1::TRooH1(const char *name, const char *title,
   fParameterSnapshots.resize(1); //creates an empty vector
   fDummyHist = fHists[0];
   setAttribute("NeverConstant",true); //stops these objects being 'cached' away, because they rarely should be
+    RooMsgService::instance().getStream(RooFit::INFO).removeTopic(RooFit::NumIntegration); //stop info message every time
 } 
 
 
