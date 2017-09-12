@@ -23,4 +23,6 @@ make
 
 Examples
 ========
-So far, try to look at the test macros provided in the test dir.
+So far, try to look at the macros provided in the demo dir
+
+The documentation for the latest version of TRooFit is also available at: http://will.web.cern.ch/will/TRooFit/
