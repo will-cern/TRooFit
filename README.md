@@ -11,11 +11,11 @@ TRooFit is a collection of pdf classes for RooFit, that are designed to behave l
 Setup
 =====
 
-TRooFit currently is designed to work in AthAnalysisBase 2.4 series. Set that release up, clone the project, then compile:
+TRooFit currently is designed to work in AthAnalysisBase 2.4 series. Set that release up, clone the project (latest version is 0.1.0), then compile:
 
 ```
 asetup AthAnalysisBase,2.4.31,here
-git clone https://:@gitlab.cern.ch:8443/will/TRooFit.git
+git clone --branch TRooFit-0.1.0 https://:@gitlab.cern.ch:8443/will/TRooFit.git
 cd TRooFit/cmt
 cmt config
 make
