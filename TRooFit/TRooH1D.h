@@ -51,26 +51,10 @@ public:
      }
    
   
-  virtual void Draw(Option_t* option,const TRooFitResult& r) { 
-    //Draw the TRooH1D, at the values of parameters given by the TRooFitResult's finalPars (r.floatParsFinal())
-    //
-    //Bin errors are calculated using the covariance matrix of the TRooFitResult
-    //
-    //Additional Options:
-    //   e3XXX : Will draw an error band, with FillStyle=3XXX, and FillColor= histogram's LineColor
-    //   init : Will use the TRooFitResult's initial parameter values (r.floatParsInit()) instead 
-    //          .. final covariance matrix still used for errors
-    //   pdf : Will draw TRooH1D as a TGraphErrors instead (samples 100 points), the value 
-    //         of which will be the pdf density
-    
-    TRooAbsH1::Draw(option,r); 
-  
-  }
+  virtual void Draw(Option_t* option,const TRooFitResult& r);
   
   //Like Draw method above, but will use current parameter values and errors
-  virtual void Draw(Option_t* option = "") { 
-    TRooAbsH1::Draw(option); 
-  }
+  virtual void Draw(Option_t* option = "");
   
   
   

@@ -84,9 +84,7 @@ TRooH1::TRooH1(const char *name, const char *title,
    RooAbsPdf(name,title), TRooAbsH1(observables,this),
    
    fParameters("!pars","pars",this),
-   fValues("!vals","!vals",this)/*,
-   fTransFactor("!transFactor","transFactor",this)*/
-   
+   fValues("!vals","!vals",this)
 { 
   //Only experts should construct TRooH1 directly. Please use derived classes (e.g. TRooH1D)
 
@@ -109,8 +107,7 @@ TRooH1::TRooH1(const char *name, const char *title,
    RooAbsPdf(name,title), TRooAbsH1(observables,this),
    
    fParameters("!pars","pars",this),
-   fValues("!vals","!vals",this)/*,
-   fTransFactor("!transFactor","transFactor",this)*/
+   fValues("!vals","!vals",this)
    
 { 
   //Only experts should construct TRooH1 directly. Please use derived classes (e.g. TRooH1D)
@@ -169,8 +166,7 @@ TRooH1::TRooH1(const char *name, const char *title,
                         const RooArgList& observables, std::vector<int>&& bins, std::vector<const Double_t*>&& binEdges ) :
    RooAbsPdf(name,title), TRooAbsH1(observables,this),
    fParameters("!pars","pars",this),
-   fValues("!vals","!vals",this)/*,
-   fTransFactor("!transFactor","transFactor",this)*/
+   fValues("!vals","!vals",this)
 { 
   //Only experts should construct TRooH1 directly. Please use derived classes (e.g. TRooH1D)
 
@@ -233,7 +229,7 @@ TRooH1::TRooH1(const TRooH1& other, const char* name) :
    fParameterSnapshots(other.fParameterSnapshots),
    fTransFactor(other.fTransFactor),kIsTransNumerator(other.kIsTransNumerator)
 {
-
+  //Copy constructor
 }
 
 
@@ -252,6 +248,7 @@ TRooAbsH1::TRooAbsH1(const TRooAbsH1& other, RooAbsArg* me) :
    fMissingBin(other.fMissingBin),
    fMissingBinProxy(other.fMissingBinProxy.GetName(),me,other.fMissingBinProxy)
 { 
+  //Copy constructor
   if(fRangeName=="") fRangeName=other.GetName(); //FIXME: should we default the fRangeName to name in constructor?
 } 
 
@@ -512,48 +509,12 @@ std::unique_ptr<RooArgSet> TRooAbsH1::GetShapeFactors(int bin) const {
   
 }
 
-void TRooH1::FillMissing(double w) {
-  if(!fMissingBin) {
-    fMissingBin = new TRooH0D(Form("%s_missed",GetName()),Form("Missed part of %s",GetTitle()));
-    fMissingBinProxy.setArg(*fMissingBin);
-    fMissingBinProxy.SetName("missing"); //so it shows up in Print
-    //propagate all normFactors!
-    for(int i=0;i<fNormFactors.getSize();i++) {
-      fMissingBin->addNormFactor(static_cast<RooAbsReal&>(fNormFactors[i]));
-    }
-  }
-  fMissingBin->Fill(w);
-}
-
-void TRooH1::SetMissingContent(double w) {
-  if(!fMissingBin) {
-    fMissingBin = new TRooH0D(Form("%s_missed",GetName()),Form("Missed part of %s",GetTitle()));
-    fMissingBinProxy.setArg(*fMissingBin);
-    fMissingBinProxy.SetName("missing"); //so it shows up in Print
-    //propagate all normFactors!
-    for(int i=0;i<fNormFactors.getSize();i++) {
-      fMissingBin->addNormFactor(static_cast<RooAbsReal&>(fNormFactors[i]));
-    }
-  }
-  fMissingBin->SetBinContent(1,w);
-}
-
-void TRooH1::SetMissingError(double w) {
-  if(!fMissingBin) {
-    fMissingBin = new TRooH0D(Form("%s_missed",GetName()),Form("Missed part of %s",GetTitle()));
-    fMissingBinProxy.setArg(*fMissingBin);
-    fMissingBinProxy.SetName("missing"); //so it shows up in Print
-    //propagate all normFactors!
-    for(int i=0;i<fNormFactors.getSize();i++) {
-      fMissingBin->addNormFactor(static_cast<RooAbsReal&>(fNormFactors[i]));
-    }
-  }
-  fMissingBin->SetBinError(1,w);
-}
-
 
 
 Bool_t TRooH1::Add(const TH1* h1 , Double_t c1) {
+  //Add a histogram to this TRooH1, i.e. fill the content of h1 into this TRooH1
+  //includes the optional scaling factor c1
+
   int pset = getOrCreateParamSet();
   bool out = fHists[pset]->Add(h1,c1);
   
@@ -568,8 +529,8 @@ Bool_t TRooH1::Add(const TH1* h1 , Double_t c1) {
             statFactor = getStatFactor(bin, true);  //automatically sets sumw and sumw2 for us when creating a new statFactor
           } else {
             //update the sumw and sumw2 attribute of the stat factor
-            statFactor->setStringAttribute("sumw",Form("%f",(TString(statFactor->getStringAttribute("sumw")).Atof() + h1->GetBinContent(bin))));
-            statFactor->setStringAttribute("sumw2",Form("%f",(TString(statFactor->getStringAttribute("sumw2")).Atof() + pow(h1->GetBinError(bin),2))));
+            statFactor->setStringAttribute("sumw",Form("%f",(TString(statFactor->getStringAttribute("sumw")).Atof() + h1->GetBinContent(bin)*c1)));
+            statFactor->setStringAttribute("sumw2",Form("%f",(TString(statFactor->getStringAttribute("sumw2")).Atof() + pow(h1->GetBinError(bin)*c1,2))));
             //will also set the error to sqrt(sumw2)/sumw
             statFactor->setError(sqrt((TString(statFactor->getStringAttribute("sumw2")).Atof()))/(TString(statFactor->getStringAttribute("sumw")).Atof()));
           }
@@ -680,6 +641,23 @@ Int_t TRooH1::Fill( RooAbsReal& val ) {
   
 }
 
+void TRooH1::FillMissing(double w) {
+  //Fill (i.e. adds to) the content of the 'missing events' bin 
+  
+  if(!fMissingBin) {
+    fMissingBin = new TRooH0D(Form("%s_missed",GetName()),Form("Missed part of %s",GetTitle()));
+    fMissingBinProxy.setArg(*fMissingBin);
+    fMissingBinProxy.SetName("missing"); //so it shows up in Print
+    //propagate all normFactors!
+    for(int i=0;i<fNormFactors.getSize();i++) {
+      fMissingBin->addNormFactor(static_cast<RooAbsReal&>(fNormFactors[i]));
+    }
+  }
+  fMissingBin->Fill(w);
+}
+
+
+
 RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
     //Obtain the statFactor for the given bin 
     //If createIf = true, then will also create the statFactor 
@@ -752,8 +730,10 @@ RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
 
 }
 
-//used in modifying methods, like SetBinContent, Fill, SetBinError etc
 Int_t TRooH1::getOrCreateParamSet() {
+  //Internal method used when updating the content of the TRooH1
+  //e.g. in SetBinContent, Fill, SetBinError, etc
+
   setValueDirty();
   //we have to dirty up ALL clients, not just those who have said they are value clients
   //integrals don't think of themselves as value clients because they think they integrate out changes in our value
@@ -829,7 +809,27 @@ void TRooH1::SetBinContent( const char* name , double w ) {
   
 }
 
+void TRooH1::SetMissingContent(double w) {
+  //Set the content of the 'missing events' bin
+  //This is held in a separate 0-bin TRooH1 (i.e. a TRooH0D)
+  
+  if(!fMissingBin) {
+    fMissingBin = new TRooH0D(Form("%s_missed",GetName()),Form("Missed part of %s",GetTitle()));
+    fMissingBinProxy.setArg(*fMissingBin);
+    fMissingBinProxy.SetName("missing"); //so it shows up in Print
+    //propagate all normFactors!
+    for(int i=0;i<fNormFactors.getSize();i++) {
+      fMissingBin->addNormFactor(static_cast<RooAbsReal&>(fNormFactors[i]));
+    }
+  }
+  fMissingBin->SetBinContent(1,w);
+}
+
+
 void TRooH1::SetBinError( int bin, double error ) {
+  //Set the error of the given bin
+  //If a statFactor for the bin does not already exist, it will be created
+
   int pset = getOrCreateParamSet();
   
   if(pset==0) {
@@ -846,6 +846,23 @@ void TRooH1::SetBinError( int bin, double error ) {
   fHists[pset]->SetBinError(bin,error);
   
 }
+
+void TRooH1::SetMissingError(double w) {
+  //Set the error of the 'missing events' bin 
+  //If a statFactor for the bin does not already exist, it will be created 
+  
+  if(!fMissingBin) {
+    fMissingBin = new TRooH0D(Form("%s_missed",GetName()),Form("Missed part of %s",GetTitle()));
+    fMissingBinProxy.setArg(*fMissingBin);
+    fMissingBinProxy.SetName("missing"); //so it shows up in Print
+    //propagate all normFactors!
+    for(int i=0;i<fNormFactors.getSize();i++) {
+      fMissingBin->addNormFactor(static_cast<RooAbsReal&>(fNormFactors[i]));
+    }
+  }
+  fMissingBin->SetBinError(1,w);
+}
+
 
 Int_t TRooAbsH1::FindFixBin( double x ) const {
 
@@ -1535,6 +1552,20 @@ void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool inclu
 
 
 Double_t TRooH1::expectedEvents(const RooArgSet* nset) const { 
+  //Effectively corresponds to the integral of the TRooH1 over the 
+  //observables provided in nset. 
+  //
+  //If you want the error on the integral, you should instead 
+  //create a RooFit function that represents the integral 
+  //You can do this with RooAbsReal::createIntegral
+  //
+  //If you want the integral to include the 'missing events' total 
+  //you should use TRooAbsH1::createIntegralWM , which will return a 
+  //RooAddition containing the missing event totals
+  //
+  //Once you have this RooFit function, you can propgate errors the usual way
+  //using getPropagatedError
+
  if(nset==0/* || !dependsOn(*nset)*/) {
   //std::cout << " expected event 0 = " << getBinContent() << std::endl; 
   //return getBinContent(); //use the raw value for expected events
