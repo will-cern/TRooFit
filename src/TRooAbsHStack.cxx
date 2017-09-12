@@ -154,7 +154,15 @@ THStack* TRooAbsHStack::GetStack(const RooFitResult* fr) const {
 TAxis* TRooAbsHStack::GetXaxis() const {
   //Returns the x-axis of the last drawn stack, if there is one avaiable 
   
-  if(fDrawStacks.size() && fDrawStacks.back().stack) return fDrawStacks.back().stack->GetXaxis();
+  if(fDrawStacks.size() && fDrawStacks.back().frame) return fDrawStacks.back().frame->GetXaxis();
+  return 0;
+  
+}
+
+TAxis* TRooAbsHStack::GetYaxis() const {
+  //Returns the y-axis of the last drawn stack, if there is one avaiable 
+  
+  if(fDrawStacks.size() && fDrawStacks.back().frame) return fDrawStacks.back().frame->GetYaxis();
   return 0;
   
 }
@@ -282,6 +290,7 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
          auto itr = fDrawStacks.begin();
          while( itr != fDrawStacks.end() ) {
           if(itr->pad==gPad) {
+            SafeDelete(itr->frame);
             SafeDelete(itr->stack);
             SafeDelete(itr->fr);
             fDrawStacks.erase(itr);
@@ -322,17 +331,29 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
         }
     }
     
-    fDrawStacks.back().opt = opt;
+    
     fillStack(fDrawStacks.back().stack,r2,false/* noRestyle*/);
     fDrawStacks.back().fr = r2;
     
-    gPad->GetListOfPrimitives()->Add( fDrawStacks.back().stack , opt ); //adding stack directly because cant figure out how to get clickable axis without it
+    //if drawing without same option, create a histogram and put at top of the primitives list so axis are drawn first
+    if(!opt.Contains("same")) {
+      fDrawStacks.back().frame = createOrAdjustHistogram(0);
+      fillHistogram(fDrawStacks.back().frame,r2,fillType);
+      gPad->GetListOfPrimitives()->AddFirst( fDrawStacks.back().frame, "axis" );
+      opt += "same";
+    }
+    
+    fDrawStacks.back().opt = opt;
+    
+    gPad->GetListOfPrimitives()->Add( fDrawStacks.back().stack , opt + "noclear" ); //adding stack directly so shows up in buildlegend
     
     //if drawing with option "e3XXX" then need to also draw as a histogram
     if(fillType) {
         TRooAbsH1::Draw(TString::Format("%s e%dsame",(hadInit)?"init":"",fillType),r);
         //FIXME: would like to have stack's maximum match up to error bar maximum
     }
+    
+    if(fDrawStacks.back().frame) gPad->GetListOfPrimitives()->Add( fDrawStacks.back().frame , "sameaxis" ); //redraw to avoid cover up
     
    } else {
     //not drawing the stack, pass onto parent class to draw as a hist instead
@@ -351,6 +372,18 @@ void TRooAbsHStack::Paint(Option_t* option) {
        //fDrawStacks.back().stack->SetMaximum(GetMaximum()); //NOTE: maybe move this min max setting into 'styleStack' function
        
     }
+ 
+ /*
+    //have this little block of code here, or Add to primitives the stack and the axissame in the Draw method above
+    for(auto& stack : fDrawStacks) {
+       if(stack.pad == gPad) {  
+        stack.stack->Paint(stack.opt+"noclear");
+        if(stack.frame) {
+          stack.frame->Paint("axissame"); break; //should only be one
+        }
+       }
+    }
+*/
  
     //fill the stacks and paint them
     

@@ -94,7 +94,7 @@ TRooH1::TRooH1(const char *name, const char *title,
   fHists.push_back( (TH1*)hist->Clone(name) );
  fHists[0]->SetDirectory(0);
   fParameterSnapshots.resize(1); //creates an empty vector
-  fDummyHist = fHists[0];
+  fDummyHist = fHists[0]; fDummyHist->GetXaxis()->SetTitle("");fDummyHist->GetYaxis()->SetTitle("");
   setAttribute("NeverConstant",true); //stops these objects being 'cached' away, because they rarely should be
   //if we didn't stop it being constant, if we just had a TRooH1 with nothing but values in it (no errors),
   //RooFit seems to think that the TRooH1 is constant, not even depending on the observables!!?? ... 
@@ -1075,6 +1075,11 @@ TAxis* TRooAbsH1::GetXaxis() const {
   return fDummyHist->GetXaxis();
 }
 
+TAxis* TRooAbsH1::GetYaxis() const {
+  //Retrieve the y-axis
+  return fDummyHist->GetYaxis();
+}
+
 Int_t TRooH1::getParamSet() const {
   //Returns the ID of the current parameter spacepoint 
   //Or if the state of the parameters is an unknown point
@@ -1401,8 +1406,10 @@ TH1* TRooAbsH1::createOrAdjustHistogram(TH1* hist, bool noBinLabels) const {
     case 2: {
       RooAbsArg& arg = fObservables[1];
       RooAbsReal* argreal = dynamic_cast<RooAbsReal*>(&arg);
-      if(argreal && strlen(argreal->getUnit()))  hist->GetYaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
-      else hist->GetYaxis()->SetTitle(arg.GetTitle());
+      if(!strlen(hist->GetYaxis()->GetTitle())) {
+        if(argreal && strlen(argreal->getUnit()))  hist->GetYaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
+        else hist->GetYaxis()->SetTitle(arg.GetTitle());
+      }
       if(arg.InheritsFrom(RooCategory::Class())) {
       
       } else {
@@ -1413,8 +1420,10 @@ TH1* TRooAbsH1::createOrAdjustHistogram(TH1* hist, bool noBinLabels) const {
     case 1: {
       RooAbsArg& arg = fObservables[0];
       RooAbsReal* argreal = dynamic_cast<RooAbsReal*>(&arg);
-      if(argreal && strlen(argreal->getUnit()))  hist->GetXaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
-      else hist->GetXaxis()->SetTitle(arg.GetTitle());
+      if(!strlen(hist->GetXaxis()->GetTitle())) {
+        if(argreal && strlen(argreal->getUnit()))  hist->GetXaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
+        else hist->GetXaxis()->SetTitle(arg.GetTitle());
+      }
       if(arg.InheritsFrom(RooCategory::Class())) {
         RooCategory* cat = dynamic_cast<RooCategory*>(&arg);
         std::unique_ptr<TIterator> itr(cat->typeIterator());
@@ -2050,6 +2059,12 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
   //    TRooH1D::Draw 
   //    TRooHStack::Draw 
   //    TRooHPdfStack::Draw 
+  //
+  //Extra Options available:
+  //    init: use floatParsInit from TRooFitResult when drawing content + errors
+  //    pdf: Draw the probability density, as a TGraphErrors (you then usually include "AL" option)
+  //    pdf hist: Draw probability density but as a histogram .. no error bar unless 'e' option included
+  
 
   TString opt = option;
   opt.ToLower();
@@ -2126,8 +2141,10 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
             }
           }
         }
-        
+        //if use specified histhist option, then want to preserve one hist 
+        opt.ReplaceAll("histhist","TMPSTRING");
         opt.ReplaceAll("hist","");
+        opt.ReplaceAll("TMPSTRING","hist");
       } else {
         g = new TGraphErrors; //FIXME: at some point want to make with asymm errors
         g->SetName(GetName());g->SetTitle(GetTitle());
@@ -2143,14 +2160,21 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
       if(fObservables.getSize()) {
         RooAbsArg& arg = fObservables[0];
         RooAbsReal* argreal = dynamic_cast<RooAbsReal*>(&arg);
+        
+        TString myUnit = dynamic_cast<const RooAbsReal*>(this)->getUnit();
         if(argreal && strlen(argreal->getUnit())) {
           h->GetXaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
-          h->GetYaxis()->SetTitle(Form("dN/d%s [%s^{-1}]",arg.GetTitle(),argreal->getUnit()));
+          if(myUnit.Length()) myUnit += " ";
+          myUnit += Form("%s^{-1}",argreal->getUnit());
         } else {
           h->GetXaxis()->SetTitle(arg.GetTitle());
-          h->GetYaxis()->SetTitle(Form("dN/d%s",arg.GetTitle()));
         }
         
+        if(myUnit.Length()) {
+          h->GetYaxis()->SetTitle(Form("d%s/d%s [%s]",GetTitle(),arg.GetTitle(),myUnit.Data()));
+        } else {
+          h->GetYaxis()->SetTitle(Form("d%s/d%s",GetTitle(),arg.GetTitle()));
+        }
       }
       
       opt.ReplaceAll("pdf","");

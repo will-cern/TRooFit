@@ -69,6 +69,7 @@ public:
   
   Int_t GetDimension() const { return fObservables.getSize(); }
   virtual TAxis* GetXaxis() const;
+  virtual TAxis* GetYaxis() const;
   
   bool addNormFactor( RooAbsReal& factor ); //add a norm factor
   bool addShapeFactor( int bin, RooAbsReal& factor ); //add a shape factor to a bin

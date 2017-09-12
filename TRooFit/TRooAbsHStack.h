@@ -46,6 +46,7 @@ public:
   Double_t GetMaximum() const { return fMaximum; }
 
   virtual TAxis* GetXaxis() const;
+  virtual TAxis* GetYaxis() const;
 
 
 protected:
@@ -56,6 +57,7 @@ protected:
   struct DrawnStack {
     TVirtualPad* pad = 0;
     THStack* stack = 0;
+    TH1* frame = 0; //the histogram we use to draw the axis
     TRooFitResult* fr = 0; //optional
     TString opt;
   };
