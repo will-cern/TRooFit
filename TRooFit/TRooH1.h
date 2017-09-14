@@ -206,7 +206,7 @@ public:
   virtual void Paint(Option_t* option = "") { TRooAbsH1::Paint(option); }
   using TRooAbsH1::Draw;
 
-  bool addParameter( RooAbsArg& arg ); //current value is taken as value for all existing data
+  bool addParameter( RooAbsArg& arg , int interpCode = 0 ); //current value is taken as value for all existing data
   
 
   Bool_t Add( const TH1* h1 , Double_t c1 = 1);
@@ -241,7 +241,8 @@ public:
   Int_t getParamSet() const; //the index of the current paramset
   
 
-  
+  bool setInterpCode(const char* parName, int code);
+  bool setInterpCode(const RooAbsArg& arg, int code);
   
   TRooH1* createTransFactor( TRooH1* transferFrom );
   
@@ -288,6 +289,7 @@ protected:
   TRooH1* fTransFactor = 0; //for now, only one transfer factor allowed .. in future, may allow for partial transfer factors 
   bool kIsTransNumerator=false;
   
+  std::vector<Int_t> fInterpCode; //one for each parameter //0 = piecewise linear, 4 = 6th order polynomal with logarithmic extrapolation
 
   RooAbsData* fData = 0; //gets set up by setData, and then subsequent fills go into this
   RooRealVar* fDataWeightVar = 0; //used when fData is a RooDataSet

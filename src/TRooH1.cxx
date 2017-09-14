@@ -227,7 +227,8 @@ TRooH1::TRooH1(const TRooH1& other, const char* name) :
    fHists(other.fHists),
    fFunctionalBinValues(other.fFunctionalBinValues),
    fParameterSnapshots(other.fParameterSnapshots),
-   fTransFactor(other.fTransFactor),kIsTransNumerator(other.kIsTransNumerator)
+   fTransFactor(other.fTransFactor),kIsTransNumerator(other.kIsTransNumerator),
+   fInterpCode(other.fInterpCode)
 {
   //Copy constructor
 }
@@ -455,7 +456,7 @@ bool TRooAbsH1::addShapeFactor( const char* bin, RooAbsReal& factor ) {
 }
 
 
-bool TRooH1::addParameter( RooAbsArg& arg ) { 
+bool TRooH1::addParameter( RooAbsArg& arg , int interpCode ) { 
   //Use this method to turn this TRooFit histogram into a function of the given parameter, arg.
   //All the previously filled values of the histogram will be assumed to correspond 
   //to the current value of the parameter 
@@ -463,8 +464,10 @@ bool TRooH1::addParameter( RooAbsArg& arg ) {
   //You can then change the value of the parameter and start to re-fill the histogram 
   //This will then make the histogram correspond to a coherent variation. 
   //
-  //Linear interpolation of the bin contents is performed for intermediate values of the 
-  //parameter.
+  //The interpCode determines the interpolation between parameter points .
+  //See TRooH1::setInterpCode for description of different options.
+  //Default interpCode (0) is piecewise linear interpolation
+  //
 
   if(fParameters.find(arg)) return false; //already added
   if(fData) {
@@ -480,8 +483,8 @@ bool TRooH1::addParameter( RooAbsArg& arg ) {
   }
   
   
-  fParameters.add(arg); fParameters.setName("pars");
-  if(fMissingBin) fMissingBin->addParameter(arg);
+  fParameters.add(arg); fParameters.setName("pars"); fInterpCode.push_back(interpCode);
+  if(fMissingBin) fMissingBin->addParameter(arg, interpCode);
   //add a clone to all existing paramsets too
   double val = (arg.InheritsFrom(RooAbsCategory::Class())) ? static_cast<RooAbsCategory&>(arg).getIndex() : static_cast<RooAbsReal&>(arg).getVal();
   for(auto& pars : fParameterSnapshots) {
@@ -769,6 +772,41 @@ Int_t TRooH1::getOrCreateParamSet() {
     
   }
   return pset;
+}
+
+bool TRooH1::setInterpCode(const char* parName, int code) {
+  //Set interpolation code for a given parameter
+  // 
+  // 0 = piecewise linear 
+  // 2 = 6th order polynominal with log extrapolation (should match code 4, but this implemented differently)
+  // 3 = 6th order polynominal with linear extrapolation (Like HistFactory::PiecewiseInterpolation's code 4)
+  // 4 = 6th order polynominal with log extrapolation (Like HistFactory::FlexibleInterpVar's code 4)
+  //
+  //Note that in all cases, if only one variation (parameter space point) is provided for the given parameter
+  //then straightforward linear interpolation is used. 
+  //
+  //Returns true on success
+
+
+  int idx = fParameters.index(parName);
+  if(idx==-1) return false;
+  fInterpCode[idx] = code;
+  
+  //make everything dirty
+  setValueDirty();
+  TIterator* citer(clientIterator());//std::unique_ptr<TIterator> citer(clientIterator());
+  while( RooAbsArg* client = (RooAbsArg*)( citer->Next() ) ) {
+    client->setValueDirty();client->setShapeDirty();
+  }
+  delete citer;
+  
+  return true;
+}
+
+bool TRooH1::setInterpCode(const RooAbsArg& arg, int code) {
+  //Same as above, but can pass the actual argument 
+  //
+  return setInterpCode(arg.GetName(),code);
 }
 
 void TRooH1::SetBinContent( int bin, double val ) {
@@ -1277,18 +1315,20 @@ Double_t TRooH1::evaluate() const
             //record if this is up/down/nom variation for this parameter
             double parVal = ((RooAbsReal*)par)->getVal();
             double parDiff = fabs(parVal - parVals[j]);
-            if(parDiff > 1e-9) match=false;
+            if(parDiff > 1e-9) {
+              match=false;
+              if(nomSet==-1 && fInterpCode[j]!=0) continue; //don't use the nomSet as our up-vs-down set if interpCode!=0
             
-            
-            if(upSet[j]==-1) setUp.push_back(j); //if valid, will
-            else if(downSet[j]==-1) setDown.push_back(j);
-            else {
-              //replace the one that is further away 
-              double upDiff = fabs(fParameterSnapshots[upSet[j]][j] - parVal);
-              double downDiff = fabs(fParameterSnapshots[downSet[j]][j] - parVal);
-              if(parDiff<upDiff || parDiff<downDiff) {
-                if(upDiff>downDiff) setUp.push_back(j);
-                else setDown.push_back(j);
+              if(upSet[j]==-1) setUp.push_back(j); //if valid, will
+              else if(downSet[j]==-1) setDown.push_back(j);
+              else {
+                //replace the one that is further away 
+                double upDiff = fabs(fParameterSnapshots[upSet[j]][j] - parVal);
+                double downDiff = fabs(fParameterSnapshots[downSet[j]][j] - parVal);
+                if(parDiff<upDiff || parDiff<downDiff) {
+                  if(upDiff>downDiff) setUp.push_back(j);
+                  else setDown.push_back(j);
+                }
               }
             }
           }
@@ -1360,18 +1400,131 @@ Double_t TRooH1::evaluate() const
       while(auto par = parItr.next() ) {
         i++;
         if(par->InheritsFrom( RooAbsCategory::Class() ) ) continue;
-        if(upSet[i]==-1||downSet[i]==-1) continue; //no variation for this parameter (need at least two points)
+        if(upSet[i]==-1) continue; //no variation for this parameter (need at least a point)
         
         //now calculate the value based on interpolation between these two points 
-        
-        double y_down = GetHist( downSet[i] )->GetBinContent(bin);
-        double x_down = fParameterSnapshots[downSet[i]][i];
         double y_up = GetHist( upSet[i] )->GetBinContent(bin);
         double x_up = fParameterSnapshots[upSet[i]][i];
+        double x_val = ((RooAbsReal*)par)->getVal();
         
-        double tmpVal = ((y_up-y_down)/(x_up-x_down))*(((RooAbsReal*)par)->getVal() - x_down) + y_down;
+        bool doCode2(false);
+        switch(fInterpCode[i]*(downSet[i]!=-1)) {
+        case 0:{ //piecewise linear always used if only one variation
+             //if downSet unavailable, use nominal set as the down variation
+            double y_down = (downSet[i]==-1) ? nomVal : GetHist( downSet[i] )->GetBinContent(bin);
+            double x_down = (downSet[i]==-1) ? fParameterSnapshots[nomSet][i] : fParameterSnapshots[downSet[i]][i];
+            double tmpVal = ((y_up-y_down)/(x_up-x_down))*(x_val - x_down) + y_down;
+            val += (tmpVal - nomVal);
+            }break;
+        case 2: //6th order poly with log extrapolation 
+            doCode2=true;
+        case 3:{ //6th order poly with linear extrapolation
+            double y_down = GetHist( downSet[i] )->GetBinContent(bin);
+            double x_down = fParameterSnapshots[downSet[i]][i];
+            
+            if(x_val < x_down && x_val < x_up) {
+              if(doCode2) {
+                val *= (x_down < x_up) ? std::pow(y_down/nomVal, x_val/x_down) : std::pow(y_up/nomVal, x_val/x_up);
+              } else {
+                //linear extrapolate from x_val and x_down or x_up, whichever is lower 
+                if(x_down < x_up) {
+                  y_up = nomVal; x_up = fParameterSnapshots[nomSet][i];
+                } else {
+                  y_down = nomVal; x_down = fParameterSnapshots[nomSet][i];
+                }
+                double tmpVal = ((y_up-y_down)/(x_up-x_down))*(x_val - x_down) + y_down;
+                val += (tmpVal - nomVal);
+              }
+            } else if(x_val > x_up && x_val > x_down) {
+              if(doCode2) {
+                val *= (x_down < x_up) ? std::pow(y_up/nomVal, x_val/x_up) : std::pow(y_down/nomVal, x_val/x_down);
+              } else {
+                //linear extrapolate from x_val and x_down or x_up, whichever is lower 
+                if(x_down < x_up) {
+                  y_down = nomVal; x_down = fParameterSnapshots[nomSet][i];
+                } else {
+                  y_up = nomVal; x_up = fParameterSnapshots[nomSet][i];
+                }
+                double tmpVal = ((y_up-y_down)/(x_up-x_down))*(x_val - x_down) + y_down;
+                val += (tmpVal - nomVal);
+              }
+            } else {
+              //Code based off what is in HistFactor::PiecewiseInterpolation (interpCode 4)
+            
+              //scale and shift x values so x_up-x_down = 2 and x_up+x_down=0 (i.e. usual +1, -1 case) 
+              //sf even flips x_up and x_down so that x_up > x_down
+              //std::cout << "x_val =" << x_val << " x_up=" << x_up << " x_down=" << x_down << std::endl;
+              double sf = 2.0/(x_up-x_down);
+              x_val *= sf; x_up *= sf; x_down *= sf;
+              double sh = (x_up+x_down)/2.0;
+              x_val -= sh; 
+              double eps_plus = y_up-nomVal; double eps_minus=nomVal-y_down;
+              double S = 0.5 * (eps_plus + eps_minus);
+              double A = 0.0625 * (eps_plus - eps_minus);
+              val += x_val * (S + x_val * A * ( 15 + x_val * x_val * (-10 + x_val * x_val * 3  ) ) );
+            }
+                    
+            }break;
+        case 4:{ //6th order polynomial with log extrapolation
+            double y_down = GetHist( downSet[i] )->GetBinContent(bin);
+            double x_down = fParameterSnapshots[downSet[i]][i];
         
-        val += (tmpVal - nomVal);
+        
+            //scale and shift x values so x_up-x_down = 2 and x_up+x_down=0 (i.e. usual +1, -1 case) 
+            //sf even flips x_up and x_down so that x_up > x_down
+            
+            //std::cout << "x_val =" << x_val << " x_up=" << x_up << " x_down=" << x_down << std::endl;
+            double sf = 2.0/(x_up-x_down);
+            x_val *= sf; x_up *= sf; x_down *= sf;
+            double sh = (x_up+x_down)/2.0;
+            x_val -= sh; //x_up -= sh; x_down -= sh; //... x_up and x_down should equal 1 and -1 by this point
+            
+        
+            if(x_val >= 1.) {
+              val *= std::pow(y_up/nomVal, x_val);
+            } else if(x_val <= -1.) {
+              val *= std::pow(y_down/nomVal, -x_val);
+            } else if(x_val) {
+              //Based off what is in FlexibleInterpVar (interpCode 4)
+              
+              //coefficients can be precomputed, but are function of nomSet, upSet, downSet indices, bin, and i
+              
+              double coeff[6];
+              
+              double pow_up       =  y_up/nomVal;
+              double pow_down     =  y_down/nomVal;
+              double logHi        =  std::log(pow_up) ; //BUGFIXED!
+              double logLo        =  std::log(pow_down); //BUGFIXED!
+              double pow_up_log   = y_up <= 0.0 ? 0.0 : pow_up * logHi;
+              double pow_down_log = y_down <= 0.0 ? 0.0 : -pow_down    * logLo;
+              double pow_up_log2  = y_up <= 0.0 ? 0.0 : pow_up_log  * logHi;
+              double pow_down_log2= y_down <= 0.0 ? 0.0 : -pow_down_log* logLo;
+      
+              double S0 = (pow_up+pow_down)/2;
+              double A0 = (pow_up-pow_down)/2;
+              double S1 = (pow_up_log+pow_down_log)/2;
+              double A1 = (pow_up_log-pow_down_log)/2;
+              double S2 = (pow_up_log2+pow_down_log2)/2;
+              double A2 = (pow_up_log2-pow_down_log2)/2;
+              
+              //fcns+der+2nd_der are eq at bd
+              
+              // cache  coefficient of the polynomial 
+              coeff[0] = 1./(8)        *(      15*A0 -  7*S1 + A2);
+              coeff[1] = 1./(8)     *(-24 + 24*S0 -  9*A1 + S2);
+              coeff[2] = 1./(4)*(    -  5*A0 +  5*S1 - A2);
+              coeff[3] = 1./(4)*( 12 - 12*S0 +  7*A1 - S2);
+              coeff[4] = 1./(8)*(    +  3*A0 -  3*S1 + A2);
+              coeff[5] = 1./(8)*( -8 +  8*S0 -  5*A1 + S2);
+              
+              
+              val *= (1. + x_val * (coeff[0] + x_val * (coeff[1] + x_val * (coeff[2] + x_val * (coeff[3] + x_val * (coeff[4] + x_val * coeff[5]) ) ) ) ) );
+              
+            }
+            
+            
+            }break;
+        }
 
         
       }
