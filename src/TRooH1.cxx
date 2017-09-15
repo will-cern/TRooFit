@@ -2374,23 +2374,33 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
       fDrawHistograms.back().hist = hist;
       fillHistogram( hist , r2, true);
       
-      //if drawing with option "e3XXX" then will use that histogram as error bar histogram
-      if(opt.Contains("e3")) {
-        int fillType = TString(opt(opt.Index("e3")+1,opt.Length())).Atoi();
-        if(fillType>=3000 && fillType<=3999 && hist->GetSumw2()->GetSum()) { //must have an error to draw an error bar hist
-          TH1* errHist = (TH1*)hist->Clone(TString::Format("%s_error",hist->GetName()));
-          errHist->SetFillStyle(fillType);errHist->SetMarkerStyle(0);errHist->SetFillColor(hist->GetLineColor());
-          errHist->SetOption("e2same");
-          fDrawHistograms.back().postHist = errHist;
-          fDrawHistograms.back().postHistOpt = "e2same";
-          opt.ReplaceAll(TString::Format("e%d",fillType),"");
-          //since we are showing error bar, the main hist should only be drawn as a line
-          opt += "hist";
-        }
-      }
+      
       
       
     }
+    
+    //if drawing with option "e3XXX" then will use that histogram as error bar histogram
+    if(opt.Contains("e3") && fDrawHistograms.back().hist->InheritsFrom(TH1::Class())) {
+      TH1* hist = static_cast<TH1*>(fDrawHistograms.back().hist);
+      int fillType = TString(opt(opt.Index("e3")+1,opt.Length())).Atoi();
+      if(fillType>=3000 && fillType<=3999 && hist->GetSumw2()->GetSum()) { //must have an error to draw an error bar hist
+        TH1* errHist = (TH1*)hist->Clone(TString::Format("%s_error",hist->GetName()));
+        errHist->SetFillStyle(fillType);errHist->SetMarkerStyle(0);errHist->SetFillColor(hist->GetLineColor());
+        errHist->SetOption("e2same");
+        fDrawHistograms.back().postHist = errHist;
+        fDrawHistograms.back().postHistOpt = "e2same";
+        opt.ReplaceAll(TString::Format("e%d",fillType),"");
+        //since we are showing error bar, the main hist should only be drawn as a line
+        opt += "hist";
+        //also if not drawing with 'same' option then draw axis of the hist, so that axis span the error bar 
+        if(!opt.Contains("same")) {
+          gPad->GetListOfPrimitives()->AddFirst( hist , "axis" );
+          opt += "same";
+        }
+      }
+    }
+    
+    
     
     fDrawHistograms.back().opt = opt; //have to store opt separately because not all object types we can SetOption on
     fDrawHistograms.back().fr = r2;
