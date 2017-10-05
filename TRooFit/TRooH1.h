@@ -109,6 +109,9 @@ public:
   void fillHistogram(TH1* histToFill, const RooFitResult* r, bool includeErrors) const;
   void fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints=100) const;
   
+  //other methods to mimic TH1 behaviour 
+  Double_t Integral(Option_t* opt="") const;
+  
   
   //these functions are used when fitting
   RooAbsPdf&  model(); //returns self, with constraint terms added if necessary
@@ -216,7 +219,7 @@ public:
   Int_t Fill( const char* name , double w = 1. );
   Int_t Fill( double x , double w =1.); 
   
-  //virtual void SetBinContent( int bin, RooAbsReal& val ); //turns bin value into a function .. not available yet
+  virtual void SetBinContent( int bin, RooAbsReal& val ); //turns bin value into a function 
   virtual void SetBinContent( const char* name, double val ); //set category bin
   virtual void SetBinContent( int bin, double val);
   virtual void SetBinError( int bin, double val); //will update the stat uncert

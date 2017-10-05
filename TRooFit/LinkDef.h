@@ -15,6 +15,11 @@
 #pragma link C++ class TRooHPdfStack+;
 #pragma link C++ class TRooFitResult+;
 
+#include "TRooFit/TRooChi2Constraint.h"
+
+#pragma link C++ class TRooChi2Constraint+;
+#pragma link C++ class TRooGaussian+;
+
 //#include "TRooFit/TRooSlider.h"
 //#pragma link C++ class TRooSlider+;
 

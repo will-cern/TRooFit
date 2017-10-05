@@ -11,6 +11,7 @@
 #include "RooFitResult.h"
  
 #include "TH1D.h"
+#include "TH2D.h"
 #include "TGraphAsymmErrors.h" 
 
 #include "TLine.h"
@@ -48,9 +49,11 @@ public:
       fPullFrame->Paint("sameaxis");
     }
     if(fPullGraph) fPullGraph->Paint("p");
+    if(fCovHist) fCovHist->Paint("COLZ");
   }
   
-  virtual void Draw(Option_t* option = "pull");
+  virtual void Draw(Option_t* option = "pull") { Draw(option,RooArgList()); }
+  virtual void Draw(Option_t* option,const RooArgList& args);
   
   TGraphAsymmErrors* GetPullGraph() { return fPullGraph; }
   
@@ -65,6 +68,8 @@ private:
   TGraphAsymmErrors* fPullGraph = 0;
   std::vector<TLine> fPullLines;
   std::vector<TBox> fPullBoxes;
+
+  TH2D* fCovHist = 0; //covariance histogram
 
   ClassDef(TRooFitResult,1) // An extended/improved version of a RooFitResult
 };

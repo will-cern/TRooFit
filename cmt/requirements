@@ -27,6 +27,7 @@ apply_pattern have_root_headers     root_headers="TRooH1.h \
                                                   TRooHStack.h \
                                                   TRooHPdfStack.h \
                                                   TRooFitResult.h \
+                                                  TRooChi2Constraint.h \
                                                   Utils.h \
                                                   LinkDef.h"    headers_lib="TRooFit"
 end_private
