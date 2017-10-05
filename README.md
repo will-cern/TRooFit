@@ -16,7 +16,7 @@ TRooFit currently is designed to work in AthAnalysisBase 2.4 series. Set that re
 ```
 asetup AthAnalysisBase,2.4.31,here
 lsetup git
-git clone --branch TRooFit-0.1.0 https://:@gitlab.cern.ch:8443/will/TRooFit.git
+git clone --branch TRooFit-0.1.1 https://:@gitlab.cern.ch:8443/will/TRooFit.git
 cd TRooFit/cmt
 cmt config
 make
