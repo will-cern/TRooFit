@@ -49,6 +49,13 @@ public:
      
      
      }
+     
+    
+   TRooH1D(const char *name, const char *title, RooRealVar& x, TH1* hist) : TRooH1(name,title,x,0,0,0,{},hist) {
+    //Constructor from an existing histogram
+    //Will use as the nominal value
+   
+   }
    
   
   virtual void Draw(Option_t* option,const TRooFitResult& r);
