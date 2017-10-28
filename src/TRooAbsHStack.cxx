@@ -72,7 +72,8 @@ void TRooAbsHStack::Add(TRooH1* hist, bool acquireStatFactors) {
   //if this is the first one, take observables from it 
   if(!firstHistogram()) {
     fObservables.add(hist->fObservables);  
-    fDummyHist = static_cast<TH1*>(hist->fDummyHist->Clone(GetName()));
+    if(fObservables.getSize()) fObservables.setName("obs");
+    fDummyHist = static_cast<TH1*>(hist->fDummyHist->Clone(GetName()));fDummyHist->SetDirectory(0);
     fDummyHist->SetTitle(GetTitle());
     //FIXME .. only needed this for GetHistogram method .. should remove that dependency
     //fHists.push_back((TH1*)hist->fHists[0]->Clone(GetName()));fHists[0]->Reset();fHists[0]->SetDirectory(0);
@@ -112,10 +113,10 @@ void TRooAbsHStack::Add(TRooH1* hist, bool acquireStatFactors) {
           hist->fStatFactors.replace(*s,*ss);
           hist->fShapeFactors.replace(*s,*ss);
           hist->removeServer(*ss);hist->addServer(*ss); //THIS IS NECESSARY ... bug in RooListProxy::replace ... was causing statFactor to lose its valueServer status!!!
-          ss->setStringAttribute("sumw",Form("%f",(TString(ss->getStringAttribute("sumw")).Atof() + TString(s->getStringAttribute("sumw")).Atof())));
-          ss->setStringAttribute("sumw2",Form("%f",(TString(ss->getStringAttribute("sumw2")).Atof() + TString(s->getStringAttribute("sumw2")).Atof())));
+          ss->setStringAttribute("sumw",Form("%e",(TString(ss->getStringAttribute("sumw")).Atof() + TString(s->getStringAttribute("sumw")).Atof())));
+          ss->setStringAttribute("sumw2",Form("%e",(TString(ss->getStringAttribute("sumw2")).Atof() + TString(s->getStringAttribute("sumw2")).Atof())));
           ((RooRealVar*)ss)->setError(sqrt((TString(ss->getStringAttribute("sumw2")).Atof()))/(TString(ss->getStringAttribute("sumw")).Atof()));
-          
+          if(std::isnan(((RooRealVar*)ss)->getError())||std::isinf(((RooRealVar*)ss)->getError())) ((RooRealVar*)ss)->setError(1e9);
           delete s;
           break;
         }
@@ -167,6 +168,63 @@ TAxis* TRooAbsHStack::GetYaxis() const {
   
 }
 
+#include "RooAddPdf.h"
+
+Double_t TRooAbsHStack::getBinContent(const RooArgSet* nset) const { 
+  double out = this->getVal(nset);
+  double binVol = this->getBinVolume();
+  double expectedEvts = this->expectedEvents(nset);
+  //for any RooAbsPdf functions (excluding TRooH1s), subtract the val and add back in the correctly integrated value 
+  RooFIter funcIter = compList().fwdIterator() ;
+  RooAbsReal* func ;
+  while((func=(RooAbsReal*)funcIter.next())) {
+    if(func->InheritsFrom(TRooH1::Class()) || (!func->InheritsFrom(RooAbsPdf::Class()))) continue;
+    
+    RooAbsPdf* pdf = (RooAbsPdf*)func;
+    RooAbsReal* cdf = pdf->createCdf(*nset);
+    double myExp = (dynamic_cast<const TObject*>(this)->InheritsFrom(RooAddPdf::Class())) ? pdf->expectedEvents(nset) : expectedEvts; //coefficients for RooRealSumPdf are just 1, but for RooAddPdf they are frac of events
+    out -= pdf->getVal(nset)*myExp/expectedEvts;
+    
+    auto snap = nset->snapshot();
+    
+    //need to put all observables at their respective 'low edges'
+    TIterator* itr = nset->createIterator();
+    TObject* arg = 0;
+    
+    while( (arg = itr->Next()) ) {
+      if(arg->IsA() != RooRealVar::Class()) continue;
+      RooRealVar* v = static_cast<RooRealVar*>(arg);
+      v->setVal( v->getBinning(GetRangeName()).binLow( v->getBin(GetRangeName()) ) );
+    }
+    
+    //then evaluate cdf 
+    double cdfVal = cdf->getVal();
+    //and move to high edges
+    //revaluate cdf
+    
+    const_cast<RooArgSet&>(*nset) = *static_cast<RooArgSet*>(snap);
+    itr->Reset();
+    while( (arg = itr->Next()) ) {
+      if(arg->IsA() != RooRealVar::Class()) continue;
+      RooRealVar* v = static_cast<RooRealVar*>(arg);
+      v->setVal( v->getBinning(GetRangeName()).binHigh( v->getBin(GetRangeName()) ) );
+    }
+    
+    out += (myExp/expectedEvts)*(cdf->getVal()-cdfVal)/binVol; //adds back in the correct 'density'
+    
+    const_cast<RooArgSet&>(*nset) = *static_cast<RooArgSet*>(snap);
+    delete snap;
+    delete cdf;
+    delete itr;
+    
+  }
+  
+  
+  out *= binVol*expectedEvts;
+  
+  return out;
+}
+
 
 THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool noRestyle) const {
   //Fill the provided stack
@@ -206,6 +264,8 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
       
       RooAbsReal* cdf = pdf->createCdf(fObservables);
       
+      auto snap = fObservables.snapshot();
+      
       std::vector<double> prevIntegral(hist->GetNbinsY(),0.); //need one running total for each 'row' if doing up to 2D
       for(int i=1;i<=hist->GetNbinsX();i++) {
         if(fObservables.getSize()>0) {
@@ -231,6 +291,9 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
       }
       //func->fillHistogram(hist,fObservables); //this method assumes function is flat across each bin too (like getBinContent of TRooH1)
       
+      const_cast<RooListProxy&>(fObservables) = *static_cast<RooArgList*>(snap);
+      
+      delete snap;
       
       delete cdf;
       
@@ -358,6 +421,7 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
    } else {
     //not drawing the stack, pass onto parent class to draw as a hist instead
     opt.ReplaceAll("hist","");
+    if(hadInit) opt += " init";
     TRooAbsH1::Draw(opt,r);
    }
   

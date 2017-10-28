@@ -22,6 +22,8 @@ public:
   using TRooAbsH1::TRooAbsH1;
   ~TRooAbsHStack();
   
+  virtual Double_t getBinContent(const RooArgSet* nset) const;
+  
   virtual TH1* getNominalHist() const { return 0; } //FIXME ... do we need to return something better ever?
   
   virtual Double_t missingEvents() const;
