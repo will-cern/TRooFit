@@ -45,6 +45,7 @@ void TRooFitResult::init(const RooArgList& pars) {
         if(s=="STATPOISSON") {
           double tau = pow(TString(arg->getStringAttribute("sumw")).Atof(),2)/TString(arg->getStringAttribute("sumw2")).Atof();
           dynamic_cast<RooRealVar*>(arg)->setError(1./sqrt(tau));
+          if(std::isnan(dynamic_cast<RooRealVar*>(arg)->getError())||std::isinf(dynamic_cast<RooRealVar*>(arg)->getError())) dynamic_cast<RooRealVar*>(arg)->setError(1e9);
         }
         else if(s=="NORMAL") { dynamic_cast<RooRealVar*>(arg)->setError(1);  }
         else if(s.BeginsWith("GAUSSIAN(")) {
@@ -101,7 +102,7 @@ TRooFitResult::TRooFitResult(const char* constPars) : RooFitResult() {
 
 }
 
-void TRooFitResult::Draw(Option_t* option) {
+void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
   //Option: pull - draws pull plot for floating variables (provided their initial error was nonzero)
 
   TString opt(option);
@@ -118,7 +119,9 @@ void TRooFitResult::Draw(Option_t* option) {
         s.ToUpper();
         if(s=="STATPOISSON") {
           double tau = pow(TString(rinit->getStringAttribute("sumw")).Atof(),2)/TString(rinit->getStringAttribute("sumw2")).Atof();
-          rinit->setError(1./sqrt(tau)); indices.push_back(i); continue;
+          rinit->setError(1./sqrt(tau)); 
+          if(std::isnan(rinit->getError())||std::isinf(rinit->getError())) rinit->setError(1e9);
+          indices.push_back(i); continue;
         }
         else if(s=="NORMAL") { rinit->setError(1); indices.push_back(i); continue; }
         else if(s.BeginsWith("GAUSSIAN(")) {
@@ -160,6 +163,26 @@ void TRooFitResult::Draw(Option_t* option) {
         }
       }
     }
+  } else if(opt.Contains("cov")||opt.Contains("cor")) {
+    //drawing a covariance matrix ..
+    //obtain the reduced matrix ..
+    const RooArgList* a = &args;
+    if(!args.getSize()) a = &floatParsFinal();
+    auto cov = reducedCovarianceMatrix(*a);
+    TH2D* covHist = new TH2D(opt.Contains("cov") ? "covariance" : "correlation",opt.Contains("cov")?"Covariance":"Correlation",a->getSize(),0,a->getSize(),a->getSize(),0,a->getSize());
+    for(int i=1;i<=a->getSize();i++) {
+      covHist->GetXaxis()->SetBinLabel(i, a->at(i-1)->GetTitle());
+      for(int j=1;j<=a->getSize();j++) {
+        if(i==1) covHist->GetYaxis()->SetBinLabel(j, a->at(j-1)->GetTitle());
+        if(opt.Contains("cor")) {
+          covHist->SetBinContent(i,j,cov(i-1,j-1)/sqrt(cov(i-1,i-1)*cov(j-1,j-1)));
+        } else {
+          covHist->SetBinContent(i,j,cov(i-1,j-1));
+        }
+      }
+    }
+    if(opt.Contains("cor")) { covHist->SetAxisRange(-1,1,"Z"); }
+    fCovHist = covHist;
   }
   
   if (gPad) {
