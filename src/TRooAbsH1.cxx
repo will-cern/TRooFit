@@ -122,7 +122,7 @@ bool TRooAbsH1::addNormFactor( RooAbsReal& factor ) {
   fNormFactors.add( factor ); fNormFactors.setName("normFactors");
   if(fMissingBin) { fMissingBin->addNormFactor( factor ); }
   //need to also tell all clients that we have a new parameter to depend on
-  TIterator* citer(clientIterator());//std::unique_ptr<TIterator> citer(clientIterator());
+  TIterator* citer(dynamic_cast<RooAbsArg*>(this)->clientIterator());//std::unique_ptr<TIterator> citer(clientIterator());
   while( RooAbsArg* client = (RooAbsArg*)( citer->Next() ) ) {
     client->addServer(factor);client->setValueDirty();client->setShapeDirty();
   }
@@ -138,7 +138,7 @@ bool TRooAbsH1::addShapeFactor( int bin, RooAbsReal& factor ) {
   if(!fShapeFactors.find( factor )) {
     fShapeFactors.add( factor ); fShapeFactors.setName("shapeFactors");
     //need to also tell all clients that we have a new parameter to depend on
-    TIterator* citer(clientIterator());//std::unique_ptr<TIterator> citer(clientIterator());
+    TIterator* citer(dynamic_cast<RooAbsArg*>(this)->clientIterator());//std::unique_ptr<TIterator> citer(clientIterator());
     while( RooAbsArg* client = (RooAbsArg*)( citer->Next() ) ) {
       client->addServer(factor);client->setValueDirty();client->setShapeDirty();
     }
@@ -208,7 +208,7 @@ RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
     TRooAbsHStack* stack = 0;
     if(!fStatFactors.isOwning()) { //stack owns stat 
       //look for a stack in our clients ... add our stat factor there
-      std::unique_ptr<TIterator> clients(clientIterator());
+      std::unique_ptr<TIterator> clients(dynamic_cast<RooAbsArg*>(this)->clientIterator());
       
       while(TObject* a = clients->Next()) {
         if(a->InheritsFrom(TRooAbsHStack::Class())) { stack = (TRooAbsHStack*)a; break; }
@@ -234,6 +234,8 @@ RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
     }
     
     //got here, ok just have to create a new factor 
+    
+    //Note: this will assume that the stat error can only get up to 5 times bigger than the central value!
     RooRealVar* statFactor = new RooRealVar(Form("%s_stat_bin%d",(stack)?stack->GetName():GetName(),bin),Form("Stat factor bin %d",bin),1,0,5);
     statFactor->setStringAttribute("statBinNumber",Form("%d",bin));
     statFactor->setStringAttribute("constraintType","statPoisson");
@@ -369,7 +371,7 @@ Double_t TRooAbsH1::GetBinError(int bin, const RooFitResult* fr) const {
   double out(0);
   if(fr==0) {
     //create one with anything that isn't my observables 
-    RooArgSet* params = getParams(fObservables);
+    RooArgSet* params =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
     TRooFitResult r(*params);
     delete params;
     out = getBinError(r);
@@ -377,7 +379,7 @@ Double_t TRooAbsH1::GetBinError(int bin, const RooFitResult* fr) const {
       //no floating pars ... error would by definition be zero for this case
       //we assume here that isn't what the user wanted ... instead assume they wanted all parameters 
       //that are not in the constPars list 
-      RooAbsCollection* cdeps = getParams(fObservables);
+      RooAbsCollection* cdeps =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
       cdeps->remove(fr->constPars(),true,true);
       RooArgList l; l.add(*cdeps);
       TRooFitResult r(l,fr->constPars());
@@ -389,7 +391,7 @@ Double_t TRooAbsH1::GetBinError(int bin, const RooFitResult* fr) const {
   
     RooAbsCollection* crsnap = 0;
     //also ensure that all non-observables are held constant if they are not specified in the fit result 
-    RooAbsCollection* cdeps = getParams(fObservables);
+    RooAbsCollection* cdeps =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
     cdeps->remove(fr->floatParsFinal(),true,true/*remove by name*/);
     crsnap = cdeps->snapshot();
     *cdeps = fr->constPars(); //move constpars to their location  ... shouldn't be necessary now that i added line to getError method to set constPars values
@@ -436,11 +438,11 @@ Double_t TRooAbsH1::GetBinContent(int bin, const RooFitResult* r) const {
   RooAbsCollection* rsnap = 0;RooAbsCollection* crsnap = 0;
   if(r) {
     //move onto finalPars values 
-    deps = getDependents(r->floatParsFinal());
+    deps = dynamic_cast<const RooAbsArg*>(this)->getDependents(r->floatParsFinal());
     rsnap = deps->snapshot();
     *deps = r->floatParsFinal(); //overrides with values from fit result
     //likewise for constPars 
-    cdeps = getDependents(r->constPars());
+    cdeps =  dynamic_cast<const RooAbsArg*>(this)->getDependents(r->constPars());
     crsnap = cdeps->snapshot();
     *cdeps = r->constPars(); cdeps->setAttribAll("Constant",true);
   }
@@ -493,7 +495,7 @@ TAxis* TRooAbsH1::GetYaxis() const {
 RooAbsPdf& TRooAbsH1::model() {
 
   //first check if constraints are needed
-  RooArgSet* nodes = getParams(fObservables);
+  RooArgSet* nodes = dynamic_cast<RooAbsArg*>(this)->getParameters(fObservables);
   RooFIter itr = nodes->fwdIterator();
   RooAbsArg* arg = 0;
   bool hasConstraint(false);
@@ -519,7 +521,7 @@ RooProdPdf* TRooAbsH1::buildConstraints(const RooArgSet& obs, const char* systGr
   //if none given, then leave unconstrained!
   //RooArgSet nodes;
   //treeNodeServerList(&nodes);
-  RooArgSet* nodes = getParams(obs);
+  RooArgSet* nodes =  dynamic_cast<const RooAbsArg*>(this)->getParameters(obs);
   RooFIter itr = nodes->fwdIterator();
   RooAbsArg* arg = 0;
   while( (arg = itr.next()) ) {
@@ -532,6 +534,7 @@ RooProdPdf* TRooAbsH1::buildConstraints(const RooArgSet& obs, const char* systGr
     TString cType = arg->getStringAttribute("constraintType");
     cType.ToUpper();
     if(cType == "STATPOISSON" ) {
+    
       //this factor is poisson constrained to be: gamma = 1 +/- sqrt(sumw2)/sumw
       //this means constraint with Pois(gobs|gamma*tau) where observed gobs=tau,
       //and tau = (sumw)^2/sumw2
@@ -539,7 +542,16 @@ RooProdPdf* TRooAbsH1::buildConstraints(const RooArgSet& obs, const char* systGr
                         pow(TString(arg->getStringAttribute("sumw")).Atof(),2)/TString(arg->getStringAttribute("sumw2")).Atof());
       if(std::isnan(tau->getVal()) || std::isinf(tau->getVal())) {
         Warning("buildConstraints","%s is nan or inf (sumw=%s, sumw2=%s)",tau->GetName(),arg->getStringAttribute("sumw"),arg->getStringAttribute("sumw2"));
+      } else if(tau->getVal()<=1e-9) {
+        Warning("buildConstraints","%s has zero tau factor ... setting this factor constant!",arg->GetName());
+        delete tau;
+        dynamic_cast<RooRealVar*>(arg)->setConstant(true); continue;
+      } else {
+        //adjust the range of the stat factor to 5*sqrt(tau) 
+        dynamic_cast<RooRealVar*>(arg)->setRange( ((1. - 5.*sqrt(1./tau->getVal())) <= 0) ? 0. : (1. - 5.*sqrt(1./tau->getVal())) , 1. + 5.*sqrt(1./tau->getVal()) );
+        
       }
+      
       RooRealVar* gobs = new RooRealVar(Form("gobs_%s",arg->GetName()),Form("Global observable for %s",arg->GetName()),
                         tau->getVal());gobs->setConstant();
       RooProduct* mean = new RooProduct(Form("mean_%s",arg->GetName()),"",RooArgList(*arg,*tau));
@@ -706,7 +718,7 @@ void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool inclu
       }
       if(r==0) {
         //default to propgating the uncertainties of all parameters
-        RooArgSet* params = getParams(fObservables);
+        RooArgSet* params =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
         myR = new TRooFitResult(*params); r = myR;
         delete params;
       }
@@ -753,7 +765,7 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
 
 
   // Clone self for internal use
-  RooAbsReal* cloneFunc = (RooAbsReal*) cloneTree() ;
+  RooAbsReal* cloneFunc = (RooAbsReal*)(dynamic_cast<const RooAbsReal*>(this)->cloneTree()) ;
   RooArgSet* errorParams = cloneFunc->getObservables(fr.floatParsFinal()) ;
   RooArgSet* nset = cloneFunc->getParameters(*errorParams) ;
   //remove const pars from nset ...

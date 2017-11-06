@@ -48,19 +48,14 @@ public:
   inline virtual ~TRooAbsH1() { SafeDelete(fDrawHistogram); SafeDelete(fThisWithConstraints); }
   
   
-  //derived classes must implement this method
-  virtual const char* GetName() const = 0; 
-  //derived classes must implement this method
-  virtual const char* GetTitle() const = 0; 
+  //derived classes must implement these methods
+  //------
   virtual Double_t getVal(const RooArgSet* nset = 0) const = 0;
   virtual Double_t getVal(const RooArgSet& nset) const = 0;
-  virtual TIterator* clientIterator() const = 0;
-  virtual RooAbsArg* cloneTree(const char* newname=0) const = 0;
-  virtual RooArgSet* getDependents(const RooArgSet& set) const = 0;
-  virtual RooArgSet* getParams(const RooArgSet& set) const = 0;
   virtual Double_t expectedEvents(const RooArgSet* nset=0) const = 0;
   virtual Double_t expectedEvents(const RooArgSet&) const = 0;
   virtual TH1* getNominalHist() const = 0; //retrieves the underlying nominal histogram
+  //-------
   
   virtual Double_t missingEvents() const; //default implementation just checks fMissingBin - override in stacks to combine components
   virtual RooAbsReal* createIntegralWM(const RooArgSet& iset,const char* rangeName = 0) const;
@@ -126,6 +121,7 @@ public:
   virtual void setFloor(bool in) { kMustBePositive = in; } //if true, 'pdf' evaluations cannot go negative
   
 protected:
+
   TH1* createOrAdjustHistogram(TH1* hist, bool noBinLabels=false) const; //rebins and styles the given histogram (creating it if no hist given
 
   RooListProxy fObservables; //observables define bins ... *must* be defined at construction
@@ -164,6 +160,8 @@ protected:
   RooProdPdf* fThisWithConstraints = 0; //constructed in 'model' method.
 
 private:
+     const char* GetName() const { return dynamic_cast<const TNamed*>(this)->GetName(); }
+  const char* GetTitle() const { return dynamic_cast<const TNamed*>(this)->GetTitle(); } 
     ClassDef(TRooAbsH1,1) // The Abstract Base class for all TRooFit pdfs
 };
 

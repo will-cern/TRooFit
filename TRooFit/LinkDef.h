@@ -3,6 +3,7 @@
 #include "TRooFit/TRooH1D.h"
 #include "TRooFit/TRooHStack.h"
 #include "TRooFit/TRooFitResult.h"
+#include "TRooFit/TRooHF1.h"
 
 #include "TRooFit/Utils.h"
 
@@ -14,11 +15,14 @@
 #pragma link C++ class TRooHStack+;
 #pragma link C++ class TRooHPdfStack+;
 #pragma link C++ class TRooFitResult+;
+#pragma link C++ class TRooHF1+;
 
 #include "TRooFit/TRooChi2Constraint.h"
+#include "TRooFit/TRooGPConstraint.h"
 
 #pragma link C++ class TRooChi2Constraint+;
-#pragma link C++ class TRooGaussian+;
+#pragma link C++ class TRooGPConstraint+;
+#pragma link C++ class TRooGPVar+;
 
 //#include "TRooFit/TRooSlider.h"
 //#pragma link C++ class TRooSlider+;

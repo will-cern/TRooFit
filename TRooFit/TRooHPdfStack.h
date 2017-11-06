@@ -22,10 +22,6 @@ public:
   const char* GetTitle() const { return TNamed::GetTitle(); }
   Double_t getVal(const RooArgSet* nset = 0) const { return RooAddPdf::getVal(nset); }
   Double_t getVal(const RooArgSet& nset) const { return RooAddPdf::getVal(nset); }
-  TIterator* clientIterator() const { return RooAddPdf::clientIterator(); }
-  virtual RooAbsArg* cloneTree(const char* newname=0) const { return RooAddPdf::cloneTree(newname); }
-  RooArgSet* getDependents(const RooArgSet& set) const { return RooAddPdf::getDependents(set); }
-  RooArgSet* getParams(const RooArgSet& set) const { return RooAddPdf::getParameters(set); }
   virtual Double_t expectedEvents(const RooArgSet* nset=0) const { Double_t out = RooAddPdf::expectedEvents(nset); if(out<0 && kMustBePositive) return 0; return out; }
   virtual Double_t expectedEvents(const RooArgSet& nset) const { Double_t out = RooAddPdf::expectedEvents(nset); if(out<0 && kMustBePositive) return 0; return out; }
   ///----

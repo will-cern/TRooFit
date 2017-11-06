@@ -1,16 +1,12 @@
 
 #include "TRooFit/TRooChi2Constraint.h"
-
-
-ClassImp(TRooChi2Constraint) 
-
 #include "RooChi2Var.h"
 
 
 using namespace std;
 
 ClassImp(TRooChi2Constraint)
-ClassImp(TRooGaussian)
+//ClassImp(TRooGaussian)
 
 TRooChi2Constraint::TRooChi2Constraint(const char *name, const char *title, RooAbsPdf& pdf, RooDataHist& hdata,
 	    Bool_t extended, const char* rangeName, const char* addCoefRangeName)

@@ -22,12 +22,14 @@ apply_pattern installed_library
 
 
 private
-apply_pattern have_root_headers     root_headers="TRooH1.h \
+apply_pattern have_root_headers     root_headers="TRooAbsH1.h TRooH1.h \
                                                   TRooH1D.h \
                                                   TRooHStack.h \
                                                   TRooHPdfStack.h \
                                                   TRooFitResult.h \
                                                   TRooChi2Constraint.h \
+                                                  TRooGPConstraint.h \
+                                                  TRooHF1.h \
                                                   Utils.h \
                                                   LinkDef.h"    headers_lib="TRooFit"
 end_private

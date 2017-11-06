@@ -37,17 +37,17 @@ protected:
   ClassDef(TRooChi2Constraint,1) // Chi^2 function of p.d.f w.r.t a binned dataset. pdf value is exp(-0.5*chi^2)
 };
 
-#include "RooGaussian.h"
-
-class TRooGaussian : public RooGaussian {
-public:
-    using RooGaussian::RooGaussian;
-    
-  virtual Bool_t selfNormalized() const { return true; }
-
-protected:
-  ClassDef(TRooGaussian,1)
-};
+// #include "RooGaussian.h"
+// 
+// class TRooGaussian : public RooGaussian {
+// public:
+//     using RooGaussian::RooGaussian;
+//     
+//   virtual Bool_t selfNormalized() const { return true; }
+// 
+// protected:
+//   ClassDef(TRooGaussian,1)
+// };
 
 
 #endif

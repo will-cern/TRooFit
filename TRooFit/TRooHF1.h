@@ -17,10 +17,6 @@ public:
   const char* GetTitle() const { return TNamed::GetTitle(); }
   Double_t getVal(const RooArgSet* nset = 0) const { return RooAbsReal::getVal(nset); }
   Double_t getVal(const RooArgSet& nset) const { return RooAbsReal::getVal(nset); }
-  TIterator* clientIterator() const { return RooAbsReal::clientIterator(); }
-  RooAbsArg* cloneTree(const char* newname=0) const { return RooAbsReal::cloneTree(newname); }
-  RooArgSet* getDependents(const RooArgSet& set) const { return RooAbsReal::getDependents(set); }
-  RooArgSet* getParams(const RooArgSet& set) const { return RooAbsReal::getParameters(set); }
   virtual Double_t expectedEvents(const RooArgSet*) const { return 1.; }
   virtual Double_t expectedEvents(const RooArgSet&) const { return 1.; }
   virtual TH1* getNominalHist() const { return (fHists.size()) ? fHists[0] : 0; }
