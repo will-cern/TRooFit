@@ -1417,7 +1417,7 @@ Double_t TRooH1::getValV(const RooArgSet* nset) const
     }
 
     if(rawVal==0 && normVal==0) _value=1;
-    if(kMustBePositive && _value < 0) _value=fFloorValue;
+    if(kMustBePositive && _value < fFloorValue) _value=fFloorValue;
 
     clearValueAndShapeDirty() ; //setValueDirty(kFALSE) ;
   } 
