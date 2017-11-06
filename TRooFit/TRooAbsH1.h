@@ -118,7 +118,7 @@ public:
   
   //other functions
   void setRooFitValV(bool in) { kUseAbsPdfValV = in; }//option to fall back to RooFit's usual evaluation
-  virtual void setFloor(bool in) { kMustBePositive = in; } //if true, 'pdf' evaluations cannot go negative
+  virtual void setFloor(bool in, double floorValue=0.) { kMustBePositive = in; fFloorValue=floorValue;  } //if true, 'pdf' evaluations cannot go negative ... floorValue is what will be returned
   
 protected:
 
@@ -152,7 +152,7 @@ protected:
   
   bool kUseAbsPdfValV=false; //if we should just use the RooAbsPdf getValV method;
   bool kMustBePositive=false; //if true, return in getValV forced to 0 (if integral is <=0 and val is <=0 then we return "1" as value
-  
+  double fFloorValue=0.;
   
   TRooH1* fMissingBin = 0; //when FillMissing call, created a TH0D to hold this contribution to pdf normalization
   RooRealProxy fMissingBinProxy; //hold a proxy to it

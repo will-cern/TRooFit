@@ -80,7 +80,7 @@ TRooAbsH1::TRooAbsH1(const TRooAbsH1& other, RooAbsArg* me) :
   fRangeName(other.fRangeName),
   fDummyHist(other.fDummyHist),
   kUseAbsPdfValV(other.kUseAbsPdfValV),
-  kMustBePositive(other.kMustBePositive),
+  kMustBePositive(other.kMustBePositive),fFloorValue(other.fFloorValue),
    fMissingBin(other.fMissingBin),
    fMissingBinProxy(other.fMissingBinProxy.GetName(),me,other.fMissingBinProxy)
 { 
