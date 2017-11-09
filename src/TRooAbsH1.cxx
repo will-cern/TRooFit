@@ -945,7 +945,8 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
   //
   //Extra Options available:
   //    init: use floatParsInit from TRooFitResult when drawing content + errors
-  //    pdf: Draw the probability density, as a TGraphErrors (you then usually include "AL" option)
+  //    pdf: Draw the probability density, as a TGraphErrors (you then usually include "AL" option) (samples 100 points)
+  //    pdfXXXX (where XXXX is a number > 100): Same as above but can control the number of points sampled
   //    pdf hist: Draw probability density but as a histogram .. no error bar unless 'e' option included
   
 
@@ -1033,7 +1034,11 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         g->SetName(GetName());g->SetTitle(GetTitle());
         fDrawHistograms.back().hist = g;
         TRooAbsH1::createOrAdjustHistogram( g->GetHistogram() );
-        fillGraph(g,r2,opt.Contains("e"));
+        
+        //check for an integer straight after pdf ... that will be the nPoints
+        int nPoints = TString(opt(opt.Index("pdf")+3,opt.Length())).Atoi();
+        if(nPoints>0) opt.ReplaceAll(Form("pdf%d",nPoints),"");
+        fillGraph(g,r2,opt.Contains("e"), (nPoints>100) ? nPoints : 100);
         (*dynamic_cast<TAttFill*>(g)) = *this;
         (*dynamic_cast<TAttLine*>(g)) = *this;
         (*dynamic_cast<TAttMarker*>(g)) = *this;
