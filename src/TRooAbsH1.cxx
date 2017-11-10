@@ -818,14 +818,12 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
     // Make Plus variation
     ((RooRealVar*)paramList.at(ivar))->setVal(cenVal+errVal) ;
     plusVar.push_back(cloneFunc->getVal(nset)*(dynamic_cast<TRooAbsH1*>(cloneFunc))->expectedEvents(nset)) ;
-    
     // Make Minus variation
     ((RooRealVar*)paramList.at(ivar))->setVal(cenVal-errVal) ;
     minusVar.push_back(cloneFunc->getVal(nset)*(dynamic_cast<TRooAbsH1*>(cloneFunc))->expectedEvents(nset)) ;
-    
     ((RooRealVar*)paramList.at(ivar))->setVal(cenVal) ;
   }
-  
+
   TMatrixDSym C(paramList.getSize()) ;      
   std::vector<double> errVec(paramList.getSize()) ;
   for (int i=0 ; i<paramList.getSize() ; i++) {
@@ -1083,6 +1081,9 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
       
     }
     
+    bool isInterpX = (((dynamic_cast<TObject*>(this)->InheritsFrom(TRooH1::Class()) && (dynamic_cast<TRooH1*>(this))->getObsInterpCode())
+        || (dynamic_cast<TObject*>(this)->InheritsFrom(TRooHF1::Class()) && (dynamic_cast<TRooHF1*>(this))->getObsInterpCode())) && fObservables.getSize()==1);
+    
     //if drawing with option "e3XXX" then will use that histogram as error bar histogram
     if(opt.Contains("e3") && fDrawHistograms.back().hist->InheritsFrom(TH1::Class())) {
       TH1* hist = static_cast<TH1*>(fDrawHistograms.back().hist);
@@ -1092,7 +1093,7 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         errHist->SetFillStyle(fillType);errHist->SetMarkerStyle(0);errHist->SetFillColor(hist->GetLineColor());
         errHist->SetOption("e2same");
         fDrawHistograms.back().postHist = errHist;
-        fDrawHistograms.back().postHistOpt = "e2same";
+        fDrawHistograms.back().postHistOpt = (isInterpX) ? "e3same" : "e2same";
         opt.ReplaceAll(TString::Format("e%d",fillType),"");
         //since we are showing error bar, the main hist should only be drawn as a line
         opt += "hist";
@@ -1108,14 +1109,13 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
     
     fDrawHistograms.back().opt = opt; //have to store opt separately because not all object types we can SetOption on
     fDrawHistograms.back().fr = r2;
-    if( ((dynamic_cast<TObject*>(this)->InheritsFrom(TRooH1::Class()) && (dynamic_cast<TRooH1*>(this))->getObsInterpCode())
-        || (dynamic_cast<TObject*>(this)->InheritsFrom(TRooHF1::Class()) && (dynamic_cast<TRooHF1*>(this))->getObsInterpCode())) && fObservables.getSize()==1 && fDrawHistograms.back().hist->InheritsFrom(TH1::Class())) {
+    if(isInterpX && fDrawHistograms.back().hist->InheritsFrom(TH1::Class())) {
+        if(!opt.Contains("e")) opt += "e0"; //the x0 option added below wont work without specifying an E
         opt += "lX0"; //will suppress horizonal error bars
     }
     gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().hist , opt ); //adding histogram directly because cant figure out how to get clickable axis without it
-    if( ((dynamic_cast<TObject*>(this)->InheritsFrom(TRooH1::Class()) && (dynamic_cast<TRooH1*>(this))->getObsInterpCode())
-        || (dynamic_cast<TObject*>(this)->InheritsFrom(TRooHF1::Class()) && (dynamic_cast<TRooHF1*>(this))->getObsInterpCode())) && fObservables.getSize()==1 && fDrawHistograms.back().hist->InheritsFrom(TH1::Class())) {
-      gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().hist , "Lhist same" ); //draws the lines between the points
+    if(isInterpX && fDrawHistograms.back().hist->InheritsFrom(TH1::Class())) {
+      gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().hist , "Lx0hist same" ); //draws the lines between the points
       
     }
     if(fDrawHistograms.back().postHist) gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().postHist , fDrawHistograms.back().postHistOpt ); 
