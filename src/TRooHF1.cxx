@@ -556,17 +556,19 @@ Double_t TRooHF1::evaluate() const
             double parDiff = fabs(parVal - parVals[j]);
             if(parDiff > 1e-9) {
               match=false;
-              if(nomSet==-1 && fInterpCode[j]!=0) continue; //don't use the nomSet as our up-vs-down set if interpCode!=0
-            
-              if(upSet[j]==-1) setUp.push_back(j); //if valid, will
-              else if(downSet[j]==-1) setDown.push_back(j);
-              else {
-                //replace the one that is further away 
-                double upDiff = fabs(fParameterSnapshots[upSet[j]][j] - parVal);
-                double downDiff = fabs(fParameterSnapshots[downSet[j]][j] - parVal);
-                if(parDiff<upDiff || parDiff<downDiff) {
-                  if(upDiff>downDiff) setUp.push_back(j);
-                  else setDown.push_back(j);
+              if(nomSet==-1) continue; //don't use the nomSet as our up-vs-down set
+              //check parVals[j] is different to fParameterSnapshots[0][j] ... i.e. that this is a variation for parameter j
+              if(fabs(parVals[j]-fParameterSnapshots[0][j])>1e-9) {
+                if(upSet[j]==-1) setUp.push_back(j); //if valid, will
+                else if(downSet[j]==-1) setDown.push_back(j);
+                else {
+                  //replace the one that is further away 
+                  double upDiff = fabs(fParameterSnapshots[upSet[j]][j] - parVal);
+                  double downDiff = fabs(fParameterSnapshots[downSet[j]][j] - parVal);
+                  if(parDiff<upDiff || parDiff<downDiff) {
+                    if(upDiff>downDiff) setUp.push_back(j);
+                    else setDown.push_back(j);
+                  }
                 }
               }
             }
