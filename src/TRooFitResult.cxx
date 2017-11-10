@@ -144,9 +144,10 @@ void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
         }
         fPullFrame->SetMaximum(3);fPullFrame->SetMinimum(-3);
         fPullFrame->GetYaxis()->SetTitle("(f-i)/#sigma_{i}");
-        fPullLines.push_back(TLine(0,0,indices.size(),0));fPullLines.back().SetLineStyle(2);
-        fPullBoxes.push_back(TBox(0,-2,indices.size(),2));fPullBoxes.back().SetFillColor(kYellow);
-        fPullBoxes.push_back(TBox(0,-1,indices.size(),1));fPullBoxes.back().SetFillColor(kGreen);
+        /*fPullLines.push_back(TLine(0,0,indices.size(),0));*/fPullLines.push_back(TGraph(2));fPullLines.back().SetPoint(0,0,0);fPullLines.back().SetPoint(1,indices.size(),0);fPullLines.back().SetLineStyle(2);
+        fPullBoxes.push_back(TGraphErrors(2));fPullBoxes.back().SetPoint(0,0,0);fPullBoxes.back().SetPoint(1,indices.size(),0);fPullBoxes.back().SetPointError(0,0,2);fPullBoxes.back().SetPointError(1,0,2);fPullBoxes.back().SetFillColor(kYellow);
+        fPullBoxes.push_back(TGraphErrors(2));fPullBoxes.back().SetPoint(0,0,0);fPullBoxes.back().SetPoint(1,indices.size(),0);fPullBoxes.back().SetPointError(0,0,1);fPullBoxes.back().SetPointError(1,0,1);fPullBoxes.back().SetFillColor(kGreen);
+        //fPullBoxes.push_back(TBox(0,-1,indices.size(),1));fPullBoxes.back().SetFillColor(kGreen);
       }
       if(!fPullGraph) {
         fPullGraph = new TGraphAsymmErrors;fPullGraph->SetMarkerStyle(20);
@@ -194,6 +195,6 @@ void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
          gPad->Clear();
       }
   }
-  
+  if(!opt.Contains("same") && opt.Contains("pull")) fPullFrame->Draw();
   TObject::Draw(option);
 }

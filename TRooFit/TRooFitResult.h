@@ -13,6 +13,7 @@
 #include "TH1D.h"
 #include "TH2D.h"
 #include "TGraphAsymmErrors.h" 
+#include "TGraphErrors.h"
 
 #include "TLine.h"
 #include "TBox.h"
@@ -43,8 +44,8 @@ public:
   
   virtual void Paint(Option_t* option = "") {
     if(fPullFrame) {
-      fPullFrame->Paint(option);
-      for(auto& o : fPullBoxes) o.Paint("f");
+      //fPullFrame->Paint(option);
+      for(auto& o : fPullBoxes) o.Paint("3");
       for(auto& o : fPullLines) o.Paint("l");
       fPullFrame->Paint("sameaxis");
     }
@@ -66,8 +67,8 @@ private:
 
   TH1D* fPullFrame = 0;
   TGraphAsymmErrors* fPullGraph = 0;
-  std::vector<TLine> fPullLines;
-  std::vector<TBox> fPullBoxes;
+  std::vector<TGraph> fPullLines;
+  std::vector<TGraphErrors> fPullBoxes;
 
   TH2D* fCovHist = 0; //covariance histogram
 
