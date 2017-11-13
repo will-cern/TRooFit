@@ -42,7 +42,7 @@ public:
   
   TRooFitResult(const char* constPars=""); 
   
-  virtual void Paint(Option_t* option = "") {
+  virtual void Paint(Option_t*) {
     if(fPullFrame) {
       //fPullFrame->Paint(option);
       for(auto& o : fPullBoxes) o.Paint("3");
