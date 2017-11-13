@@ -293,6 +293,16 @@ Int_t TRooAbsH1::FindFixBin( double x ) const {
   return out;
 }
 
+Double_t TRooAbsH1::GetBinVolume(int bin) const {
+  double binVol(1.);
+  int bb[3]; fDummyHist->GetBinXYZ(bin,bb[0],bb[1],bb[2]);
+  for(int i=0;i<fDummyHist->GetDimension();i++) {
+    TAxis* ax = 0; if(i==0) ax = fDummyHist->GetXaxis(); else if(i==1) ax = fDummyHist->GetYaxis(); //FIXME: assumes 2D at most
+    binVol *= ax->GetBinWidth(bb[i]);
+  }
+  return binVol;
+}
+
 Double_t TRooAbsH1::getBinVolume() const {
   double out = 1.;
   RooFIter itr(fObservables.fwdIterator());

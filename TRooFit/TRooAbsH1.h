@@ -92,6 +92,7 @@ public:
   inline Double_t getBinContent(const RooArgSet& nset) const { return getBinContent(&nset); }   //  flat across the bin!
   RooRealVar* getStatFactor(int bin, bool createIf=false);
   
+  Double_t GetBinVolume(int bin) const;
   //the following functions temporarily move the observables to the given bin, then call a method above
   Double_t GetBinContent(int bin,const RooFitResult* fr = 0) const;
   Double_t GetBinContent(int bin,const TRooFitResult& fr) const { return GetBinContent(bin,&fr); }
