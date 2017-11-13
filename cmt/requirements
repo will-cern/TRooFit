@@ -30,6 +30,7 @@ apply_pattern have_root_headers     root_headers="TRooAbsH1.h TRooH1.h \
                                                   TRooChi2Constraint.h \
                                                   TRooGPConstraint.h \
                                                   TRooHF1.h \
+                                                  TRooAbsH1Fillable.h \
                                                   Utils.h \
                                                   LinkDef.h"    headers_lib="TRooFit"
 end_private

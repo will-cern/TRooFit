@@ -333,27 +333,35 @@ Int_t TRooAbsH1::getBin(const char* rangeName) const {
   if(GetDimension()==0) return 1;
   int out = 0; int factor = 1;
   const char* rName = GetRangeName(rangeName);
-  for(int i=0;i<fObservables.getSize();i++) {
+  
+  RooFIter itr( fObservables.fwdIterator() );
+  RooAbsArg* obs = 0;
+  while( (obs = itr.next()) ) {
     double bin = 0;
-    if(!fObservables[i].inRange(rName)) {
+    RooAbsLValue* lal = dynamic_cast<RooAbsLValue*>(obs);
+    if(!obs->inRange(rName)) {
       //see if is under or overflow
-      if(static_cast<RooRealVar&>(fObservables[i]).getVal() > static_cast<RooRealVar&>(fObservables[i]).getMin(rName))  {
-        bin = static_cast<RooRealVar&>(fObservables[i]).numBins(rName)+1;
-      }
+      RooRealVar* rar = static_cast<RooRealVar*>(obs);
+      if(rar->getVal() > rar->getMax(rName))  {
+        bin = rar->numBins(rName)+2;
+      } 
     } else {
-      bin = dynamic_cast<RooAbsLValue&>(fObservables[i]).getBin(rName)+1; 
+      bin = lal->getBin(rName)+1; 
     }
     out += factor*bin;
     
-    if( fObservables[i].InheritsFrom( RooAbsCategory::Class() ) ) {
+    factor *= (lal->numBins(rName)+2);
+    
+    /*
+    if( obs->InheritsFrom( RooAbsCategory::Class() ) ) {
       //discrete variable, so no need to cover for overflows
       //out -= factor;
       //now increase factor by number of categories
-      factor *= (static_cast<RooAbsCategory&>(fObservables[i]).numTypes(rName)+2);
+      factor *= (static_cast<RooAbsCategory&>(*obs).numTypes(rName)+2);
     } else {
-      factor *= (static_cast<RooRealVar&>(fObservables[i]).numBins(rName)+2);
+      factor *= (static_cast<RooRealVar&>(*obs).numBins(rName)+2);
     }
-    
+    */
     //increase factor by number of bins (if observable was category) or bins + 2 (if continuous)
   }
   return out;

@@ -47,13 +47,14 @@ public:
   TRooAbsH1(const TRooAbsH1& other, RooAbsArg* me);
   inline virtual ~TRooAbsH1() { SafeDelete(fDrawHistogram); SafeDelete(fThisWithConstraints); }
   
-  
+  virtual const char* GetName() const { return dynamic_cast<const TNamed*>(this)->GetName(); }
+  virtual const char* GetTitle() const { return dynamic_cast<const TNamed*>(this)->GetTitle(); } 
   //derived classes must implement these methods
   //------
   virtual Double_t getVal(const RooArgSet* nset = 0) const = 0;
-  virtual Double_t getVal(const RooArgSet& nset) const = 0;
+  virtual Double_t getVal(const RooArgSet& nset) const { return getVal(&nset); }
   virtual Double_t expectedEvents(const RooArgSet* nset=0) const = 0;
-  virtual Double_t expectedEvents(const RooArgSet&) const = 0;
+  virtual Double_t expectedEvents(const RooArgSet& nset) const = 0;
   virtual TH1* getNominalHist() const = 0; //retrieves the underlying nominal histogram
   //-------
   
@@ -161,8 +162,7 @@ protected:
   RooProdPdf* fThisWithConstraints = 0; //constructed in 'model' method.
 
 private:
-     const char* GetName() const { return dynamic_cast<const TNamed*>(this)->GetName(); }
-  const char* GetTitle() const { return dynamic_cast<const TNamed*>(this)->GetTitle(); } 
+  
     ClassDef(TRooAbsH1,1) // The Abstract Base class for all TRooFit pdfs
 };
 

@@ -4,6 +4,7 @@
 #include "TRooFit/TRooHStack.h"
 #include "TRooFit/TRooFitResult.h"
 #include "TRooFit/TRooHF1.h"
+#include "TRooFit/TRooAbsH1Fillable.h"
 
 #include "TRooFit/Utils.h"
 
@@ -16,6 +17,7 @@
 #pragma link C++ class TRooHPdfStack+;
 #pragma link C++ class TRooFitResult+;
 #pragma link C++ class TRooHF1+;
+#pragma link C++ class TRooAbsH1Fillable+;
 
 #include "TRooFit/TRooChi2Constraint.h"
 #include "TRooFit/TRooGPConstraint.h"
