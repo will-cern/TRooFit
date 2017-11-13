@@ -144,7 +144,8 @@ TRooHF1::TRooHF1(const char *name, const char *title, const RooArgList& observab
 
 
 TRooHF1::TRooHF1(const TRooHF1& other, const char* name) :  
-   RooAbsReal(other,name), TRooAbsH1(other,this),
+   RooAbsReal(other,name), TRooAbsH1(other,this), kIsStandardParameterVariations(other.kIsStandardParameterVariations),
+   fStandardUpSet(other.fStandardUpSet), fStandardDownSet(other.fStandardDownSet),
    fParameters(other.fParameters.GetName(),this,other.fParameters),
    fValues(other.fValues.GetName(),this,other.fValues),
    fHists(other.fHists),
@@ -342,6 +343,34 @@ Int_t TRooHF1::getOrCreateParamSet() {
     fHists.back()->Reset();
     pset = fParameterSnapshots.size()-1;
     
+    //check for 'standard' parameter snapshots 
+    //i.e. up to 2 snapshots per parameter, either side of the nominal (0th) snapshot
+    fStandardUpSet.clear(); fStandardDownSet.clear(); 
+    fStandardUpSet.resize(parVals.size(),-1); fStandardDownSet.resize(parVals.size(),-1);
+    kIsStandardParameterVariations=true;
+    for(uint parNum = 0;parNum<parVals.size();parNum++) {
+      for(uint i=0;i<fParameterSnapshots.size();i++) {
+        if(fabs(fParameterSnapshots[i][parNum] - fParameterSnapshots[0][parNum]) < 1e-9) continue; //is not a variation of parNum'th parameter 
+        if(fStandardUpSet[parNum]==-1) fStandardUpSet[parNum]=i;
+        else if(fStandardDownSet[parNum]==-1) {
+          if(fParameterSnapshots[fStandardUpSet[parNum]][parNum] > fParameterSnapshots[0][parNum] && 
+             fParameterSnapshots[i][parNum] < fParameterSnapshots[0][parNum]) {
+            //is standard 
+            fStandardDownSet[parNum] = i; 
+          } else if(fParameterSnapshots[fStandardUpSet[parNum]][parNum] < fParameterSnapshots[0][parNum] && 
+             fParameterSnapshots[i][parNum] > fParameterSnapshots[0][parNum]) {
+            //standard but flipped order ..
+            fStandardDownSet[parNum] = fStandardUpSet[parNum];
+            fStandardUpSet[parNum]=i;
+          } else {
+            kIsStandardParameterVariations=false;
+          }
+        } else {
+          kIsStandardParameterVariations=false;
+        }
+      }
+    }
+    
     
   }
   return pset;
@@ -537,56 +566,83 @@ Double_t TRooHF1::evaluate() const
       pset=0;
     } else {
     
-      int i=0;
-      std::vector<int> setUp;std::vector<int> setDown; //get filled with parameter indices that should get set to up/down
-      for(auto& parVals : fParameterSnapshots) {
-        bool match(true); bool invalid(false);
-        RooFIter parItr(fParameters.fwdIterator());
-        int j=0; 
-        setUp.clear();setDown.clear();
-        while(auto par = parItr.next() ) {
-          RooAbsCategory* cat = dynamic_cast<RooAbsCategory*>(par);
-          if(cat) {
-            if( cat->getIndex() != int(parVals[j]+0.5) ) {
-              match=false;invalid=true;break;
-            }
-          } else {
-            //record if this is up/down/nom variation for this parameter
-            double parVal = ((RooAbsReal*)par)->getVal();
-            double parDiff = fabs(parVal - parVals[j]);
-            if(parDiff > 1e-9) {
-              match=false;
-              if(nomSet==-1) continue; //don't use the nomSet as our up-vs-down set
-              //check parVals[j] is different to fParameterSnapshots[0][j] ... i.e. that this is a variation for parameter j
-              if(fabs(parVals[j]-fParameterSnapshots[0][j])>1e-9) {
-                if(upSet[j]==-1) setUp.push_back(j); //if valid, will
-                else if(downSet[j]==-1) setDown.push_back(j);
-                else {
-                  //replace the one that is further away 
-                  double upDiff = fabs(fParameterSnapshots[upSet[j]][j] - parVal);
-                  double downDiff = fabs(fParameterSnapshots[downSet[j]][j] - parVal);
-                  if(parDiff<upDiff || parDiff<downDiff) {
-                    if(upDiff>downDiff) setUp.push_back(j);
-                    else setDown.push_back(j);
+      if(kIsStandardParameterVariations) {
+      
+        nomSet = 0;
+      
+      } else {
+    
+        int i=0;
+        std::vector<int> setUp;std::vector<int> setDown; //get filled with parameter indices that should get set to up/down
+        for(auto& parVals : fParameterSnapshots) {
+          bool match(true); bool invalid(false);
+          RooFIter parItr(fParameters.fwdIterator());
+          int j=0; 
+          setUp.clear();setDown.clear();
+          while(auto par = parItr.next() ) {
+            
+            RooAbsCategory* cat = dynamic_cast<RooAbsCategory*>(par);
+            if(cat) {
+              if( cat->getIndex() != int(parVals[j]+0.5) ) {
+                match=false;invalid=true;break;
+              }
+            } else {
+              //record if this is up/down/nom variation for this parameter
+              double parVal = ((RooAbsReal*)par)->getVal();
+              double parDiff = fabs(parVal - parVals[j]);
+              if(parDiff > 1e-9) {
+                match=false;
+                if(nomSet==-1) continue; //don't use the nomSet as our up-vs-down set 
+                //check parVals[j] is different to fParameterSnapshots[nomSet][j] ... i.e. that this is a variation for parameter j
+                if(fabs(parVals[j]-fParameterSnapshots[nomSet][j])<1e-9) continue;
+                
+                if(upSet[j]==-1) setUp.push_back(j); //the first variation we found
+                else if(fInterpCode[j]==0) {
+                  //special case for piecewise linear 
+                  
+                  if(downSet[j]==-1) {
+                    double relativeValPos = (parVal - fParameterSnapshots[nomSet][j])/(fParameterSnapshots[upSet[j]][j]-fParameterSnapshots[nomSet][j]);
+                    
+                    double relativeCurrPos = (parVals[j] - fParameterSnapshots[nomSet][j])/(fParameterSnapshots[upSet[j]][j]-fParameterSnapshots[nomSet][j]);
+                  
+                    if((relativeValPos > 1 && relativeCurrPos > 0) || (relativeValPos>0 && relativeCurrPos>0 && relativeCurrPos<relativeValPos)) {
+                      setDown.push_back(j); //add down 
+                    } else if((relativeValPos < 0 && relativeCurrPos < 1) || (relativeValPos>0 && relativeCurrPos<1 && relativeCurrPos>relativeValPos)) {
+                      setUp.push_back(j); //replace up
+                    }
+                  } else {
+                    //upSet and downSet must be closer to actual val than nomVal ...
+                    double relativeValPos = (parVal - fParameterSnapshots[downSet[j]][j])/(fParameterSnapshots[upSet[j]][j]-fParameterSnapshots[downSet[j]][j]);
+                    double relativeCurrPos = (parVals[j] - fParameterSnapshots[downSet[j]][j])/(fParameterSnapshots[upSet[j]][j]-fParameterSnapshots[downSet[j]][j]);
+                    
+                    if( (relativeValPos < 0 && relativeCurrPos < 1) || (relativeValPos < 1 && relativeCurrPos < 1 && relativeValPos < relativeCurrPos) ) {
+                      setUp.push_back(j); //replace up 
+                    } else if(relativeValPos < 1 && relativeValPos > 0 && relativeCurrPos > 0 && relativeCurrPos < relativeValPos) {
+                      setDown.push_back(j); //replace down
+                    }
+                    
                   }
                 }
+                else if(downSet[j]==-1) setDown.push_back(j);
+                
+                
               }
             }
+            j++;
           }
-          j++;
+          if(match) {
+            pset=i; 
+            break; //can just stop right now, found a perfect match
+          }
+          if(!invalid) { //if snapshot featured a variation up or down, store that
+            if(nomSet==-1) nomSet=i; //the first valid set is used as the nom set
+            //signal which parameters this snapshot is a valid variation for
+            for(auto& j : setUp) upSet[j]=i;
+            for(auto& j : setDown) downSet[j]=i;
+          }
+          i++;
         }
-        if(match) {
-          pset=i; 
-          break; //can just stop right now, found a perfect match
-        }
-        if(!invalid) { //if snapshot featured a variation up or down, store that
-          if(nomSet==-1) nomSet=i; //the first valid set is used as the nom set
-          //signal which parameters this snapshot is a valid variation for
-          for(auto& j : setUp) upSet[j]=i;
-          for(auto& j : setDown) downSet[j]=i;
-        }
-        i++;
-      }
+       }
     }
     
     //add the functional bin values
@@ -647,14 +703,57 @@ Double_t TRooHF1::evaluate() const
       int i=-1;
       while(auto par = parItr.next() ) {
         i++;
-        if(par->InheritsFrom( RooAbsCategory::Class() ) ) continue;
-        if(upSet[i]==-1) continue; //no variation for this parameter (need at least a point)
+        int upIdx = (kIsStandardParameterVariations) ? fStandardUpSet[i] : upSet[i]; //the paramSet corresponding to one nearest fluctuation 
+        
+        if(!kIsStandardParameterVariations && par->InheritsFrom( RooAbsCategory::Class() ) ) continue;
+        if(upIdx==-1) continue; //no variation for this parameter (need at least a point)
+        
+        double x_val = ((RooAbsReal*)par)->getVal();
+        
+        int downIdx = (kIsStandardParameterVariations) ? fStandardDownSet[i] : downSet[i]; //the paramSet that corresponds to the other nearest fluctuation (may be =-1 if no additional fluctuation)
+
+        double x_up = fParameterSnapshots[upIdx][i];
+        double x_down = (downIdx!=-1) ? fParameterSnapshots[downIdx][i] : fParameterSnapshots[nomSet][i];
+
+        
+        if(fInterpCode[i]==0 && downIdx!=-1) {
+          //when using piecewise interpolation, we may prefer nominal to one of up or down, if nominal is "closer" 
+          double x_nom = fParameterSnapshots[nomSet][i];
+          //have 4 numbers: x_up, x_down, x_nom, x_val  
+          //need to find the two which straddle x_val or are otherwise closest to x_val 
+          if(x_down < x_nom && x_nom < x_up) {
+            //standard ordering 
+            if(x_nom < x_val) {
+              //prefer nom to down
+              x_down = x_nom; downIdx=-1;
+            } else {
+              //prefer nom to up
+              upIdx = downIdx; x_up = x_down;
+              downIdx=-1; x_down = x_nom;
+            }
+          } else if(x_up < x_nom && x_nom < x_down) {
+            //reverse ordering 
+            if(x_nom < x_val) {
+              //prefer nom to up
+              upIdx = downIdx; x_up = x_down;
+              downIdx=-1; x_down = x_nom;
+            } else {
+              //prefer nom to down 
+              x_down = x_nom; downIdx=-1;
+            }
+          } else {
+            //unusual ordering ... not really supported ... 
+            //we'd really have to check where x_val is relative to the three values 
+            //also the x_up and x_down obtained may not straddle x_val, even if there were values that did
+          }
+          
+        }
         
         //now calculate the value based on interpolation between these two points 
         double y_up(0);
         double y_down(nomVal);
         if(fObsInterpCode) {
-          TH1* hh = GetHist( upSet[i] );
+          TH1* hh = fHists[upIdx];
           int bb[3]; hh->GetBinXYZ(bin,bb[0],bb[1],bb[2]);
           switch(hh->GetDimension()) {
             case 1: y_up = hh->Interpolate((fObsInterpCode&1)? static_cast<RooAbsReal&>(fObservables[0]).getVal() : hh->GetXaxis()->GetBinCenter( bb[0] )); break;
@@ -665,7 +764,7 @@ Double_t TRooHF1::evaluate() const
                                       (fObsInterpCode&4)? static_cast<RooAbsReal&>(fObservables[2]).getVal() : hh->GetYaxis()->GetBinCenter( bb[2] ) ); break;
           }
           if(downSet[i]!=-1) {
-            hh = GetHist( downSet[i] );
+            hh = fHists[downIdx];
             switch(hh->GetDimension()) {
               case 1: y_down = hh->Interpolate((fObsInterpCode&1)? static_cast<RooAbsReal&>(fObservables[0]).getVal() : hh->GetXaxis()->GetBinCenter( bb[0] )); break;
               case 2: y_down = hh->Interpolate((fObsInterpCode&1)? static_cast<RooAbsReal&>(fObservables[0]).getVal() : hh->GetXaxis()->GetBinCenter( bb[0] ), 
@@ -677,25 +776,21 @@ Double_t TRooHF1::evaluate() const
           }
           
         } else {
-          y_up = GetHist( upSet[i] )->GetBinContent(bin);
-          if(downSet[i]!=-1) y_down = GetHist( downSet[i] )->GetBinContent(bin);
+          y_up = fHists[upIdx]->GetBinContent(bin);
+          if(downIdx!=-1) y_down = fHists[downIdx]->GetBinContent(bin);
         }
-        double x_up = fParameterSnapshots[upSet[i]][i];
-        double x_val = ((RooAbsReal*)par)->getVal();
         
         
         bool doCode2(false);
-        switch(fInterpCode[i]*(downSet[i]!=-1)) {
+        switch(fInterpCode[i]*(downIdx!=-1)) {
         case 0:{ //piecewise linear always used if only one variation
              //if downSet unavailable, use nominal set as the down variation
-            double x_down = (downSet[i]==-1) ? fParameterSnapshots[nomSet][i] : fParameterSnapshots[downSet[i]][i];
             double tmpVal = ((y_up-y_down)/(x_up-x_down))*(x_val - x_down) + y_down;
             val += (tmpVal - nomVal);
             }break;
         case 2: //6th order poly with log extrapolation 
             doCode2=true;
         case 3:{ //6th order poly with linear extrapolation
-            double x_down = fParameterSnapshots[downSet[i]][i];
             
             if(x_val < x_down && x_val < x_up) {
               if(doCode2) {
@@ -741,7 +836,6 @@ Double_t TRooHF1::evaluate() const
                     
             }break;
         case 4:{ //6th order polynomial with log extrapolation
-            double x_down = fParameterSnapshots[downSet[i]][i];
         
         
             //scale and shift x values so x_up-x_down = 2 and x_up+x_down=0 (i.e. usual +1, -1 case) 

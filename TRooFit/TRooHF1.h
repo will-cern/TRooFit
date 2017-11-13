@@ -98,6 +98,9 @@ public:
   //virtual Int_t getAnalyticalIntegralWN(RooArgSet& allVars, RooArgSet& analVars, const RooArgSet* normSet, const char* rangeName) const; 
   //virtual Double_t analyticalIntegralWN(Int_t code, const RooArgSet* normSet, const char* rangeName) const;
 
+  bool kIsStandardParameterVariations=true;
+  std::vector<int> fStandardUpSet, fStandardDownSet;
+
 protected:
   Int_t getOrCreateParamSet();
 
