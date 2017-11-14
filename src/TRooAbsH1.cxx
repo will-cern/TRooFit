@@ -410,10 +410,21 @@ Double_t TRooAbsH1::GetBinError(int bin, const RooFitResult* fr) const {
     RooAbsCollection* crsnap = 0;
     //also ensure that all non-observables are held constant if they are not specified in the fit result 
     RooAbsCollection* cdeps =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
+    
+    //check if any of the floatPars have "injectValueAndError" attached ... if they do then we need to setVal and error on them 
+    RooAbsCollection* injectPars = fr->floatParsFinal().selectByAttrib("injectValueAndError",true);
+    if(injectPars->getSize()) {
+      *injectPars = *cdeps; 
+      const_cast<TRooFitResult*>(dynamic_cast<const TRooFitResult*>(fr))->resetCovarianceMatrix(); //updates covariance matrix with new errors
+    }
+    delete injectPars;
+    
     cdeps->remove(fr->floatParsFinal(),true,true/*remove by name*/);
     crsnap = cdeps->snapshot();
     *cdeps = fr->constPars(); //move constpars to their location  ... shouldn't be necessary now that i added line to getError method to set constPars values
     cdeps->setAttribAll("Constant",true); //hold everything const now
+    
+    
     
     out = getBinError(*fr);
     
@@ -840,6 +851,7 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
     ((RooRealVar*)paramList.at(ivar))->setVal(cenVal-errVal) ;
     minusVar.push_back(cloneFunc->getVal(nset)*(dynamic_cast<TRooAbsH1*>(cloneFunc))->expectedEvents(nset)) ;
     ((RooRealVar*)paramList.at(ivar))->setVal(cenVal) ;
+    
   }
 
   TMatrixDSym C(paramList.getSize()) ;      
