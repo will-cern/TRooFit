@@ -59,7 +59,7 @@ public:
   TGraphAsymmErrors* GetPullGraph() { return fPullGraph; }
   
 protected:
-  
+  void resetCovarianceMatrix();
 
 private:
   void init(const RooArgList& pars);
