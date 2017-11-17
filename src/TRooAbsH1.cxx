@@ -634,6 +634,9 @@ TH1* TRooAbsH1::createOrAdjustHistogram(TH1* hist, bool noBinLabels) const {
   hist->Reset();
   hist->SetTitle(GetTitle());
   
+  hist->SetMaximum( fMaximum );
+  hist->SetMinimum( fMinimum );
+  
   const char* rname = GetRangeName();
   RooAbsLValue* obs[3] = {0,0,0}; 
 

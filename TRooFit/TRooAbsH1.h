@@ -114,6 +114,11 @@ public:
   RooAbsPdf&  model(); //returns self, with constraint terms added if necessary
   RooProdPdf* buildConstraints(const RooArgSet& obs, const char* systGroups="", bool addSelf=false) const;
   
+  virtual void SetMinimum(Double_t minimum=-1111) { fMinimum=minimum; }
+  virtual void SetMaximum(Double_t maximum=-1111) { fMaximum=maximum; }
+  Double_t GetMinimum() const { return fMinimum; }
+  Double_t GetMaximum() const { return fMaximum; }
+  
   virtual void Draw(Option_t* option = "");
   virtual void Draw(Option_t* option,const TRooFitResult& r);
   virtual void Paint(Option_t* option = "");
@@ -160,6 +165,9 @@ protected:
   RooRealProxy fMissingBinProxy; //hold a proxy to it
   
   RooProdPdf* fThisWithConstraints = 0; //constructed in 'model' method.
+
+  Double_t fMinimum=-1111;
+  Double_t fMaximum=-1111;
 
 private:
   
