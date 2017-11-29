@@ -82,7 +82,7 @@ TRooAbsH1::TRooAbsH1(const TRooAbsH1& other, RooAbsArg* me) :
   kUseAbsPdfValV(other.kUseAbsPdfValV),
   kMustBePositive(other.kMustBePositive),fFloorValue(other.fFloorValue),
    fMissingBin(other.fMissingBin),
-   fMissingBinProxy(other.fMissingBinProxy.GetName(),me,other.fMissingBinProxy),fBlindRangeName(other.fBlindRangeName)
+   fMissingBinProxy(other.fMissingBinProxy.GetName(),me,other.fMissingBinProxy),kStats(other.kStats),fBlindRangeName(other.fBlindRangeName)
 { 
   //Copy constructor
   if(fRangeName=="") fRangeName=other.GetName(); //FIXME: should we default the fRangeName to name in constructor?
