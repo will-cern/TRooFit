@@ -17,13 +17,33 @@
 
 #include "TLine.h"
 #include "TBox.h"
+
+#include "RooRealVar.h"
  
 class TRooFitResult : public RooFitResult {
 public:
   friend class TRooAbsH1; //needed to setConstPars in Draw method
   friend class TRooAbsHStack;
-  TRooFitResult(const RooFitResult* res)  : RooFitResult(*res) {
+  TRooFitResult(const RooFitResult* res, double errorThreshold=-1)  : RooFitResult(*res) {
     //construct from an existing RooFitResult
+    //will discard floating parameters that had errors below the given threshold
+    RooFIter itr2( floatParsFinal().fwdIterator() );
+    RooAbsArg* arg = 0;
+    RooArgList badParams;
+    while( (arg = itr2.next()) ) {
+      if(dynamic_cast<RooRealVar*>(arg)->getError() < errorThreshold) {
+        badParams.add(*arg);
+      }
+    }
+    if(badParams.getSize()) {
+      //need to reduce ...
+      RooArgList goodParams(*_finalPars); goodParams.remove(badParams,true,true);
+      auto covMatrix = reducedCovarianceMatrix(goodParams);
+      _finalPars->remove( badParams, true, true );
+      _initPars->remove( badParams, true, true );
+      setCovarianceMatrix( covMatrix );
+    }
+    
    };
 
   TRooFitResult(const char* name, const char* title, const RooArgList& finalPars); //will construct a covariance matrix assuming all uncorrelated
@@ -42,7 +62,7 @@ public:
   
   TRooFitResult(const char* constPars=""); 
   
-  virtual void Paint(Option_t* option = "") {
+  virtual void Paint(Option_t*) {
     if(fPullFrame) {
       //fPullFrame->Paint(option);
       for(auto& o : fPullBoxes) o.Paint("3");
@@ -50,7 +70,7 @@ public:
       fPullFrame->Paint("sameaxis");
     }
     if(fPullGraph) fPullGraph->Paint("p");
-    if(fCovHist) fCovHist->Paint("COLZ");
+    if(fCovHist) fCovHist->Paint("sameaxis");
   }
   
   virtual void Draw(Option_t* option = "pull") { Draw(option,RooArgList()); }
@@ -59,7 +79,7 @@ public:
   TGraphAsymmErrors* GetPullGraph() { return fPullGraph; }
   
 protected:
-  
+  void resetCovarianceMatrix();
 
 private:
   void init(const RooArgList& pars);

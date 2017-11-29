@@ -82,7 +82,7 @@ TRooAbsH1::TRooAbsH1(const TRooAbsH1& other, RooAbsArg* me) :
   kUseAbsPdfValV(other.kUseAbsPdfValV),
   kMustBePositive(other.kMustBePositive),fFloorValue(other.fFloorValue),
    fMissingBin(other.fMissingBin),
-   fMissingBinProxy(other.fMissingBinProxy.GetName(),me,other.fMissingBinProxy)
+   fMissingBinProxy(other.fMissingBinProxy.GetName(),me,other.fMissingBinProxy),kStats(other.kStats),fBlindRangeName(other.fBlindRangeName)
 { 
   //Copy constructor
   if(fRangeName=="") fRangeName=other.GetName(); //FIXME: should we default the fRangeName to name in constructor?
@@ -108,6 +108,82 @@ RooAbsReal* TRooAbsH1::createIntegralWM(const RooArgSet& iset,const char* rangeN
   
 }
 
+Double_t TRooAbsH1::Integral(Option_t* opt) const {
+  TString sOpt(opt);
+  std::unique_ptr<RooAbsReal> inte( (sOpt.Contains("m")) ?  createIntegralWM(fObservables) : dynamic_cast<const RooAbsReal*>(this)->createIntegral(fObservables) );
+  return inte->getVal();
+}
+Double_t TRooAbsH1::IntegralAndErrorImpl(Double_t& err, const RooFitResult& fr, const char* rangeName, Option_t* opt) const {
+  TString sOpt(opt);
+  std::unique_ptr<RooAbsReal> inte( (sOpt.Contains("m")) ?  createIntegralWM(fObservables,rangeName) : dynamic_cast<const RooAbsReal*>(this)->createIntegral(fObservables,rangeName) );
+  
+  //the getPropagatedError method needs protecting from negligible errors 
+  TRooFitResult fr2(&fr , 1e-9);
+  
+  if(sOpt.Contains("v")) {
+    fr.Print();
+    fr2.floatParsFinal().Print("v");
+    fr2.covarianceMatrix().Print();
+  }
+  
+    err = inte->getPropagatedError(fr2);
+  
+
+  return inte->getVal();
+}
+
+Double_t TRooAbsH1::IntegralAndError(Double_t& err, const TRooFitResult* fr, const char* rangeName, Option_t* opt) const {
+  double out=0;
+  if(fr==0) {
+    //create one with anything that isn't my observables 
+    RooArgSet* params =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
+    TRooFitResult r(*params);
+    delete params;
+    out = IntegralAndErrorImpl(err,static_cast<const RooFitResult&>(r),rangeName,opt);
+  } else if(fr->floatParsFinal().getSize()==0) {
+      //no floating pars ... error would by definition be zero for this case
+      //we assume here that isn't what the user wanted ... instead assume they wanted all parameters 
+      //that are not in the constPars list 
+      RooAbsCollection* cdeps =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
+      cdeps->remove(fr->constPars(),true,true);
+      RooArgList l; l.add(*cdeps);
+      TRooFitResult r(l,fr->constPars());
+      out = IntegralAndErrorImpl(err,static_cast<const RooFitResult&>(r),rangeName,opt);
+      delete cdeps;
+      
+      
+  } else {
+  
+    RooAbsCollection* crsnap = 0;
+    //also ensure that all non-observables are held constant if they are not specified in the fit result 
+    RooAbsCollection* cdeps =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
+    
+    //check if any of the floatPars have "injectValueAndError" attached ... if they do then we need to setVal and error on them 
+    RooAbsCollection* injectPars = fr->floatParsFinal().selectByAttrib("injectValueAndError",true);
+    if(injectPars->getSize()) {
+      *injectPars = *cdeps; 
+      const_cast<TRooFitResult*>(dynamic_cast<const TRooFitResult*>(fr))->resetCovarianceMatrix(); //updates covariance matrix with new errors
+    }
+    delete injectPars;
+    
+    cdeps->remove(fr->floatParsFinal(),true,true/*remove by name*/);
+    crsnap = cdeps->snapshot();
+    *cdeps = fr->constPars(); //move constpars to their location  ... shouldn't be necessary now that i added line to getError method to set constPars values
+    cdeps->setAttribAll("Constant",true); //hold everything const now
+    
+    
+    
+    out = IntegralAndErrorImpl(err,static_cast<const RooFitResult&>(*fr),rangeName,opt);
+    
+    *cdeps = *crsnap; //this will also revert constant status
+    delete cdeps;
+    delete crsnap;
+  }
+  return out;
+}
+
+
+
 bool TRooAbsH1::addNormFactor( RooAbsReal& factor ) {
   //Add an overall normalization factor to this TRooFit pdf 
   //If you want the factor to be constrained, you should specify a 
@@ -127,6 +203,7 @@ bool TRooAbsH1::addNormFactor( RooAbsReal& factor ) {
     client->addServer(factor);client->setValueDirty();client->setShapeDirty();
   }
   delete citer;
+  resetNormMgr();
   return true;
 }
 
@@ -143,6 +220,7 @@ bool TRooAbsH1::addShapeFactor( int bin, RooAbsReal& factor ) {
       client->addServer(factor);client->setValueDirty();client->setShapeDirty();
     }
     delete citer;
+    resetNormMgr();
   }
   fBinsShapeFactors[bin].push_back( fShapeFactors.index( &factor ) );
   return true;
@@ -257,9 +335,9 @@ RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
 
 }
 
-Int_t TRooAbsH1::FindFixBin( double x ) const {
+Int_t TRooAbsH1::FindFixBin( double x, double y, double z ) const {
 
-  return fDummyHist->FindFixBin(x); //just use the hist
+  return fDummyHist->FindFixBin(x,y,z); //just use the hist
 
   int out = 0; int factor = 1;
   for(int i=0;i<fObservables.getSize();i++) {
@@ -333,27 +411,35 @@ Int_t TRooAbsH1::getBin(const char* rangeName) const {
   if(GetDimension()==0) return 1;
   int out = 0; int factor = 1;
   const char* rName = GetRangeName(rangeName);
-  for(int i=0;i<fObservables.getSize();i++) {
+  
+  RooFIter itr( fObservables.fwdIterator() );
+  RooAbsArg* obs = 0;
+  while( (obs = itr.next()) ) {
     double bin = 0;
-    if(!fObservables[i].inRange(rName)) {
+    RooAbsLValue* lal = dynamic_cast<RooAbsLValue*>(obs);
+    if(!obs->inRange(rName)) {
       //see if is under or overflow
-      if(static_cast<RooRealVar&>(fObservables[i]).getVal() > static_cast<RooRealVar&>(fObservables[i]).getMin(rName))  {
-        bin = static_cast<RooRealVar&>(fObservables[i]).numBins(rName)+1;
-      }
+      RooRealVar* rar = static_cast<RooRealVar*>(obs);
+      if(rar->getVal() > rar->getMax(rName))  {
+        bin = rar->numBins(rName)+2;
+      } 
     } else {
-      bin = dynamic_cast<RooAbsLValue&>(fObservables[i]).getBin(rName)+1; 
+      bin = lal->getBin(rName)+1; 
     }
     out += factor*bin;
     
-    if( fObservables[i].InheritsFrom( RooAbsCategory::Class() ) ) {
+    factor *= (lal->numBins(rName)+2);
+    
+    /*
+    if( obs->InheritsFrom( RooAbsCategory::Class() ) ) {
       //discrete variable, so no need to cover for overflows
       //out -= factor;
       //now increase factor by number of categories
-      factor *= (static_cast<RooAbsCategory&>(fObservables[i]).numTypes(rName)+2);
+      factor *= (static_cast<RooAbsCategory&>(*obs).numTypes(rName)+2);
     } else {
-      factor *= (static_cast<RooRealVar&>(fObservables[i]).numBins(rName)+2);
+      factor *= (static_cast<RooRealVar&>(*obs).numBins(rName)+2);
     }
-    
+    */
     //increase factor by number of bins (if observable was category) or bins + 2 (if continuous)
   }
   return out;
@@ -385,7 +471,8 @@ Double_t TRooAbsH1::GetBinError(int bin, const RooFitResult* fr) const {
     TRooFitResult r(*params);
     delete params;
     out = getBinError(r);
-  } else if(fr->floatParsFinal().getSize()==0) {
+  } else { out = getBinError(*fr); } /* MOVED ALL THIS LOGIC TO getError method, so that shared by fillGraph etc
+  else if(fr->floatParsFinal().getSize()==0) {
       //no floating pars ... error would by definition be zero for this case
       //we assume here that isn't what the user wanted ... instead assume they wanted all parameters 
       //that are not in the constPars list 
@@ -402,17 +489,28 @@ Double_t TRooAbsH1::GetBinError(int bin, const RooFitResult* fr) const {
     RooAbsCollection* crsnap = 0;
     //also ensure that all non-observables are held constant if they are not specified in the fit result 
     RooAbsCollection* cdeps =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
-    cdeps->remove(fr->floatParsFinal(),true,true/*remove by name*/);
+    
+    //check if any of the floatPars have "injectValueAndError" attached ... if they do then we need to setVal and error on them 
+    RooAbsCollection* injectPars = fr->floatParsFinal().selectByAttrib("injectValueAndError",true);
+    if(injectPars->getSize()) {
+      *injectPars = *cdeps; 
+      const_cast<TRooFitResult*>(dynamic_cast<const TRooFitResult*>(fr))->resetCovarianceMatrix(); //updates covariance matrix with new errors
+    }
+    delete injectPars;
+    
+    cdeps->remove(fr->floatParsFinal(),true,true);
     crsnap = cdeps->snapshot();
     *cdeps = fr->constPars(); //move constpars to their location  ... shouldn't be necessary now that i added line to getError method to set constPars values
     cdeps->setAttribAll("Constant",true); //hold everything const now
+    
+    
     
     out = getBinError(*fr);
     
     *cdeps = *crsnap; //this will also revert constant status
     delete cdeps;
     delete crsnap;
-  }
+  }*/
   switch(GetDimension()) {
     case 3: dynamic_cast<RooAbsLValue&>(fObservables[2]).setBin(tmpVals[2],GetRangeName());
     case 2: dynamic_cast<RooAbsLValue&>(fObservables[1]).setBin(tmpVals[1],GetRangeName());
@@ -615,6 +713,10 @@ TH1* TRooAbsH1::createOrAdjustHistogram(TH1* hist, bool noBinLabels) const {
   hist->Reset();
   hist->SetTitle(GetTitle());
   
+  hist->SetMaximum( fMaximum );
+  hist->SetMinimum( fMinimum );
+  hist->SetStats( kStats );
+  
   const char* rname = GetRangeName();
   RooAbsLValue* obs[3] = {0,0,0}; 
 
@@ -764,6 +866,33 @@ void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool inclu
 //_____________________________________________________________________________
 Double_t TRooAbsH1::getError(const RooFitResult& fr) const 
 {
+
+  if(fr.floatParsFinal().getSize()==0) {
+      //no floating pars ... error would by definition be zero for this case
+      //we assume here that isn't what the user wanted ... instead assume they wanted all parameters 
+      //that are not in the constPars list 
+      RooAbsCollection* cdeps =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
+      cdeps->remove(fr.constPars(),true,true);
+      double out=0;
+      if(cdeps->getSize()) {
+        RooArgList l; l.add(*cdeps);
+        TRooFitResult r(l,fr.constPars());
+        out = getError(r);
+      }
+      delete cdeps;
+      return out;
+      
+  } else {
+  //check if any of the floatPars have "injectValueAndError" attached ... if they do then we need to setVal and error on them 
+    RooAbsCollection* injectPars = fr.floatParsFinal().selectByAttrib("injectValueAndError",true);
+    if(injectPars->getSize()) {
+      RooAbsCollection* cdeps =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables); //everything except observables
+      *injectPars = *cdeps; 
+      const_cast<TRooFitResult&>(dynamic_cast<const TRooFitResult&>(fr)).resetCovarianceMatrix(); //updates covariance matrix with new errors
+      delete cdeps;
+    }
+    delete injectPars;
+  }
   // Calculate error on self by propagated errors on parameters with correlations as given by fit result
   // The linearly propagated error is calculated as follows
   //                                    T            
@@ -832,6 +961,7 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
     ((RooRealVar*)paramList.at(ivar))->setVal(cenVal-errVal) ;
     minusVar.push_back(cloneFunc->getVal(nset)*(dynamic_cast<TRooAbsH1*>(cloneFunc))->expectedEvents(nset)) ;
     ((RooRealVar*)paramList.at(ivar))->setVal(cenVal) ;
+    
   }
 
   TMatrixDSym C(paramList.getSize()) ;      
@@ -871,17 +1001,24 @@ void TRooAbsH1::Paint(Option_t*) {
     
     //first ensure the last drawn histogram is appropriately styled
     if(fDrawHistograms.size()) {
-      (*dynamic_cast<TAttFill*>(fDrawHistograms.back().hist)) = *this;
-      (*dynamic_cast<TAttLine*>(fDrawHistograms.back().hist)) = *this;
-      (*dynamic_cast<TAttMarker*>(fDrawHistograms.back().hist)) = *this;
-      if(fDrawHistograms.back().postHist) {
-        //copy over to posthist too .. but check what type of posthist it is
-        if(!strcmp(fDrawHistograms.back().postHist->GetOption(),"e2same")) {
-          //is an errorbar hist, so only copy line width and line color
-          (*dynamic_cast<TAttLine*>(fDrawHistograms.back().postHist)).SetLineWidth( this->GetLineWidth() );
-          (*dynamic_cast<TAttFill*>(fDrawHistograms.back().postHist)).SetFillColor( this->GetLineColor() );
+      if(fDrawHistograms.back().hist->InheritsFrom(TGraph::Class()) && fDrawHistograms.back().opt.Contains("e")) {
+        //drawing a 'value' graph, so only propagate markers and lines, not fill style
+        (*dynamic_cast<TAttLine*>(fDrawHistograms.back().hist)) = *this;
+        (*dynamic_cast<TAttMarker*>(fDrawHistograms.back().hist)) = *this;
+        (*dynamic_cast<TAttFill*>(fDrawHistograms.back().hist)).SetFillColor( this->GetLineColor() ); //fill color matches line color
+      } else {
+        (*dynamic_cast<TAttFill*>(fDrawHistograms.back().hist)) = *this;
+        (*dynamic_cast<TAttLine*>(fDrawHistograms.back().hist)) = *this;
+        (*dynamic_cast<TAttMarker*>(fDrawHistograms.back().hist)) = *this;
+        if(fDrawHistograms.back().postHist) {
+          //copy over to posthist too .. but check what type of posthist it is
+          if(!strcmp(fDrawHistograms.back().postHist->GetOption(),"e2same")) {
+            //is an errorbar hist, so only copy line width and line color
+            (*dynamic_cast<TAttLine*>(fDrawHistograms.back().postHist)).SetLineWidth( this->GetLineWidth() );
+            (*dynamic_cast<TAttFill*>(fDrawHistograms.back().postHist)).SetFillColor( this->GetLineColor() );
+          }
+          
         }
-        
       }
       
       /*
@@ -953,9 +1090,9 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
   //
   //Extra Options available:
   //    init: use floatParsInit from TRooFitResult when drawing content + errors
-  //    pdf: Draw the probability density, as a TGraphErrors (you then usually include "AL" option) (samples 100 points)
-  //    pdfXXXX (where XXXX is a number > 100): Same as above but can control the number of points sampled
-  //    pdf hist: Draw probability density but as a histogram .. no error bar unless 'e' option included
+  //    val: Draw the raw value (pdf density for TRooH1, or value for TRooHF1), as a TGraphErrors (you then usually include "AL" option) (samples 100 points)
+  //    valXXXX (where XXXX is a number > 100): Same as above but can control the number of points sampled
+  //    val hist: Draw raw value but as a histogram .. no error bar unless 'e' option included .. for TRooHF1 this is the same as no extra option
   
 
   TString opt = option;
@@ -1014,7 +1151,7 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
    if(gPad->IsEditable()) {
     fDrawHistograms.emplace_back( DrawnHistogram() );
     fDrawHistograms.back().pad = gPad;
-    if(opt.Contains("pdf")) {
+    if(opt.Contains("val")) {
       TGraph* g = 0;
       TH1* h = 0;
       
@@ -1023,13 +1160,16 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         fDrawHistograms.back().hist = h;
         fillHistogram(h,r2,opt.Contains("e"));
         
-        for(int i=1;i<=h->GetNbinsX();i++) {
-          for(int j=1;j<=h->GetNbinsY();j++) {
-            for(int k=1;k<=h->GetNbinsZ();k++) {
-              int bin = h->GetBin(i,j,k);
-              double binVolume = h->GetXaxis()->GetBinWidth(i)*h->GetYaxis()->GetBinWidth(j)*h->GetZaxis()->GetBinWidth(k);
-              h->SetBinContent(bin,h->GetBinContent(bin)/binVolume);
-              h->SetBinError(bin,h->GetBinError(bin)/binVolume);
+        //divide by bin volume if we inherit from RooAbsPdf
+        if(dynamic_cast<TObject*>(this)->InheritsFrom(RooAbsPdf::Class())) {
+          for(int i=1;i<=h->GetNbinsX();i++) {
+            for(int j=1;j<=h->GetNbinsY();j++) {
+              for(int k=1;k<=h->GetNbinsZ();k++) {
+                int bin = h->GetBin(i,j,k);
+                double binVolume = h->GetXaxis()->GetBinWidth(i)*h->GetYaxis()->GetBinWidth(j)*h->GetZaxis()->GetBinWidth(k);
+                h->SetBinContent(bin,h->GetBinContent(bin)/binVolume);
+                h->SetBinError(bin,h->GetBinError(bin)/binVolume);
+              }
             }
           }
         }
@@ -1044,8 +1184,8 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         TRooAbsH1::createOrAdjustHistogram( g->GetHistogram() );
         
         //check for an integer straight after pdf ... that will be the nPoints
-        int nPoints = TString(opt(opt.Index("pdf")+3,opt.Length())).Atoi();
-        if(nPoints>0) opt.ReplaceAll(Form("pdf%d",nPoints),"");
+        int nPoints = TString(opt(opt.Index("val")+3,opt.Length())).Atoi();
+        if(nPoints>0) opt.ReplaceAll(Form("val%d",nPoints),"");
         fillGraph(g,r2,opt.Contains("e"), (nPoints>100) ? nPoints : 100);
         (*dynamic_cast<TAttFill*>(g)) = *this;
         (*dynamic_cast<TAttLine*>(g)) = *this;
@@ -1053,7 +1193,7 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         h = g->GetHistogram();
       }
       
-      if(fObservables.getSize()) {
+      if(fObservables.getSize() && dynamic_cast<TObject*>(this)->InheritsFrom(RooAbsPdf::Class())) {
         RooAbsArg& arg = fObservables[0];
         RooAbsReal* argreal = dynamic_cast<RooAbsReal*>(&arg);
         
@@ -1073,12 +1213,21 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         }
       }
       
-      opt.ReplaceAll("pdf","");
+      opt.ReplaceAll("val","");
       
       if(opt.Contains("e") && opt.Contains("l") && g) {
         //want to ensure line appears above error band, so draw put a copy in the posthist ..
         fDrawHistograms.back().postHist = g;
         fDrawHistograms.back().postHistOpt = "lx"; //draws as line without error bars
+      }
+      
+      if(opt.Contains("e3")) {
+        int fillType = TString(opt(opt.Index("e3")+1,opt.Length())).Atoi();
+        if(fillType>=3000 && fillType<=3999) {
+          opt.ReplaceAll(TString::Format("e%d",fillType),"e3");
+          g->SetFillStyle(fillType);g->SetFillColor(g->GetLineColor());
+        }
+        
       }
       
     } else { 
@@ -1109,7 +1258,7 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         opt += "hist";
         //also if not drawing with 'same' option then draw axis of the hist, so that axis span the error bar 
         if(!opt.Contains("same")) {
-          gPad->GetListOfPrimitives()->AddFirst( hist , "axis" );
+          gPad->GetListOfPrimitives()->AddFirst( hist , "axis" ); //NOTE: sadly this means that the histogram title does not show up ... because this 'axis' version gets no title, but is drawn first
           opt += "same";
         }
       }

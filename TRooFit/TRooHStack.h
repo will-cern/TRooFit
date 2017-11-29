@@ -24,11 +24,12 @@ public:
   const char* GetTitle() const { return TNamed::GetTitle(); }
   Double_t getVal(const RooArgSet* nset = 0) const { return RooRealSumPdf::getVal(nset); }
   Double_t getVal(const RooArgSet& nset) const { return RooRealSumPdf::getVal(nset); }
-  virtual Double_t expectedEvents(const RooArgSet* nset=0) const { Double_t out = RooRealSumPdf::getNorm(nset); if(out<0 && kMustBePositive) return 0; return out; }
-  virtual Double_t expectedEvents(const RooArgSet& nset) const { Double_t out = RooRealSumPdf::getNorm(nset); if(out<0 && kMustBePositive) return 0; return out; }
+  virtual Double_t expectedEvents(const RooArgSet* nset=0) const { Double_t out = RooRealSumPdf::getNorm(nset); if(out<fFloorValue && kMustBePositive) return fFloorValue; return out; }
+  virtual Double_t expectedEvents(const RooArgSet& nset) const { Double_t out = RooRealSumPdf::getNorm(nset); if(out<fFloorValue && kMustBePositive) return fFloorValue; return out; }
   ///----
   virtual Double_t missingEvents() const { return TRooAbsHStack::missingEvents(); }
 
+  void resetNormMgr() { _normMgr.reset(); }
 
   TRooHStack() {} ; 
   

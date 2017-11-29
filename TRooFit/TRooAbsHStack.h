@@ -42,10 +42,9 @@ public:
   THStack* fillStack(THStack* stack, const RooFitResult* fr = 0, bool noRestyle=false) const;
 
   void SetMinimum(Double_t min) { fMinimum=min; if(fDrawStacks.size()) fDrawStacks.back().stack->SetMinimum(fMinimum); }
-  void SetMaximum(Double_t max) { fMaximum=max; if(fDrawStacks.size()) fDrawStacks.back().stack->SetMaximum(fMaximum);}
+  void SetMaximum(Double_t max) { fMaximum=max; if(fDrawStacks.size()) fDrawStacks.back().stack->SetMaximum(fMaximum); }
   
-  Double_t GetMinimum() const { return fMinimum; }
-  Double_t GetMaximum() const { return fMaximum; }
+  
 
   virtual TAxis* GetXaxis() const;
   virtual TAxis* GetYaxis() const;
@@ -73,8 +72,6 @@ protected:
   virtual void reinit() = 0; //called after adding new components
   //virtual TClass* IsA() const = 0;
 
-  Double_t fMinimum = -1111;
-  Double_t fMaximum = -1111;
 
 public:
   ClassDef(TRooAbsHStack,1)

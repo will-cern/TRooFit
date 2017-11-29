@@ -28,11 +28,17 @@ void TRooFitResult::init(const RooArgList& pars) {
   
   setFinalParList(realpars);
   setConstParList(constpars);
+  resetCovarianceMatrix(); //fills covariance matrix from float pars final
+  setInitParList(floatParsFinal());
   
+}
+
+
+void TRooFitResult::resetCovarianceMatrix() {
   TMatrixDSym cov(floatParsFinal().getSize());
   
   RooFIter itr2( floatParsFinal().fwdIterator() );
-  
+  RooAbsArg* arg = 0;
   int i=0;
   while( (arg = itr2.next()) ) {
     cov(i,i) = pow(dynamic_cast<RooRealVar*>(arg)->getError(),2);
@@ -58,12 +64,8 @@ void TRooFitResult::init(const RooArgList& pars) {
     }
     i++;
   }
-  
-  
-  setInitParList(floatParsFinal());
   setCovarianceMatrix(cov);
 }
-
 
 TRooFitResult::TRooFitResult(const char* name, const char* title, const RooArgList& pars) 
   : RooFitResult(name,title) {
@@ -74,12 +76,14 @@ TRooFitResult::TRooFitResult(const char* name, const char* title, const RooArgLi
 
 TRooFitResult::TRooFitResult(const char* constPars) : RooFitResult() {
   //constructor that takes a string "x=y,a=b" etc ... copies those into constPars
+  //Anything without an = sign in it will be interpreted as a floating parameter
   //This can be used for quickly checking what a TRooFit histogram looks like 
   //at a given parameter value ... e.g. 
   // h.Draw("param=2.0")
 
   //parse the finalPars expression for "x=y" terms
   RooArgList pars;
+  RooArgList floats;
   
   TStringToken nameToken(constPars,",");
   while(nameToken.NextToken()) {
@@ -90,6 +94,11 @@ TRooFitResult::TRooFitResult(const char* constPars) : RooFitResult() {
         TString parVal = subName(subName.Index("=")+1,subName.Length());
         RooRealVar* v = new RooRealVar(parName,parName,parVal.Atof());
         pars.addOwned(*v); //so that will delete when done
+      } else {
+        //assume parameter is actually to belong to final pars
+        RooRealVar* v =  new RooRealVar(subName,subName,0);
+        v->setAttribute("injectValueAndError"); //used in TRooAbsH1::GetBinError to inject parameter values and errors
+        floats.addOwned( *v );
       }
       
 
@@ -98,7 +107,7 @@ TRooFitResult::TRooFitResult(const char* constPars) : RooFitResult() {
   //init(pars);
   setConstParList(pars);
   setInitParList(RooArgList());
-  setFinalParList(RooArgList());
+  setFinalParList(floats);
 
 }
 
@@ -184,6 +193,7 @@ void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
     }
     if(opt.Contains("cor")) { covHist->SetAxisRange(-1,1,"Z"); }
     fCovHist = covHist;
+    fCovHist->SetStats(0);
   }
   
   if (gPad) {
@@ -196,5 +206,6 @@ void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
       }
   }
   if(!opt.Contains("same") && opt.Contains("pull")) fPullFrame->Draw();
+  if(!opt.Contains("same") && (opt.Contains("cov")||opt.Contains("cor"))) fCovHist->Draw("COLZ");
   TObject::Draw(option);
 }

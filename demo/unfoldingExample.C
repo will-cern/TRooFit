@@ -7,7 +7,7 @@
   //  An optional regularization chi2 penalty term can be included
   //==============================================================
 
-  bool doRegularization(false); //should we add a regularization chi2 penalty term?
+  bool doRegularization(true); //should we add a regularization chi2 penalty term?
 
   TFile f1("histograms.root");
   //get three different truth and corresponding reco distributions
@@ -129,7 +129,8 @@
   // modify the bin error in hist_mc1_gen so that every bin has an error = regularization strength
   //
   //Note that adding a regularization term like this will bias the fit!
-  
+  TRooChi2Constraint* penalty =0;
+  TRooGPConstraint* gpPenalty = 0;
   if(doRegularization) {
     double tau=pow(10.,-2.25);
     for(int i=1;i<=hist_mc1_gen->GetNbinsX();i++) {
@@ -137,7 +138,11 @@
     }
     
     RooDataHist* truth_ref = new RooDataHist("truth_ref","truth_ref",r_gen,hist_mc1_gen);
-    TRooChi2Constraint* penalty = new TRooChi2Constraint("penalty","penalty",truth,*truth_ref,true);
+    penalty = new TRooChi2Constraint("penalty","penalty",truth,*truth_ref,true);
+    
+    TMatrixD k(hist_mc1_gen->GetNbinsX(),hist_mc1_gen->GetNbinsX());
+    for(int i=0;i<hist_mc1_gen->GetNbinsX();i++) k(i,i)=2./(tau*tau);
+    gpPenalty = new TRooGPConstraint("penalty","penalty",truth,*truth_ref,k);
     
     model = new RooProdPdf("allWithPenalty","Model with Regularization Penalty",RooArgList(*model,*penalty));
     
