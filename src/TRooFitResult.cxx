@@ -193,6 +193,7 @@ void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
     }
     if(opt.Contains("cor")) { covHist->SetAxisRange(-1,1,"Z"); }
     fCovHist = covHist;
+    fCovHist->SetStats(0);
   }
   
   if (gPad) {
@@ -205,5 +206,6 @@ void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
       }
   }
   if(!opt.Contains("same") && opt.Contains("pull")) fPullFrame->Draw();
+  if(!opt.Contains("same") && (opt.Contains("cov")||opt.Contains("cor"))) fCovHist->Draw("COLZ");
   TObject::Draw(option);
 }

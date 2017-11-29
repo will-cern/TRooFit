@@ -35,6 +35,8 @@ public:
   Double_t expectedEvents(const RooArgSet& nset) const { return expectedEvents(&nset); }
   ///----
   
+  void resetNormMgr() { _normMgr.reset(); }
+  
   virtual void Paint(Option_t* option = "") { TRooAbsH1Fillable::Paint(option); }
   virtual void Draw(Option_t* option="") { TRooAbsH1Fillable::Draw(option); }
   virtual void Draw(Option_t* option,const TRooFitResult& r) { TRooAbsH1Fillable::Draw(option,r); }

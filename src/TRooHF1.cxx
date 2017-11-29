@@ -23,7 +23,8 @@ TRooHF1::TRooHF1(const TRooHF1& other, const char* name) :
 
 Double_t TRooHF1::evaluate() const 
 {
-  return TRooAbsH1Fillable::evaluateImpl(false);
+  double out1 = TRooAbsH1Fillable::evaluateImpl(false);if(kMustBePositive && out1 < fFloorValue) out1=fFloorValue;
+  return out1;
 
   //The main roofit evaluation method. Users should not call this directly 
   //It is computing the pdf value (the probability density) 
@@ -395,6 +396,8 @@ Double_t TRooHF1::evaluate() const
       out *= ((RooAbsReal&)fShapeFactors[sfIdx]).getVal();
     }
   }
+  
+  if(kMustBePositive && out < fFloorValue) out=fFloorValue;
   
   return out;
   

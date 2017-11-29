@@ -323,7 +323,8 @@ Int_t TRooAbsH1Fillable::getOrCreateParamSet() {
     client->setValueDirty();client->setShapeDirty();
   }
   delete citer;
-  
+  //FIXME: I think we should reset (or at least sterilize) the _normMgr if this is RooAbsPdf too
+  resetNormMgr();
 
   int pset = getParamSet();
   
@@ -591,6 +592,14 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
 //std::cout << "rangeName = " << GetRangeName() << " "; fObservables.Print("v"); 
 
   double out = 0;
+  
+  if(fBlindRangeName.Length()) {
+    RooFIter obsItr(fObservables.fwdIterator());
+    while(auto obs = obsItr.next() ) {
+      if(obs->inRange(fBlindRangeName)) return 0;
+    }
+  }
+  
   int bin = getBin(GetName()); //forcefully use OUR binning 
 
 
@@ -699,7 +708,7 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
       for(auto& vals : fIter1->second) {
         //warning: dont want to use getVal(_normSet) because we've added a pdf, not necessarily added a NORMALIZED pdf
         val = static_cast<RooAbsReal&>(fValues[vals]).getVal();
-        if( (!divideByBinWidth) || fValues[vals].InheritsFrom(RooAbsPdf::Class()) ) val *= binVol; //if function is a pdf, we assume it is already a density!
+        if( (divideByBinWidth) && !fValues[vals].InheritsFrom(RooAbsPdf::Class()) ) val *= binVol; //if function is a pdf, we assume it is already a density!
         out += val;
       }
     }
@@ -708,7 +717,7 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
       if(divideByBinWidth && !gotBinVol) { gotBinVol=true; binVol /= GetBinVolume(bin); }
       for(auto& vals : fIter2->second) {
         val = static_cast<RooAbsReal&>(fValues[vals]).getVal();
-        if( (!divideByBinWidth) || fValues[vals].InheritsFrom(RooAbsPdf::Class()) ) val *= binVol;   //should we divide these by bin volume!!?? perhaps only if is function of observables
+        if( (divideByBinWidth) && !fValues[vals].InheritsFrom(RooAbsPdf::Class()) ) val *= binVol;   //should we divide these by bin volume!!?? perhaps only if is function of observables
         out += val;
       }
     }

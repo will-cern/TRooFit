@@ -58,6 +58,8 @@ public:
   virtual TH1* getNominalHist() const = 0; //retrieves the underlying nominal histogram
   //-------
   
+  virtual void resetNormMgr() { return; } //overridden in TRooH1
+  
   virtual Double_t missingEvents() const; //default implementation just checks fMissingBin - override in stacks to combine components
   virtual RooAbsReal* createIntegralWM(const RooArgSet& iset,const char* rangeName = 0) const;
   
@@ -66,6 +68,8 @@ public:
   Int_t GetDimension() const { return fObservables.getSize(); }
   virtual TAxis* GetXaxis() const;
   virtual TAxis* GetYaxis() const;
+  
+
   
   bool addNormFactor( RooAbsReal& factor ); //add a norm factor
   bool addShapeFactor( int bin, RooAbsReal& factor ); //add a shape factor to a bin
@@ -79,7 +83,9 @@ public:
   } //derived classes will override this
   
   //these functions use the ACTUAL binning of this object
-  Int_t FindFixBin( double x ) const;
+  Int_t FindFixBin( double x, double y=0, double z=0 ) const;
+  Int_t GetNbinsX() const { return GetXaxis()->GetNbins(); }
+  Int_t GetNbinsY() const { return GetYaxis()->GetNbins(); }
   std::unique_ptr<RooArgSet> GetShapeFactors(int bin) const; 
   
   
@@ -108,6 +114,9 @@ public:
   
   //other methods to mimic TH1 behaviour 
   Double_t Integral(Option_t* opt="") const;
+  Double_t IntegralAndError(Double_t& err, const TRooFitResult* fr=0, const char* rangeName=0, Option_t* opt="") const;
+  Double_t IntegralAndError(Double_t& err, const TRooFitResult& fr, const char* rangeName=0, Option_t* opt="") const { return IntegralAndError(err,&fr,rangeName,opt); }
+  
   
   
   //these functions are used when fitting
@@ -118,6 +127,7 @@ public:
   virtual void SetMaximum(Double_t maximum=-1111) { fMaximum=maximum; }
   Double_t GetMinimum() const { return fMinimum; }
   Double_t GetMaximum() const { return fMaximum; }
+  void SetStats(Bool_t stats = kTRUE) { kStats=stats; } //show stats box or not?
   
   virtual void Draw(Option_t* option = "");
   virtual void Draw(Option_t* option,const TRooFitResult& r);
@@ -127,7 +137,14 @@ public:
   void setRooFitValV(bool in) { kUseAbsPdfValV = in; }//option to fall back to RooFit's usual evaluation
   virtual void setFloor(bool in, double floorValue=0.) { kMustBePositive = in; fFloorValue=floorValue;  } //if true, 'pdf' evaluations cannot go negative ... floorValue is what will be returned
   
+  void setBlindRange(const char* rangeName) { 
+    fBlindRangeName=rangeName; 
+    dynamic_cast<RooAbsArg*>(this)->setValueDirty();
+    resetNormMgr(); //clear any existing normalizations
+  }
+  
 protected:
+  Double_t IntegralAndErrorImpl(Double_t& err, const RooFitResult& fr, const char* rangeName=0, Option_t* opt="") const;
 
   TH1* createOrAdjustHistogram(TH1* hist, bool noBinLabels=false) const; //rebins and styles the given histogram (creating it if no hist given
 
@@ -168,6 +185,8 @@ protected:
 
   Double_t fMinimum=-1111;
   Double_t fMaximum=-1111;
+  Bool_t kStats = kTRUE;
+  TString fBlindRangeName; //will return 0 when any observable in the blind range
 
 private:
   

@@ -245,10 +245,11 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
 
   while((func=(RooAbsReal*)funcIter.next())) {
     TH1* hist = (existingHists.GetSize()>i) ? (TH1*)(existingHists.At(i)) : 0;
-    if(func->InheritsFrom(TRooH1::Class())) {
-      static_cast<TRooH1*>(func)->SetRangeName(GetRangeName()); //FIXME: perhaps should set this when we acquire the hist
-      if(!(hist&&noRestyle)) hist = static_cast<TRooH1*>(func)->createOrAdjustHistogram(hist);
-      (static_cast<TRooH1*>(func))->TRooAbsH1::fillHistogram(hist,fr,false); //fills the hist
+    TRooAbsH1* trooFunc = dynamic_cast<TRooAbsH1*>(func);
+    if(trooFunc) {
+      trooFunc->SetRangeName(GetRangeName()); //FIXME: perhaps should set this when we acquire the hist
+      if(!(hist&&noRestyle)) hist = trooFunc->createOrAdjustHistogram(hist);
+      trooFunc->fillHistogram(hist,fr,false); //fills the hist
     } else if(func->InheritsFrom(RooAbsPdf::Class())) {
       //need to fill a histogram ... use binning of GetRangeName() 
        
@@ -373,7 +374,7 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
    
    if(!gPad->IsEditable()) return;
    
-   if(opt.Contains("pdf")) {
+   if(opt.Contains("val")) {
     //FIXME: ideally would draw a stack of pdfs (in a TMultiGraph?)
     TRooAbsH1::Draw(opt,r);
    
