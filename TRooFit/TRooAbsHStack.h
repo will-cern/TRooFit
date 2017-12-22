@@ -49,6 +49,19 @@ public:
   virtual TAxis* GetXaxis() const;
   virtual TAxis* GetYaxis() const;
 
+  virtual void setBlindRange(const char* rangeName) { 
+    RooFIter funcIter = compList().fwdIterator() ;
+    RooAbsReal* func ;
+    while((func=(RooAbsReal*)funcIter.next())) {
+      TRooAbsH1* trooFunc = dynamic_cast<TRooAbsH1*>(func);
+      if(trooFunc) {
+        trooFunc->setBlindRange(rangeName);
+      }
+    }
+    TRooAbsH1::setBlindRange(rangeName);
+    
+  }
+
 
 protected:
   

@@ -35,7 +35,7 @@ public:
   Double_t expectedEvents(const RooArgSet& nset) const { return expectedEvents(&nset); }
   ///----
   
-  void resetNormMgr() { _normMgr.reset(); }
+  void resetNormMgr() { _normMgr.sterilize(); _norm=0; } //difference between reset and sterilize?
   
   virtual void Paint(Option_t* option = "") { TRooAbsH1Fillable::Paint(option); }
   virtual void Draw(Option_t* option="") { TRooAbsH1Fillable::Draw(option); }
@@ -61,6 +61,7 @@ public:
   void FillMissing(double w=1.); //adds a missing event ... this wont contribute to expectedEvents (or integral) but will affect getVal(x) results
   void SetMissingContent(double w);
   void SetMissingError(double w);
+  Double_t GetMissingContent() const { if(!fMissingBin) return 0; return fMissingBin->GetBinContent(1); }
 
   //we will need to do some trickery if a NormFactor or ShapeFactor depends on our observables!
   //virtual Int_t getAnalyticalIntegralWN(RooArgSet& allVars, RooArgSet& analVars, const RooArgSet* normSet, const char* rangeName) const; 

@@ -108,10 +108,29 @@ RooAbsReal* TRooAbsH1::createIntegralWM(const RooArgSet& iset,const char* rangeN
   
 }
 
-Double_t TRooAbsH1::Integral(Option_t* opt) const {
+Double_t TRooAbsH1::Integral(Option_t* opt, const TRooFitResult* fr) const {
   TString sOpt(opt);
   std::unique_ptr<RooAbsReal> inte( (sOpt.Contains("m")) ?  createIntegralWM(fObservables) : dynamic_cast<const RooAbsReal*>(this)->createIntegral(fObservables) );
-  return inte->getVal();
+  
+  RooArgSet* params = 0;
+  RooArgSet* snap = 0;
+  
+  if(fr) {
+      params = dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
+      snap = (RooArgSet*)params->snapshot();
+      *params = fr->floatParsFinal();
+      *params = fr->constPars();
+  }
+  
+  double out = inte->getVal();
+  
+  if(fr) {
+    *params = *snap;
+    delete snap;
+  }
+  
+  return out;
+  
 }
 Double_t TRooAbsH1::IntegralAndErrorImpl(Double_t& err, const RooFitResult& fr, const char* rangeName, Option_t* opt) const {
   TString sOpt(opt);
@@ -126,10 +145,21 @@ Double_t TRooAbsH1::IntegralAndErrorImpl(Double_t& err, const RooFitResult& fr, 
     fr2.covarianceMatrix().Print();
   }
   
-    err = inte->getPropagatedError(fr2);
+  //move all parameters on to values in the fit result ...
+  RooArgSet* params =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
+  RooArgSet* snap = (RooArgSet*)params->snapshot();
   
-
-  return inte->getVal();
+  *params = fr2.floatParsFinal();
+  *params = fr2.constPars();
+  
+  err = inte->getPropagatedError(fr2);
+  
+  double out = inte->getVal();
+  
+  *params = *snap;
+  delete snap;
+  
+  return out;
 }
 
 Double_t TRooAbsH1::IntegralAndError(Double_t& err, const TRooFitResult* fr, const char* rangeName, Option_t* opt) const {
@@ -205,6 +235,24 @@ bool TRooAbsH1::addNormFactor( RooAbsReal& factor ) {
   delete citer;
   resetNormMgr();
   return true;
+}
+
+bool TRooAbsH1::removeNormFactor( RooAbsReal& factor ) {
+  if(fNormFactors.find( factor )) {
+    fNormFactors.remove(factor);
+    if(fNormFactors.getSize()==0) fNormFactors.setName("!normFactors"); //hides from printout again
+  }
+  if(fMissingBin) fMissingBin->removeNormFactor( factor );
+  
+  //need to also tell all clients that we have a new parameter to depend on
+  TIterator* citer(dynamic_cast<RooAbsArg*>(this)->clientIterator());//std::unique_ptr<TIterator> citer(clientIterator());
+  while( RooAbsArg* client = (RooAbsArg*)( citer->Next() ) ) {
+    client->addServer(factor);client->setValueDirty();client->setShapeDirty();
+  }
+  delete citer;
+  resetNormMgr();
+  return true;
+  
 }
 
 bool TRooAbsH1::addShapeFactor( int bin, RooAbsReal& factor ) {
@@ -314,7 +362,7 @@ RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
     //got here, ok just have to create a new factor 
     
     //Note: this will assume that the stat error can only get up to 5 times bigger than the central value!
-    RooRealVar* statFactor = new RooRealVar(Form("%s_stat_bin%d",(stack)?stack->GetName():GetName(),bin),Form("Stat factor bin %d",bin),1,0,5);
+    RooRealVar* statFactor = new RooRealVar(Form("%s_stat_bin%d",(stack)?stack->GetName():GetName(),bin),Form("#gamma_{%d}^{%s}",bin,GetName()),1,0,5);
     statFactor->setStringAttribute("statBinNumber",Form("%d",bin));
     statFactor->setStringAttribute("constraintType","statPoisson");
     statFactor->setStringAttribute("sumw",Form("%e",getNominalHist()->GetBinContent(bin))); 
@@ -632,11 +680,13 @@ RooProdPdf* TRooAbsH1::buildConstraints(const RooArgSet& obs, const char* systGr
   RooArgSet* nodes =  dynamic_cast<const RooAbsArg*>(this)->getParameters(obs);
   RooFIter itr = nodes->fwdIterator();
   RooAbsArg* arg = 0;
+  RooArgList freeParams; //just for printing list at the end
   while( (arg = itr.next()) ) {
     if(!arg->isFundamental()) continue;
     if(arg->isConstant()) continue;
     if(!arg->getStringAttribute("constraintType")) {
-      Info("buildConstraints","%s is an unconstrained free parameter",arg->GetName());
+      //Info("buildConstraints","%s is an unconstrained free parameter",arg->GetName());
+      freeParams.add(*arg);
       continue;
     }
     TString cType = arg->getStringAttribute("constraintType");
@@ -698,6 +748,11 @@ RooProdPdf* TRooAbsH1::buildConstraints(const RooArgSet& obs, const char* systGr
       Warning("buildConstraints","%s has unknown constraintType: %s", arg->GetName(), arg->getStringAttribute("constraintType"));
     }
   }
+  if(freeParams.getSize()) {
+    Info("buildConstraints","%s - Detected %d free parameters:",GetName(),freeParams.getSize());
+    freeParams.Print();
+  }
+  
   delete nodes;
   out = new RooProdPdf((addSelf)?Form("%s_with_Constraints",GetName()):Form("Constraints_of_%s",GetName()),
                        (addSelf)?Form("%s_with_Constraints",GetName()):Form("Constraints_of_%s",GetName()),constraints);
@@ -713,8 +768,8 @@ TH1* TRooAbsH1::createOrAdjustHistogram(TH1* hist, bool noBinLabels) const {
   hist->Reset();
   hist->SetTitle(GetTitle());
   
-  hist->SetMaximum( fMaximum );
-  hist->SetMinimum( fMinimum );
+  if(fMaximum!=-1111) hist->SetMaximum( fMaximum );
+  if(fMinimum!=-1111) hist->SetMinimum( fMinimum );
   hist->SetStats( kStats );
   
   const char* rname = GetRangeName();
@@ -1098,17 +1153,17 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
   TString opt = option;
   opt.ToLower();
 
-  TRooFitResult* r2 = 0;
+  TRooFitResult* r2 = 0; //we don't delete r2 since it is saved in the fDrawHistograms obj
   
   if(r.floatParsFinal().getSize()|| r.constPars().getSize()) {
     if(opt.Contains("init")) {
       //request to draw initial parameters instead of final
       r2 = new TRooFitResult(r.floatParsInit());
       opt.ReplaceAll("init","");
+      r2->setConstParList(r.constPars());
     } else {
-      r2 = new TRooFitResult(r.floatParsFinal());
+      r2 = new TRooFitResult(r);
     }
-    r2->setConstParList(r.constPars());
   }
   
      // Draw this hist
@@ -1279,7 +1334,6 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
     }
     if(fDrawHistograms.back().postHist) gPad->GetListOfPrimitives()->Add( fDrawHistograms.back().postHist , fDrawHistograms.back().postHistOpt ); 
    }
-  
   
   
 

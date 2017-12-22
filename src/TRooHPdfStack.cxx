@@ -59,6 +59,34 @@ void TRooHPdfStack::reinit() {
   
 }
 
+Double_t TRooHPdfStack::evaluate() const {
+  if(fBlindRangeName.Length()) {
+    RooFIter obsItr(fObservables.fwdIterator());
+    while(auto obs = obsItr.next() ) {
+      if(obs->inRange(fBlindRangeName)) return 0;
+    }
+  }
+  double out = RooAddPdf::evaluate();
+  
+  //multiply by all the norm factors
+  if(fNormFactors.getSize()) {
+    RooFIter itr(fNormFactors.fwdIterator());
+    while( RooAbsReal* arg = (RooAbsReal*)itr.next() ) out *= arg->getVal(); //NOTE: should we use _normSet? leads to issues if normfactor is a pdf...
+  }
+  //and by the shape factors for this bin
+  if(fBinsShapeFactors.size()) {
+    int bin = getBin(GetName()); //forcefully use OUR binning 
+    auto&& fItr = fBinsShapeFactors.find(bin);
+    if(fItr!=fBinsShapeFactors.end()) {
+      for(auto& sfIdx : fItr->second) {
+        out *= ((RooAbsReal&)fShapeFactors[sfIdx]).getVal();
+      }
+    }
+  }
+  
+  return out;
+  
+}
 
 //_____________________________________________________________________________
 Double_t TRooHPdfStack::getValV(const RooArgSet* nset) const

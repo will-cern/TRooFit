@@ -229,6 +229,28 @@ Bool_t TRooAbsH1Fillable::Add(const TH1* h1 , Double_t c1) {
 }
 
 
+void TRooAbsH1Fillable::Scale( double x) {
+  //first adjust any stat factors ...
+  for(int i=1;i<=fHists[0]->GetNbinsX();i++) {
+    for(int j=1;j<=fHists[0]->GetNbinsY();j++) {
+      for(int k=1;k<=fHists[0]->GetNbinsZ();k++) {
+        int bin = fHists[0]->GetBin(i,j,k);
+        if(!fHists[0]->GetBinError(bin)) continue; //don't need to adjust if there was no error
+        RooRealVar* statFactor = getStatFactor(bin); //first try without creating 
+        if(!statFactor) continue; 
+        //update the sumw and sumw2 attribute of the stat factor
+        statFactor->setStringAttribute("sumw",Form("%e",(TString(statFactor->getStringAttribute("sumw")).Atof() - fHists[0]->GetBinContent(bin) + fHists[0]->GetBinContent(bin)*x)));
+        statFactor->setStringAttribute("sumw2",Form("%e",(TString(statFactor->getStringAttribute("sumw2")).Atof() - pow(fHists[0]->GetBinError(bin),2) + pow(fHists[0]->GetBinError(bin)*x,2))));
+        //will also set the error to sqrt(sumw2)/sumw
+        statFactor->setError(sqrt((TString(statFactor->getStringAttribute("sumw2")).Atof()))/(TString(statFactor->getStringAttribute("sumw")).Atof()));
+        if(std::isnan(statFactor->getError())||std::isinf(statFactor->getError())) statFactor->setError(1e9);
+      }
+    }
+  }
+
+  for(auto hist : fHists) hist->Scale(x); 
+}
+
 Int_t TRooAbsH1Fillable::Fill( double x , double w ) {
   //The usual histogram Fill method
   //This method will trigger the automatic creation of parameters (as necessary) 
@@ -591,7 +613,6 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
 
 //std::cout << "rangeName = " << GetRangeName() << " "; fObservables.Print("v"); 
 
-  double out = 0;
   
   if(fBlindRangeName.Length()) {
     RooFIter obsItr(fObservables.fwdIterator());
@@ -602,7 +623,7 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
   
   int bin = getBin(GetName()); //forcefully use OUR binning 
 
-
+  double out = 0;
 
     //loop over parameter snapshots, assessing which sets are valid (discrete params must match exactly)
     //if we find an exact match, we go with that

@@ -50,7 +50,8 @@ public:
   virtual void SetBinContent( int bin, double val);
   virtual void SetBinError( int bin, double val); //will update the stat uncert
 
-  
+  using TRooAbsH1::Scale;
+  void Scale( double x );
 
   
   

@@ -31,6 +31,10 @@
 //#include "TRooFit/TRooSlider.h"
 //#pragma link C++ class TRooSlider+;
 
+#include "TRooFit/apps/TRooABCD.h"
+#pragma link C++ class TRooABCD+;
+
+
 #pragma link C++ class TRooFit+;
 //#pragma link C++ function TRooFit::BuildModel;
 

@@ -76,7 +76,7 @@ TRooFitResult::TRooFitResult(const char* name, const char* title, const RooArgLi
 
 TRooFitResult::TRooFitResult(const char* constPars) : RooFitResult() {
   //constructor that takes a string "x=y,a=b" etc ... copies those into constPars
-  //Anything without an = sign in it will be interpreted as a floating parameter
+  //Anything without an = sign in it will be interpreted as a floating parameter ... as long as it has "~" in it
   //This can be used for quickly checking what a TRooFit histogram looks like 
   //at a given parameter value ... e.g. 
   // h.Draw("param=2.0")
@@ -94,7 +94,8 @@ TRooFitResult::TRooFitResult(const char* constPars) : RooFitResult() {
         TString parVal = subName(subName.Index("=")+1,subName.Length());
         RooRealVar* v = new RooRealVar(parName,parName,parVal.Atof());
         pars.addOwned(*v); //so that will delete when done
-      } else {
+      } else if(subName.Contains("~")) {
+        subName.ReplaceAll("~","");
         //assume parameter is actually to belong to final pars
         RooRealVar* v =  new RooRealVar(subName,subName,0);
         v->setAttribute("injectValueAndError"); //used in TRooAbsH1::GetBinError to inject parameter values and errors
@@ -205,7 +206,7 @@ void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
          gPad->Clear();
       }
   }
-  if(!opt.Contains("same") && opt.Contains("pull")) fPullFrame->Draw();
+  if(!opt.Contains("same") && opt.Contains("pull") && fPullFrame) fPullFrame->Draw();
   if(!opt.Contains("same") && (opt.Contains("cov")||opt.Contains("cor"))) fCovHist->Draw("COLZ");
   TObject::Draw(option);
 }

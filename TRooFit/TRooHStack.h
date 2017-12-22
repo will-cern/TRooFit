@@ -62,6 +62,7 @@ protected:
   virtual const RooListProxy& compList() const { return _funcList; }
   virtual void reinit();
 
+  virtual double evaluate() const;
   
 private:
 

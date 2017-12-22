@@ -70,10 +70,12 @@ public:
   virtual TAxis* GetYaxis() const;
   
 
-  
+  void Scale( RooAbsReal& factor ) { addNormFactor(factor); }  
   bool addNormFactor( RooAbsReal& factor ); //add a norm factor
   bool addShapeFactor( int bin, RooAbsReal& factor ); //add a shape factor to a bin
   bool addShapeFactor( const char* name, RooAbsReal& factor ); //add shape to a category bin
+
+  bool removeNormFactor( RooAbsReal& factor );
 
   inline void SetRangeName(const char* name) { fRangeName = name; }
   virtual const char* GetRangeName(const char* name=0) const { 
@@ -113,7 +115,7 @@ public:
   void fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints=100) const;
   
   //other methods to mimic TH1 behaviour 
-  Double_t Integral(Option_t* opt="") const;
+  Double_t Integral(Option_t* opt="", const TRooFitResult* fr=0) const;
   Double_t IntegralAndError(Double_t& err, const TRooFitResult* fr=0, const char* rangeName=0, Option_t* opt="") const;
   Double_t IntegralAndError(Double_t& err, const TRooFitResult& fr, const char* rangeName=0, Option_t* opt="") const { return IntegralAndError(err,&fr,rangeName,opt); }
   
@@ -137,7 +139,7 @@ public:
   void setRooFitValV(bool in) { kUseAbsPdfValV = in; }//option to fall back to RooFit's usual evaluation
   virtual void setFloor(bool in, double floorValue=0.) { kMustBePositive = in; fFloorValue=floorValue;  } //if true, 'pdf' evaluations cannot go negative ... floorValue is what will be returned
   
-  void setBlindRange(const char* rangeName) { 
+  virtual void setBlindRange(const char* rangeName) { 
     fBlindRangeName=rangeName; 
     dynamic_cast<RooAbsArg*>(this)->setValueDirty();
     resetNormMgr(); //clear any existing normalizations

@@ -24,7 +24,8 @@ class TRooFitResult : public RooFitResult {
 public:
   friend class TRooAbsH1; //needed to setConstPars in Draw method
   friend class TRooAbsHStack;
-  TRooFitResult(const RooFitResult* res, double errorThreshold=-1)  : RooFitResult(*res) {
+  TRooFitResult(const RooFitResult* res, double errorThreshold=-1)  : RooFitResult((res) ? *res : RooFitResult()) {
+    if(!res) return;
     //construct from an existing RooFitResult
     //will discard floating parameters that had errors below the given threshold
     RooFIter itr2( floatParsFinal().fwdIterator() );
@@ -62,15 +63,21 @@ public:
   
   TRooFitResult(const char* constPars=""); 
   
-  virtual void Paint(Option_t*) {
-    if(fPullFrame) {
-      //fPullFrame->Paint(option);
-      for(auto& o : fPullBoxes) o.Paint("3");
-      for(auto& o : fPullLines) o.Paint("l");
-      fPullFrame->Paint("sameaxis");
+  virtual void Paint(Option_t* opt) {
+    TString sOpt(opt);
+    if(sOpt.Contains("cov")||sOpt.Contains("cor")) {
+      if(fCovHist) fCovHist->Paint("sameaxis");
     }
-    if(fPullGraph) fPullGraph->Paint("p");
-    if(fCovHist) fCovHist->Paint("sameaxis");
+    else {
+      if(fPullFrame) {
+        //fPullFrame->Paint(option);
+        for(auto& o : fPullBoxes) o.Paint("3");
+        for(auto& o : fPullLines) o.Paint("l");
+        fPullFrame->Paint("sameaxis");
+      }
+      if(fPullGraph) fPullGraph->Paint("p");
+    }
+    
   }
   
   virtual void Draw(Option_t* option = "pull") { Draw(option,RooArgList()); }

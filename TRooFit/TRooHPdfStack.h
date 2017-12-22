@@ -57,6 +57,7 @@ protected:
   virtual RooListProxy& compList() { return _pdfList; }
   virtual const RooListProxy& compList() const { return _pdfList; }
   virtual void reinit();
+  virtual double evaluate() const;
   
 private:
 

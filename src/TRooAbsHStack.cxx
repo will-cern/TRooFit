@@ -101,6 +101,7 @@ void TRooAbsHStack::Add(TRooH1* hist, bool acquireStatFactors) {
       
       //need to combine common stat factors before adding these new ones
       //this includes updating hist->fShapeFactors to reference the new, common, statFactor
+      int sfCount(0);
       for(int i=0;i<fStatFactors.getSize();i++) {
         RooAbsArg* ss = fStatFactors.at(i);
         int binNum = TString(ss->getStringAttribute("statBinNumber")).Atoi();
@@ -109,7 +110,7 @@ void TRooAbsHStack::Add(TRooH1* hist, bool acquireStatFactors) {
           if(binNum != TString(s->getStringAttribute("statBinNumber")).Atoi()) continue;
           //found a match, need to replace!
           //combine sumw and sumw2 attributes
-          Info("Add","Combining StatFactors: Replacing %s with %s in %s",s->GetName(),ss->GetName(),hist->GetName());
+          sfCount++;
           hist->fStatFactors.replace(*s,*ss);
           hist->fShapeFactors.replace(*s,*ss);
           hist->removeServer(*ss);hist->addServer(*ss); //THIS IS NECESSARY ... bug in RooListProxy::replace ... was causing statFactor to lose its valueServer status!!!
@@ -121,6 +122,7 @@ void TRooAbsHStack::Add(TRooH1* hist, bool acquireStatFactors) {
           break;
         }
       }
+      if(sfCount) Info("Add","Combining StatFactors: Replaced %d statFactors with %s's statFactors in %s",sfCount,GetName(),hist->GetName());
       //rename the vars to match my name, to avoid confusion, and add them to my stat factors
       RooFIter iter = hist->fStatFactors.fwdIterator();
       while( RooAbsArg* arg = iter.next() ) {
@@ -302,7 +304,29 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
       std::cout << "NOT SUPPORTED!!" << std::endl;
       
     }
-    if(hist) stack->Add(hist);
+    if(hist) {
+    
+      //need to apply shape and norm factors 
+      //multiply by all the norm factors
+      if(fNormFactors.getSize()) {
+        RooFIter itr(fNormFactors.fwdIterator());
+        while( RooAbsReal* arg = (RooAbsReal*)itr.next() ) hist->Scale(arg->getVal());
+      }
+      //and by the shape factors for each bin
+      if(fBinsShapeFactors.size()) {
+        for(auto bins : fBinsShapeFactors) {
+          int bin = bins.first;
+          for(auto& sfIdx : bins.second) {
+            double sf = ((RooAbsReal&)fShapeFactors[sfIdx]).getVal();
+            hist->SetBinContent(bin, hist->GetBinContent(bin) * sf);
+            hist->SetBinError(bin,hist->GetBinError(bin)*sf);
+          }
+        }
+      }
+    
+      stack->Add(hist);
+      
+    }
     i++;
   }
   
@@ -331,10 +355,11 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
       //request to draw initial parameters instead of final
       r2 = new TRooFitResult(r.floatParsInit());
       opt.ReplaceAll("init","");hadInit=true;
+      r2->setConstParList(r.constPars());
     } else {
-      r2 = new TRooFitResult(r.floatParsFinal());
+      r2 = new TRooFitResult(r);
     }
-    r2->setConstParList(r.constPars());
+    
   }
   
       // Draw this stack ... potentially as a hist!
@@ -425,6 +450,8 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
     if(hadInit) opt += " init";
     TRooAbsH1::Draw(opt,r);
    }
+  
+  
   
 
 }
