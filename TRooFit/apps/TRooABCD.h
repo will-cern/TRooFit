@@ -52,6 +52,8 @@ class TRooABCD : public TNamed  {
     void RefillHistograms();
 
   private:
+    void checkRangeChange(TH1* hist);
+  
     RooRealVar* m_xVar = 0;
     RooRealVar* m_weightVar = 0;
     RooCategory* m_cat = 0;

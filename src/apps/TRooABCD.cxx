@@ -22,17 +22,14 @@ TRooABCD::TRooABCD(const char* name, const char* title) : TNamed(name,title) {
   
 }
 
-
-Bool_t TRooABCD::AddData(int region, TH1* data) {
-  m_cat->setIndex(region);
-  
+void TRooABCD::checkRangeChange(TH1* hist) {
   bool changedXRange(false);
-  if(data->GetXaxis()->GetXmin() < m_xVar->getMin()) {
-    m_xVar->setRange(data->GetXaxis()->GetXmin(), m_xVar->getMax());
+  if(hist->GetXaxis()->GetXmin() < m_xVar->getMin()) {
+    m_xVar->setRange(hist->GetXaxis()->GetXmin(), m_xVar->getMax());
     changedXRange=true;
   }
-  if(data->GetXaxis()->GetXmax() > m_xVar->getMax()) {
-    m_xVar->setRange(m_xVar->getMin(),data->GetXaxis()->GetXmax());
+  if(hist->GetXaxis()->GetXmax() > m_xVar->getMax()) {
+    m_xVar->setRange(m_xVar->getMin(),hist->GetXaxis()->GetXmax());
     changedXRange=true;
   }
   
@@ -42,6 +39,12 @@ Bool_t TRooABCD::AddData(int region, TH1* data) {
     delete m_data;
     m_data = newData;
   }
+}
+
+Bool_t TRooABCD::AddData(int region, TH1* data) {
+  m_cat->setIndex(region);
+  
+  checkRangeChange(data);
   
   for(int i=1;i<=data->GetNbinsX();i++) {
     *m_xVar = data->GetBinCenter(i);
@@ -185,6 +188,7 @@ Double_t TRooABCD::GetDataBinContent(int region, int bin) {
 
 Bool_t TRooABCD::AddOther(int region, TH1* other) {
   if(m_other[region]==0) {
+    checkRangeChange(other);
     m_other[region] = (other->GetXaxis()->IsVariableBinSize()) ? 
                                       new TRooH1D(Form("signal%d",region),
                                        Form("Signal in region %d",region),*m_xVar,
@@ -210,6 +214,7 @@ Bool_t TRooABCD::AddOther(int region, TH1* other) {
 
 Bool_t TRooABCD::AddSignal(int region, TH1* signal) {
   if(m_signal[region]==0) {
+    checkRangeChange(signal);
     m_signal[region] = (signal->GetXaxis()->IsVariableBinSize()) ? 
                                       new TRooH1D(Form("signal%d",region),
                                        Form("Signal in region %d",region),*m_xVar,
