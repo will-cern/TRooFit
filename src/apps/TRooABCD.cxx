@@ -9,8 +9,8 @@
 #include "RooStats/NumberCountingUtils.h"
 #include "RooStats/RooStatsUtils.h"
 
-TRooABCD::TRooABCD(const char* name, const char* title, double xlow, double xhigh) : TNamed(name,title) {
-  m_xVar = new RooRealVar("x","x",xlow,xhigh);
+TRooABCD::TRooABCD(const char* name, const char* title) : TNamed(name,title) {
+  m_xVar = new RooRealVar("x","x",0,1);
   m_cat = new RooCategory("region","region");
   const char* regionLabels[4] = {"A","B","C","D"};
   for(int i=0;i<4;i++) m_cat->defineType(regionLabels[i]);
@@ -25,6 +25,23 @@ TRooABCD::TRooABCD(const char* name, const char* title, double xlow, double xhig
 
 Bool_t TRooABCD::AddData(int region, TH1* data) {
   m_cat->setIndex(region);
+  
+  bool changedXRange(false);
+  if(data->GetXaxis()->GetXmin() < m_xVar->getMin()) {
+    m_xVar->setRange(data->GetXaxis()->GetXmin(), m_xVar->getMax());
+    changedXRange=true;
+  }
+  if(data->GetXaxis()->GetXmax() > m_xVar->getMax()) {
+    m_xVar->setRange(m_xVar->getMin(),data->GetXaxis()->GetXmax());
+    changedXRange=true;
+  }
+  
+  if(changedXRange) {
+    //have to recreate the dataset, since otherwise RooFit will complain ranges dont match
+    RooDataSet* newData = new RooDataSet("data","data",m_data,RooArgSet(*m_xVar,*m_cat,*m_weightVar),0,"w");
+    delete m_data;
+    m_data = newData;
+  }
   
   for(int i=1;i<=data->GetNbinsX();i++) {
     *m_xVar = data->GetBinCenter(i);

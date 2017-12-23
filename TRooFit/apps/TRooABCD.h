@@ -16,7 +16,7 @@ class TRooABCD : public TNamed  {
 
   public:
     TRooABCD() : TNamed() { }
-    TRooABCD(const char* name, const char* title, double xlow, double xhigh);
+    TRooABCD(const char* name, const char* title);
     
     
     Bool_t AddSignal(int region, TH1* signal);
