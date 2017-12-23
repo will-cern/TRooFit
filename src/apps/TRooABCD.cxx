@@ -31,7 +31,7 @@ Bool_t TRooABCD::AddData(int region, TH1* data) {
     if(data->GetBinContent(i)) {
       double remain;
       if(std::modf(data->GetBinContent(i),&remain)==0) {
-        for(int j=1;j<int(data->GetBinContent(i)+0.5);j++) m_data->add( RooArgSet(*m_xVar,*m_cat) ); //adds each event individually
+        for(int j=0;j<int(data->GetBinContent(i)+0.5);j++) m_data->add( RooArgSet(*m_xVar,*m_cat) ); //adds each event individually
       } else {
         m_data->add( RooArgSet(*m_xVar,*m_cat), data->GetBinContent(i)/*, data->GetBinError(i)*/ ); //errors don't store properly in RooDataSet :-(
      }
@@ -478,13 +478,24 @@ TRooFitResult* TRooABCD::Fit(int modelType, bool floatSignal) {
     if(maxData) m_stacks[i]->SetMaximum( maxData*1.1 ); //ensures data is in axis range
   }
   
-  cc2->cd(1);m_stacks[2]->Draw("e3005",m_lastFitResult);m_dataHist[2]->Draw("same");
-  cc2->cd(2);m_stacks[0]->Draw("e3005",m_lastFitResult);if(m_dataHist[0]) m_dataHist[0]->Draw("same");
-  cc2->cd(3);m_stacks[3]->Draw("e3005",m_lastFitResult);m_dataHist[3]->Draw("same");
-  cc2->cd(4);m_stacks[1]->Draw("e3005",m_lastFitResult);m_dataHist[1]->Draw("same");
+  TText tt;
+  
+  cc2->cd(1);m_stacks[2]->Draw("e3005",m_lastFitResult);m_dataHist[2]->Draw("same");tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+.02,Form("Region %s",m_cat->lookupType(2)->GetName()));
+  cc2->cd(2);m_stacks[0]->Draw("e3005",m_lastFitResult);if(m_dataHist[0]) m_dataHist[0]->Draw("same");tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+0.02,Form("Region %s (Signal Region)",m_cat->lookupType(0)->GetName()));
+  cc2->cd(3);m_stacks[3]->Draw("e3005",m_lastFitResult);m_dataHist[3]->Draw("same");tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+0.02,Form("Region %s",m_cat->lookupType(3)->GetName()));
+  cc2->cd(4);m_stacks[1]->Draw("e3005",m_lastFitResult);m_dataHist[1]->Draw("same");tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+0.02,Form("Region %s",m_cat->lookupType(1)->GetName()));
+  
+  //we want to draw the ratio of the data, after signal and other subtraction
   
   TH1* data_ratio = (TH1*)m_dataHist[2]->Clone("data_ratio"); data_ratio->SetTitle("Transfer factor");
-  data_ratio->Divide(m_dataHist[3]);
+  if(m_signal[2]) data_ratio->Add( m_signal[2]->GetHistogram(), -1. );
+  if(m_other[2]) data_ratio->Add( m_other[2]->GetHistogram(), -1. );
+  TH1* tmpHist = (TH1*)m_dataHist[3]->Clone("data_denom");
+  if(m_signal[3]) tmpHist->Add( m_signal[3]->GetHistogram(), -1. );
+  if(m_other[3]) tmpHist->Add( m_other[3]->GetHistogram(), -1. );
+  
+  data_ratio->Divide(tmpHist);
+  delete tmpHist;
   data_ratio->SetStats(0);
   cc2->cd(5);data_ratio->Draw();m_transferFactors[0]->Draw("val L same e3005",m_lastFitResult);
 
@@ -493,7 +504,7 @@ TRooFitResult* TRooABCD::Fit(int modelType, bool floatSignal) {
   double prediction = GetBkgIntegral(0);
   double predictionError = GetBkgIntegralError(0);
   if(floatSignal && hasSignal) {
-    t.DrawLatex(0.05,0.8,Form("SR Bkg Predicted = %g #pm %g (syst.) #pm %g (mu syst.)",prediction,predictionError,fabs(prediction-prediction_mu0)));
+    t.DrawLatex(0.05,0.8,Form("SR Bkg Predicted = %g #pm %g (syst.) #pm %g (#mu syst.)",prediction,predictionError,fabs(prediction-prediction_mu0)));
   } else {
     t.DrawLatex(0.05,0.8,Form("SR Bkg Predicted = %g #pm %g",prediction,predictionError));
   }
