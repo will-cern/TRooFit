@@ -25,6 +25,11 @@ class TRooABCD : public TNamed  {
     
     RooRealVar* AddBkgScaleFactor(int region, double value, double uncert);
     RooRealVar* AddSignalScaleFactor(int region, double value, double uncert);
+    RooRealVar* AddOtherScaleFactor(int region, double value, double uncert);
+    
+    void AddBkgScaleFactor(int region, RooRealVar* sf);
+    void AddSignalScaleFactor(int region, RooRealVar* sf);
+    void AddOtherScaleFactor(int region, RooRealVar* sf);
     
     TRooFitResult* Fit(int modelType=0, bool floatSignal=true);
     
@@ -49,7 +54,6 @@ class TRooABCD : public TNamed  {
 
     void SetSignalStrength(double in) { m_signalStrength->setVal(in); }
 
-    void RefillHistograms();
 
   private:
     void checkRangeChange(TH1* hist);

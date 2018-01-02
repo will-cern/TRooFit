@@ -263,6 +263,14 @@ RooRealVar* TRooABCD::AddBkgScaleFactor(int region, double value, double uncert)
   
 }
 
+void  TRooABCD::AddBkgScaleFactor(int region, RooRealVar* sf) {
+  if(m_bkg[region]==0) {
+    Error("AddBkgScaleFactor","Please add data to region %d before adding a scale factor",region);
+    return;
+  }
+  m_bkg[region]->addNormFactor( *sf );
+}
+
 RooRealVar* TRooABCD::AddSignalScaleFactor(int region, double value, double uncert) {
   //adds a scale factor with uncertainty to the bkg term 
   if(m_signal[region]==0) {
@@ -283,6 +291,44 @@ RooRealVar* TRooABCD::AddSignalScaleFactor(int region, double value, double unce
   
   return sf;
   
+}
+
+void  TRooABCD::AddSignalScaleFactor(int region, RooRealVar* sf) {
+  if(m_signal[region]==0) {
+    Error("AddSignalScaleFactor","Please add signal to region %d before adding a scale factor",region);
+    return;
+  }
+  m_signal[region]->addNormFactor( *sf );
+}
+
+RooRealVar* TRooABCD::AddOtherScaleFactor(int region, double value, double uncert) {
+  //adds a scale factor with uncertainty to the bkg term 
+  if(m_other[region]==0) {
+    Error("AddOtherScaleFactor","Please add other to region %d before adding a scale factor",region);
+    return 0;
+  }
+  
+  int i=1;
+  while( m_other[region]->findServer(Form("other_sf%d_region%d",i,region)) ) {
+    i++;
+  }
+  
+  RooRealVar* sf = new RooRealVar(Form("other_sf%d_region%d",i,region),Form("#alpha_{%d}^{%s}",i,m_cat->lookupType(i)->GetName()),value,value-5*uncert,value+5*uncert);
+  if(uncert) sf->setStringAttribute("constraintType",Form("GAUSSIAN(%f,%f)",value,uncert));
+  else sf->setConstant(1);
+  
+  m_other[region]->addNormFactor( *sf );
+  
+  return sf;
+  
+}
+
+void  TRooABCD::AddOtherScaleFactor(int region, RooRealVar* sf) {
+  if(m_other[region]==0) {
+    Error("AddOtherScaleFactor","Please add other to region %d before adding a scale factor",region);
+    return;
+  }
+  m_other[region]->addNormFactor( *sf );
 }
 
 
