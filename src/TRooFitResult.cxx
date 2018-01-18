@@ -22,6 +22,7 @@ void TRooFitResult::init(const RooArgList& pars) {
     if(arg->isConstant()) constpars.add(*arg);
     else if(arg->IsA() != RooRealVar::Class()) {
       Warning("TRooFitResult","%s is not a RooRealVar, ignoring",arg->GetName());
+      TH1D* hh = 0; hh->Draw();
     } 
     else realpars.add(*arg);
   }

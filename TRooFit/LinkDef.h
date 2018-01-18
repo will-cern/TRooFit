@@ -34,6 +34,8 @@
 #include "TRooFit/apps/TRooABCD.h"
 #pragma link C++ class TRooABCD+;
 
+#include "TRooFit/apps/TRooMatrixMethod.h"
+#pragma link C++ class TRooMatrixMethod+;
 
 #pragma link C++ class TRooFit+;
 //#pragma link C++ function TRooFit::BuildModel;

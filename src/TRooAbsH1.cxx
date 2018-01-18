@@ -64,7 +64,6 @@ TRooAbsH1::TRooAbsH1(const RooArgList& observables, RooAbsArg* me) :
   fStatFactors.takeOwnership();//default is to own the stat factors .. TRooHStacks can acquire ownership though
   UseCurrentStyle();
   
-  
 }
 
 
@@ -82,7 +81,8 @@ TRooAbsH1::TRooAbsH1(const TRooAbsH1& other, RooAbsArg* me) :
   kUseAbsPdfValV(other.kUseAbsPdfValV),
   kMustBePositive(other.kMustBePositive),fFloorValue(other.fFloorValue),
    fMissingBin(other.fMissingBin),
-   fMissingBinProxy(other.fMissingBinProxy.GetName(),me,other.fMissingBinProxy),kStats(other.kStats),fBlindRangeName(other.fBlindRangeName)
+   fMissingBinProxy(other.fMissingBinProxy.GetName(),me,other.fMissingBinProxy),
+   fMinimum(other.fMinimum),fMaximum(other.fMaximum),kStats(other.kStats),fBlindRangeName(other.fBlindRangeName)
 { 
   //Copy constructor
   if(fRangeName=="") fRangeName=other.GetName(); //FIXME: should we default the fRangeName to name in constructor?
@@ -837,7 +837,11 @@ TH1* TRooAbsH1::createOrAdjustHistogram(TH1* hist, bool noBinLabels) const {
     hist->SetBins( obs[0]->numBins(rname) , obs[0]->getBinningPtr(rname)->array() , obs[1]->numBins(rname) , obs[1]->getBinningPtr(rname)->array() );
   } else if(obs[0]) {
     //1D rebin
-    hist->SetBins( obs[0]->numBins(rname) , obs[0]->getBinningPtr(rname)->array() );
+    if( dynamic_cast<TObject*>(obs[0])->InheritsFrom(RooAbsCategory::Class()) ) { //happens when using the RooSuperCategory, which doesn't get a binning object
+      hist->SetBins( obs[0]->numBins(rname) , -0.5, obs[0]->numBins(rname)-0.5 );
+    } else {
+      hist->SetBins( obs[0]->numBins(rname) , obs[0]->getBinningPtr(rname)->array() );
+    }
   }
   
   return hist;
@@ -1185,13 +1189,16 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
          auto itr = fDrawHistograms.begin();
          while( itr != fDrawHistograms.end() ) {
           if(itr->pad==gPad) {
+            if(fDrawHistogram==itr->hist || fDrawHistogram==itr->postHist) fDrawHistogram=0; //about to delete, so remove fDrawHistogram
             if(itr->hist!=itr->postHist) SafeDelete(itr->postHist);
+            
             SafeDelete(itr->hist);
             SafeDelete(itr->fr);
             fDrawHistograms.erase(itr);
           } else {
             ++itr;
           }
+          
          }
       } else {
         //check if I'm already in the list of primitives ... if so, we wont add me a second time
@@ -1303,7 +1310,7 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
       TH1* hist = static_cast<TH1*>(fDrawHistograms.back().hist);
       int fillType = TString(opt(opt.Index("e3")+1,opt.Length())).Atoi();
       if(fillType>=3000 && fillType<=3999 && hist->GetSumw2()->GetSum()) { //must have an error to draw an error bar hist
-        TH1* errHist = (TH1*)hist->Clone(TString::Format("%s_error",hist->GetName()));
+        TH1* errHist = (TH1*)hist->Clone(TString::Format("%s_error",hist->GetName())); errHist->SetDirectory(0);
         errHist->SetFillStyle(fillType);errHist->SetMarkerStyle(0);errHist->SetFillColor(hist->GetLineColor());
         errHist->SetOption("e2same");
         fDrawHistograms.back().postHist = errHist;

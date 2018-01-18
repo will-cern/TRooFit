@@ -86,7 +86,7 @@ TRooAbsH1Fillable::TRooAbsH1Fillable(RooAbsArg* me, const char *name, const char
       std::unique_ptr<TIterator> itr( cat.typeIterator() );
       RooCatType* tt = 0;
       while( (tt = (RooCatType*)itr->Next()) ) {
-        cat.addToRange(GetName(),tt->GetName());
+        cat.addToRange(name,tt->GetName());
       }
     }
   }
@@ -112,8 +112,8 @@ TRooAbsH1Fillable::TRooAbsH1Fillable(RooAbsArg* me, const char *name, const char
       fHists.push_back( new TH1D(name,title,1,-0.5,0.5) );fHists[0]->SetDirectory(0);fHists[0]->Sumw2();
       dynamic_cast<RooAbsReal*>(me)->specialIntegratorConfig(kTRUE)->method1D().setLabel("RooBinIntegrator");
     } else if(fObservables.getSize()==1) {
-      if(fObservables[0].IsA() == RooCategory::Class()) { 
-        RooCategory& cat = static_cast<RooCategory&>(fObservables[0]);
+      if(dynamic_cast<TObject&>(fObservables[0]).InheritsFrom(RooAbsCategory::Class())) { 
+        RooAbsCategory& cat = static_cast<RooAbsCategory&>(fObservables[0]);
         fHists.push_back( new TH1D(name,title,cat.numTypes(),-0.5,cat.numTypes()-0.5) );fHists[0]->SetDirectory(0);fHists[0]->Sumw2();
       } else {
         if(min==0) {

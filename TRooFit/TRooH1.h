@@ -16,7 +16,7 @@ public:
   
   TRooH1() : RooAbsPdf(), TRooAbsH1Fillable() { }
   TRooH1(const char* name, const char* title) : RooAbsPdf(name,title),TRooAbsH1Fillable(this,name,title) { }
-  TRooH1(const char *name, const char *title,const RooArgList& observables,TH1* hist) : RooAbsPdf(name,title),TRooAbsH1Fillable(this,name,title,observables,hist) { 
+  TRooH1(const char *name, const char *title,const RooArgList& observables,TH1* hist) : RooAbsPdf(name,title),TRooAbsH1Fillable(this,name,title,observables,0,0,0,{},hist) { 
     if(hist) Add( hist ); //adds it, so that stat factors are created ... have to do here so that me() is defined
   }
   TRooH1(const char *name, const char *title,const RooArgList& observables, const int* bins, const double* min, const double* max )  : RooAbsPdf(name,title),TRooAbsH1Fillable(this,name,title, observables, bins, min, max) { }

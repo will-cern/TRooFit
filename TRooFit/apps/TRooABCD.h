@@ -15,9 +15,12 @@
 class TRooABCD : public TNamed  {
 
   public:
+    
+    
     TRooABCD() : TNamed() { }
     TRooABCD(const char* name, const char* title);
     
+    void SetXTitle(const char* title) { m_xVar->SetTitle(title); }
     
     Bool_t AddSignal(int region, TH1* signal);
     Bool_t AddData(int region, TH1* data);
@@ -31,7 +34,7 @@ class TRooABCD : public TNamed  {
     void AddSignalScaleFactor(int region, RooRealVar* sf);
     void AddOtherScaleFactor(int region, RooRealVar* sf);
     
-    TRooFitResult* Fit(int modelType=0, bool floatSignal=true);
+    TRooFitResult* Fit(bool drawPostFit=true);
     
   
     ClassDef(TRooABCD,1);
@@ -48,12 +51,28 @@ class TRooABCD : public TNamed  {
     RooDataSet* GetDataSet() { return m_data; }
     TRooH1* GetBkgHistogram(int region) { return m_bkg[region]; }
 
-    RooSimultaneous* GetModel() { return m_model; }
+    
 
     void SetPrintLevel(RooFit::MsgLevel level) { m_printLevel = level; } //use RooFit::INFO etc etc
 
-    void SetSignalStrength(double in) { m_signalStrength->setVal(in); }
+    //use this method to blind the SR from the fit, even if there is data!
+    void SetValidationRegion(bool in) { m_isVR = in; }
 
+    bool BuildModel(); //Finishes constructing the TRooFit model
+    RooSimultaneous* GetModel() { return m_model; }
+
+    RooRealVar* GetParameter(const char* name) {
+      if(!m_model) BuildModel();
+      RooArgSet s; m_model->treeNodeServerList(&s);
+      return dynamic_cast<RooRealVar*>(s.find(name));
+    }
+    void PrintParameters() const { m_allParameters.Print("v"); }
+    
+    virtual void        Draw(Option_t *option="") { Draw(0,option); }
+    void Draw(TRooFitResult* fr, const char* canvasName="");
+    
+    double GetChi2PValue(TRooFitResult* fr=0);
+    double GetBinomialPValue(TRooFitResult* fr=0);
 
   private:
     void checkRangeChange(TH1* hist);
@@ -76,11 +95,15 @@ class TRooABCD : public TNamed  {
 
     std::vector<RooRealVar*> m_modelPars;
 
-    std::vector<TRooHF1D*> m_transferFactors; //these will be normFactors on m_bkg in region A and B
+    TRooHF1D* m_transferFactor = 0; //this will be a normFactor on m_bkg in region A and B
 
     TRooFitResult* m_lastFitResult = 0;
 
     RooFit::MsgLevel m_printLevel = RooFit::ERROR;
+
+    RooArgList m_allParameters; //!
+    
+    bool m_isVR = false;
 
 };
 

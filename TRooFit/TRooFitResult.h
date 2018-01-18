@@ -80,6 +80,11 @@ public:
     
   }
   
+  std::map<TString, TRooFitResult*> GetAssociatedFitResults() const { return fAssociatedFitResults; }
+  
+  void AddAssociatedFitResult(const char* name, TRooFitResult* result) { fAssociatedFitResults[name] = result; }
+  
+  
   virtual void Draw(Option_t* option = "pull") { Draw(option,RooArgList()); }
   virtual void Draw(Option_t* option,const RooArgList& args);
   
@@ -98,6 +103,8 @@ private:
   std::vector<TGraphErrors> fPullBoxes;
 
   TH2D* fCovHist = 0; //covariance histogram
+
+  std::map<TString, TRooFitResult*> fAssociatedFitResults; //can associate other fits to this fit
 
   ClassDef(TRooFitResult,1) // An extended/improved version of a RooFitResult
 };

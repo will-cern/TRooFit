@@ -133,7 +133,7 @@ void TRooAbsHStack::Add(TRooH1* hist, bool acquireStatFactors) {
         fStatFactors.addOwned(*arg);
       }
       if(fStatFactors.getSize()) fStatFactors.setName("statFactors");
-    } else {
+    } else if(hist->fStatFactors.getSize()) {
       Info("Add","Cannot acquire statFactors of %s",hist->GetName());
     }
   }

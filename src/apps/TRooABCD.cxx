@@ -19,6 +19,20 @@ TRooABCD::TRooABCD(const char* name, const char* title) : TNamed(name,title) {
   m_data = new RooDataSet("data","data",RooArgSet(*m_xVar,*m_cat,*m_weightVar),"w");
   
   m_signalStrength = new RooRealVar("mu","#mu",1,0,10);
+  m_signalStrength->setStringAttribute("fixedValue","0"); //whenever this parameter is floating, we will first run the fit with it fixed at this value, and quote diff
+  m_signalStrength->setConstant(true); //becomes floating as soon as any signal is added (see AddSignal)
+  
+  //create two model parameters
+  m_modelPars.push_back(new RooRealVar("m0","#tilde{m}_{0}",0,-5,5));
+  m_modelPars.push_back(new RooRealVar("m1","#tilde{m}_{1}",0,-5,5)); //fixme ... should we change this range?
+  
+  //by default, second is constant, so that we are doing the standard ABCD method
+  m_modelPars[1]->setConstant(true);
+  
+
+  m_allParameters.add(*m_signalStrength);
+  m_allParameters.add(*m_modelPars[0]);
+  m_allParameters.add(*m_modelPars[1]);
   
 }
 
@@ -83,6 +97,7 @@ Bool_t TRooABCD::AddData(int region, TH1* data) {
         RooRealVar* sf = new RooRealVar(Form("sf_%s_bin%d",regionLabels[region],i),
                                         Form("sf_{%d}^{%s}",i,regionLabels[region]),1,-1e-9,5); //scale factor range is between just under 0 and 5
         m_bkg[region]->addShapeFactor(i,*sf);
+        m_allParameters.add(*sf);
       }
       
       //we can also create the A and B region plots too, now ...
@@ -233,6 +248,8 @@ Bool_t TRooABCD::AddSignal(int region, TH1* signal) {
     m_signal[region]->addNormFactor(*m_signalStrength);
   }
   
+  if(signal->Integral() && m_signalStrength->isConstant()) m_signalStrength->setConstant(false);
+  
   m_signal[region]->Add(signal);
 
   return kTRUE;
@@ -258,6 +275,7 @@ RooRealVar* TRooABCD::AddBkgScaleFactor(int region, double value, double uncert)
   else sf->setConstant(1);
   
   m_bkg[region]->addNormFactor( *sf );
+  m_allParameters.add(*sf);
   
   return sf;
   
@@ -269,6 +287,7 @@ void  TRooABCD::AddBkgScaleFactor(int region, RooRealVar* sf) {
     return;
   }
   m_bkg[region]->addNormFactor( *sf );
+  m_allParameters.add(*sf);
 }
 
 RooRealVar* TRooABCD::AddSignalScaleFactor(int region, double value, double uncert) {
@@ -288,7 +307,7 @@ RooRealVar* TRooABCD::AddSignalScaleFactor(int region, double value, double unce
   else sf->setConstant(1);
   
   m_signal[region]->addNormFactor( *sf );
-  
+  m_allParameters.add(*sf);
   return sf;
   
 }
@@ -299,6 +318,7 @@ void  TRooABCD::AddSignalScaleFactor(int region, RooRealVar* sf) {
     return;
   }
   m_signal[region]->addNormFactor( *sf );
+  m_allParameters.add(*sf);
 }
 
 RooRealVar* TRooABCD::AddOtherScaleFactor(int region, double value, double uncert) {
@@ -318,7 +338,7 @@ RooRealVar* TRooABCD::AddOtherScaleFactor(int region, double value, double uncer
   else sf->setConstant(1);
   
   m_other[region]->addNormFactor( *sf );
-  
+  m_allParameters.add(*sf);
   return sf;
   
 }
@@ -329,10 +349,52 @@ void  TRooABCD::AddOtherScaleFactor(int region, RooRealVar* sf) {
     return;
   }
   m_other[region]->addNormFactor( *sf );
+  m_allParameters.add(*sf);
+}
+
+bool TRooABCD::BuildModel() {
+  if(m_model) {
+    Error("BuildModel","Model already built");
+    return false;
+  }
+
+  RooFormulaVar* m_linearFormula = new RooFormulaVar("transferFunc","Transfer Factor as function of x","(m1*x + m0)",RooArgList(*m_modelPars[0],*m_modelPars[1],*m_xVar));
+  m_transferFactor = new TRooHF1D("transfer1","Transfer Factor D->C",*m_xVar);
+  m_transferFactor->SetLineColor(kBlue);
+  m_transferFactor->Fill( *m_linearFormula );
+  m_transferFactor->setFloor(true); //can't go negative, would be unphysical
+  m_bkg[2]->addNormFactor( *m_transferFactor );
+  m_bkg[0]->addNormFactor( *m_transferFactor );
+  
+  
+  //assemble stacks
+  for(int i=0;i<4;i++) {
+    m_stacks[i] = new TRooHStack(Form("stack%d",i),Form("Model in region %d",i));
+    m_stacks[i]->SetMinimum(1e-9);
+    m_stacks[i]->SetStats(0);
+    if(m_other[i]) m_stacks[i]->Add(m_other[i],false); //do not acquire stat factors
+    m_stacks[i]->Add(m_bkg[i]);
+    if(m_signal[i]) m_stacks[i]->Add(m_signal[i],false);
+  }
+  //put stacks into a model
+  m_model = new RooSimultaneous("model","model",*m_cat);
+  for(int i=0;i<4;i++) {
+    auto modelWithConstraints = TRooFit::BuildModel(*m_stacks[i],*m_data);
+    m_model->addPdf( *modelWithConstraints , m_cat->lookupType(i)->GetName() );
+  }
+  
+  //initialize transfer factor as flat with 0 gradient
+  double parEstimate = m_dataHist[2]->Integral()/m_dataHist[3]->Integral();
+  m_modelPars[0]->setRange(0,parEstimate*100);
+  m_modelPars[0]->setVal(parEstimate);
+  
+  return true;
+  
 }
 
 
-TRooFitResult* TRooABCD::Fit(int modelType, bool floatSignal) {
+
+TRooFitResult* TRooABCD::Fit(bool drawPostFit) {
   if(m_dataHist[1]==0) {
     Error("Fit","No data provided for region B. You must at least construct at empty histogram and pass to AddData");
     return 0;
@@ -349,49 +411,29 @@ TRooFitResult* TRooABCD::Fit(int modelType, bool floatSignal) {
   bool hasSignal = false;
   for(int i=0;i<4;i++) if(m_signal[i]) hasSignal=true;
   
-  if(hasSignal && m_dataHist[0]==0 && floatSignal && m_dataHist[1]->GetNbinsX()==1 && m_dataHist[3]->GetNbinsX()==1) {
+  if(hasSignal && m_dataHist[0]==0 && !m_signalStrength->isConstant() && m_dataHist[1]->GetNbinsX()==1 && m_dataHist[3]->GetNbinsX()==1) {
     Error("Fit","Cannot float signal when signal region is blinded and only have 1 bin in the control regions");
+    Error("Fit","Please fix the signal strength (with GetParameter(\"mu\")->setConstant(true))");
     return 0;
   }
   
-  m_signalStrength->setConstant(!floatSignal);
   
+ 
   
+  if(!m_model) BuildModel();
 
-
-  //FIXME: need to remove these from bkg terms before deleting
-  for(auto t : m_transferFactors) {
-    for(int i=0;i<4;i++) m_bkg[i]->removeNormFactor( *t );
-  
-    delete t; 
-  }
-  m_transferFactors.clear(); 
-
-
-  if(modelType==0) {
+  double parEstimate = m_dataHist[2]->Integral()/m_dataHist[3]->Integral();
+  if(m_modelPars[1]->isConstant()) {
     //doing flat model     
     //A = mB
     //C = mD
     
-    //estimate parameter from C over D
-    double parEstimate = m_dataHist[2]->Integral()/m_dataHist[3]->Integral();
-    
-    if(m_modelPars.size()<1) {
-      m_modelPars.push_back(new RooRealVar("m1","#tilde{m}_{1}",parEstimate,0,parEstimate*100));
-    } else {
-      m_modelPars[0]->setRange(0,parEstimate*100);
-      m_modelPars[0]->setVal(parEstimate);
-    }
+    m_modelPars[0]->setRange(0,parEstimate*100);
+    m_modelPars[0]->setVal(parEstimate);
+    m_modelPars[1]->setVal(0); //no gradient
     
     
-  
-    m_transferFactors.push_back( new TRooHF1D("transfer","Transfer Factor",*m_xVar) );
-    m_transferFactors[0]->SetLineColor(kBlue);
-    m_transferFactors[0]->Fill( *m_modelPars[0] );
-    
-    m_bkg[2]->addNormFactor( *m_transferFactors[0] );
-    m_bkg[0]->addNormFactor( *m_transferFactors[0] );
-  } else if(modelType==1) {
+  } else if(!m_modelPars[1]->isConstant()) {
     if( m_dataHist[1]->GetNbinsX()==1 && m_dataHist[3]->GetNbinsX()==1 ) {
       Error("Fit","Cannot use linear model when you only have 1 bin per region");
       return 0;
@@ -400,103 +442,16 @@ TRooFitResult* TRooABCD::Fit(int modelType, bool floatSignal) {
     //doing linear model
     //A = (m1 + m2x)B
     //C = (m1 + m2x)D
-    
-    
-    //estimate parameter from C over D
-    double parEstimate = m_dataHist[2]->Integral()/m_dataHist[3]->Integral();
-    
-    if(m_modelPars.size()<1) {
-      m_modelPars.push_back(new RooRealVar("m1","#tilde{m}_{1}",parEstimate,-5,parEstimate*100));
-    } else {
-      m_modelPars[0]->setRange(-5,parEstimate*100);
-      m_modelPars[0]->setVal(parEstimate);
-    }
-    
-    if(m_modelPars.size()<2) {
-      m_modelPars.push_back(new RooRealVar("m2","#tilde{m}_{2}",0,-5,5));
-    }
-    
-    RooFormulaVar* m_linearFormula = new RooFormulaVar("transferFunc","Transfer Factor as function of x","(m2*x + m1)",RooArgList(*m_modelPars[0],*m_modelPars[1],*m_xVar));
-    
-    m_transferFactors.push_back( new TRooHF1D("transfer1","Transfer Factor D->C",*m_xVar) );
-    m_transferFactors[0]->SetLineColor(kBlue);
-    m_transferFactors[0]->Fill( *m_linearFormula );
-    
-    m_transferFactors[0]->setFloor(true);
-    
-    m_bkg[2]->addNormFactor( *m_transferFactors[0] );
-    m_bkg[0]->addNormFactor( *m_transferFactors[0] );
-    
-  } 
-  
-  
-  //assemble stacks
-  for(auto t : m_stacks) delete t.second; 
-  m_stacks.clear(); 
-  
-  for(int i=0;i<4;i++) {
-    m_stacks[i] = new TRooHStack(Form("stack%d",i),Form("Model in region %d",i));
-    m_stacks[i]->SetMinimum(1e-9);
-    m_stacks[i]->SetStats(0);
-    if(m_other[i]) m_stacks[i]->Add(m_other[i],false); //do not acquire stat factors
-    m_stacks[i]->Add(m_bkg[i]);
-    if(m_signal[i]) m_stacks[i]->Add(m_signal[i],false);
+
+    m_modelPars[0]->setRange(-5,parEstimate*100);
+    m_modelPars[0]->setVal(parEstimate);
+    m_modelPars[1]->setVal(0); //start at no gradient
   }
+   
+   
+  //ensure the range of mu parameter is big enough to cover all data with signal 
   
-  TCanvas* cc = new TCanvas(Form("%s_prefit",GetName()),Form("%s Pre-fit",GetTitle()),800,600);;
-  cc->Divide(2,2);
-  cc->cd(1);if(m_lastFitResult) m_stacks[2]->Draw("e3005",m_lastFitResult); else  m_stacks[2]->Draw("e3005"); m_dataHist[2]->Draw("same");
-  cc->cd(2);if(m_lastFitResult) m_stacks[0]->Draw("e3005",m_lastFitResult); else  m_stacks[0]->Draw("e3005");if(m_dataHist[0]) m_dataHist[0]->Draw("same");
-  cc->cd(3);if(m_lastFitResult) m_stacks[3]->Draw("e3005",m_lastFitResult); else  m_stacks[3]->Draw("e3005");m_dataHist[3]->Draw("same");
-  cc->cd(4);if(m_lastFitResult) m_stacks[1]->Draw("e3005",m_lastFitResult); else  m_stacks[1]->Draw("e3005");m_dataHist[1]->Draw("same");
-  
-  cc->Modified(1);
-  cc->Update();
-  
-  //put stacks into a model
-  if(m_model) delete m_model;
-  
-  m_model = new RooSimultaneous("model","model",*m_cat);
-  for(int i=0;i<4;i++) {
-    auto modelWithConstraints = TRooFit::BuildModel(*m_stacks[i],*m_data);
-    m_model->addPdf( *modelWithConstraints , m_cat->lookupType(i)->GetName() );
-  }
-  
-  ///now run the fit
-  m_lastFitResult = 0;
-  
-  RooMsgService::instance().setGlobalKillBelow(m_printLevel);
-  if(m_printLevel>=RooFit::ERROR) {
-    Info("Fit","Running Fit ... (use SetPrintLevel(RooFit::INFO) to show roofit output)...");
-  }
-  
-  RooAbsData* theData = m_data;
-  if(m_dataHist[0]==0) {
-    m_xVar->setRange("myRange",m_dataHist[1]->GetXaxis()->GetXmin(),m_dataHist[1]->GetXaxis()->GetXmax());
-    m_stacks[0]->setBlindRange("myRange"); //the blind range will make the value of this component appear to be 0 in this range
-    theData = m_data->reduce("region!=0"); //removes the region A data
-  }
-  
-  double prediction_mu0 = 0;
-  
-  if(floatSignal && hasSignal) {
-    //first run the fit with a signal strength of 0
-    m_signalStrength->setVal(0);
-    m_signalStrength->setConstant(1);
-    
-    
-    Info("Fit","Running mu=0 Fit (to compute signal strength systematic) ... ");
-    m_lastFitResult = new TRooFitResult(m_model->fitTo(*theData,RooFit::Save()));
-    
-    //obtain the estimate.. must first remove blinding
-    if(m_dataHist[0]==0) m_stacks[0]->setBlindRange(""); 
-    prediction_mu0 = GetBkgIntegral(0);
-    if(m_dataHist[0]==0) m_stacks[0]->setBlindRange("myRange"); //put it back
-    
-    Info("Fit","Background Signal region prediction = %g ... ",prediction_mu0);
-    
-    delete m_lastFitResult;
-    
+  if(!m_signalStrength->isConstant()) {
     m_signalStrength->setVal(1.); //for getting the bin content
     
     double totSignal = 0;
@@ -514,31 +469,138 @@ TRooFitResult* TRooABCD::Fit(int modelType, bool floatSignal) {
       }
       
     }
+    if(totSignal!=0) {
+      m_signalStrength->setRange(0,(totData/totSignal)+1);
+      Info("Fit","Setting signal strength to %g to test for maximal signal", (totData/totSignal));
+      m_signalStrength->setVal((totData/totSignal));
+    }
+  }
+  
+  //blind the signal region if necessary
+  RooAbsData* theData = m_data;
+  if(m_dataHist[0]==0 || m_isVR) {
+    m_xVar->setRange("myRange",m_dataHist[1]->GetXaxis()->GetXmin(),m_dataHist[1]->GetXaxis()->GetXmax());
+    m_stacks[0]->setBlindRange("myRange"); //the blind range will make the value of this component appear to be 0 in this range
+    theData = m_data->reduce("region!=0"); //removes the region A data
+  }
+  
+  
+  ///now run the fit
+  m_lastFitResult = 0;
+  
+  RooMsgService::instance().setGlobalKillBelow(m_printLevel);
+
+  
+  
+  //check which floating parameters have 'fixedValue' string attribute set. 
+  //these parameters will have a fit run with 
+  RooArgSet* params = m_model->getParameters( *theData );
+  RooFIter itr(params->fwdIterator());
+  RooAbsArg* p = 0;
+  
+  std::map<TString,TRooFitResult*> afr;
+  while( (p = itr.next()) ) {
+    if(!p->getStringAttribute("fixedValue")) continue;
+    RooRealVar* v = dynamic_cast<RooRealVar*>(p);
+    if(!v) continue;
+    if(v->isConstant()) continue;
+    Info("Fit","Running %s=%s Fit...",v->GetName(),v->getStringAttribute("fixedValue"));
     
-    Info("Fit","Setting signal strength to %g to test for maximal signal", (totData/totSignal));
+    double oldVal = v->getVal();
+    v->setVal( TString(v->getStringAttribute("fixedValue")).Atof() );
+    v->setConstant(true);
     
-    m_signalStrength->setConstant(0);
-    m_signalStrength->setRange(0,(totData/totSignal)+1);
-    m_signalStrength->setVal(totData/totSignal);
     
-    Info("Fit","Re-running fit with floating signal...");
+    TRooFitResult* res = new TRooFitResult(m_model->fitTo(*theData,RooFit::Save(),RooFit::Minimizer("Minuit2")));
+    
+    //special retry of fit with restricted mu range, since we played with the mu ranges above
+    if(res->status()!=0 && !m_signalStrength->isConstant() && hasSignal) { 
+      double oldMax = m_signalStrength->getMax();
+      m_signalStrength->setRange(0,m_signalStrength->getVal()*2.);
+      Warning("Fit","Floating signal fit failed, retrying with restricted range [%g,%g]...",0.,m_signalStrength->getMax());
+      auto args = m_model->getObservables(m_lastFitResult->floatParsInit());
+      *args = m_lastFitResult->floatParsInit(); //resets arg values to mu=0 postfit values
+      m_signalStrength->setVal(m_signalStrength->getMax()/2.); //but put the signal back at its post fit value
+      delete args;
+      delete res;
+      res = new TRooFitResult(m_model->fitTo(*theData,RooFit::Save(),RooFit::Minimizer("Minuit2")));
+      m_signalStrength->setMax(oldMax);
+    }
+    
+    //restore all parameters to pre-fit values ..
+    auto args = m_model->getObservables(res->floatParsInit());
+    *args = res->floatParsInit(); //resets arg values to mu=0 postfit values
+    delete args;
+    
+    v->setVal(oldVal);
+    v->setConstant(false);
+    
+    afr[Form("%s=%s",v->GetName(),v->getStringAttribute("fixedValue"))] = res;
     
   }
   
   
-  m_lastFitResult = new TRooFitResult(m_model->fitTo(*theData,RooFit::Save()));
   
-  if(m_dataHist[0]==0) {
+  if(m_printLevel>=RooFit::ERROR) {
+    Info("Fit","Running Fit ... (use SetPrintLevel(RooFit::INFO) to show roofit output)...");
+  }
+  
+  m_lastFitResult = new TRooFitResult(m_model->fitTo(*theData,RooFit::Save(),RooFit::Minimizer("Minuit2")));
+  
+  //special retry of fit with restricted mu range, since we played with the mu ranges above
+  if(m_lastFitResult->status()%10!=0 && !m_signalStrength->isConstant() && hasSignal) { 
+    m_signalStrength->setRange(0,m_signalStrength->getVal()*2.);
+    Warning("Fit","Floating signal fit failed, retrying with restricted range [%g,%g]...",0.,m_signalStrength->getMax());
+    auto args = m_model->getObservables(m_lastFitResult->floatParsInit());
+    *args = m_lastFitResult->floatParsInit(); //resets arg values to mu=0 postfit values
+    m_signalStrength->setVal(m_signalStrength->getMax()/2.); //but put the signal back at its post fit value
+    delete args;
+    delete m_lastFitResult;
+    m_lastFitResult = new TRooFitResult(m_model->fitTo(*theData,RooFit::Save(),RooFit::Minimizer("Minuit2")));
+  }
+  
+  if(m_dataHist[0]==0 || m_isVR) {
     m_stacks[0]->setBlindRange(""); //remove the blinding range for the post-fit plotting
     delete theData;
   }
   
+  //add zero fit result as an associated fit result
+  //m_lastFitResult->AddAssociatedFitResult("mu=0",zeroFitResult);
+  
+  for(auto& a : afr) {
+    m_lastFitResult->AddAssociatedFitResult(a.first,a.second);
+  }
   
   
-  ///draw the post-fit results
   
-  TCanvas* cc2 = new TCanvas(Form("%s_postfit",GetName()),Form("%s Post-fit",GetTitle()),800,750);
-  cc2->Divide(2,3);
+  if(drawPostFit) {
+    ///draw the post-fit results
+    TCanvas* cc2 = new TCanvas(Form("%s_postfit",GetName()),Form("%s Post-fit",GetTitle()),800,750);
+    Draw(m_lastFitResult);
+    cc2->Modified(1);
+    cc2->Update();
+  }
+  
+  return m_lastFitResult;
+}
+
+
+void TRooABCD::Draw(TRooFitResult* fr, const char* canvasName) {
+  if(!m_model) BuildModel(); //need all model components available to draw
+  
+  TCanvas* cc = 0;
+  if(strlen(canvasName) || !gPad) {
+     if(strlen(canvasName)==0) cc = new TCanvas(GetName(),GetTitle(),800,750);
+     else cc = new TCanvas(canvasName,canvasName,800,750);
+  }
+  
+  if(fr==0) fr = m_lastFitResult;
+  
+  gPad->Clear();
+  
+  auto currPad = gPad;
+  
+  gPad->Divide(2,3);
   
   for(int i=0;i<4;i++) {
     if(!m_dataHist[i]) continue;
@@ -548,52 +610,247 @@ TRooFitResult* TRooABCD::Fit(int modelType, bool floatSignal) {
   
   TText tt;
   
-  cc2->cd(1);m_stacks[2]->Draw("e3005",m_lastFitResult);m_dataHist[2]->Draw("same");tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+.02,Form("Region %s",m_cat->lookupType(2)->GetName()));
-  cc2->cd(2);m_stacks[0]->Draw("e3005",m_lastFitResult);if(m_dataHist[0]) m_dataHist[0]->Draw("same");tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+0.02,Form("Region %s (Signal Region)",m_cat->lookupType(0)->GetName()));
-  cc2->cd(3);m_stacks[3]->Draw("e3005",m_lastFitResult);m_dataHist[3]->Draw("same");tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+0.02,Form("Region %s",m_cat->lookupType(3)->GetName()));
-  cc2->cd(4);m_stacks[1]->Draw("e3005",m_lastFitResult);m_dataHist[1]->Draw("same");tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+0.02,Form("Region %s",m_cat->lookupType(1)->GetName()));
+  currPad->cd(1);
+  if(fr) {m_stacks[2]->Draw("e3005",fr);}
+  else {m_stacks[2]->Draw("e3005");}
+  m_dataHist[2]->Draw("same");tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+.02,Form("Region %s",m_cat->lookupType(2)->GetName()));
+  currPad->cd(2);
+  if(fr) {m_stacks[0]->Draw("e3005",fr);}
+  else {m_stacks[0]->Draw("e3005");}
+  if(m_dataHist[0]) m_dataHist[0]->Draw("same");
+  tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+0.02,Form("Region %s (%s Region)",m_cat->lookupType(0)->GetName(),(m_isVR)?"Validation":"Signal"));
+  currPad->cd(3);
+  if(fr) {m_stacks[3]->Draw("e3005",fr); }
+  else {m_stacks[3]->Draw("e3005");}
+  m_dataHist[3]->Draw("same");tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+0.02,Form("Region %s",m_cat->lookupType(3)->GetName()));
+  currPad->cd(4);
+  if(fr) {m_stacks[1]->Draw("e3005",fr); }
+  else {m_stacks[1]->Draw("e3005");}
+  m_dataHist[1]->Draw("same");tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+0.02,Form("Region %s",m_cat->lookupType(1)->GetName()));
   
   //we want to draw the ratio of the data, after signal and other subtraction
   
-  TH1* data_ratio = (TH1*)m_dataHist[2]->Clone("data_ratio"); data_ratio->SetTitle("Transfer factor");
+  TH1* data_ratio = (TH1*)m_dataHist[2]->Clone("data_ratio"); data_ratio->SetTitle("Transfer factor"); data_ratio->SetDirectory(0);
   if(m_signal[2]) data_ratio->Add( m_signal[2]->GetHistogram(), -1. );
   if(m_other[2]) data_ratio->Add( m_other[2]->GetHistogram(), -1. );
   TH1* tmpHist = (TH1*)m_dataHist[3]->Clone("data_denom");
   if(m_signal[3]) tmpHist->Add( m_signal[3]->GetHistogram(), -1. );
   if(m_other[3]) tmpHist->Add( m_other[3]->GetHistogram(), -1. );
-  
   data_ratio->Divide(tmpHist);
-  delete tmpHist;
-  data_ratio->SetStats(0);
-  cc2->cd(5);data_ratio->Draw();m_transferFactors[0]->Draw("val L same e3005",m_lastFitResult);
-
-  cc2->cd(6);
-  TLatex t;
-  double prediction = GetBkgIntegral(0);
-  double predictionError = GetBkgIntegralError(0);
-  if(floatSignal && hasSignal) {
-    t.DrawLatex(0.05,0.8,Form("SR Bkg Predicted = %g #pm %g (syst.) #pm %g (#mu syst.)",prediction,predictionError,fabs(prediction-prediction_mu0)));
-  } else {
-    t.DrawLatex(0.05,0.8,Form("SR Bkg Predicted = %g #pm %g",prediction,predictionError));
+  //only show it for bins where there was data in both parts
+  for(int i=1;i<=data_ratio->GetNbinsX();i++) {
+    if(m_dataHist[2]->GetBinContent(i)==0 || m_dataHist[3]->GetBinContent(i)==0) { data_ratio->SetBinContent(i,0);data_ratio->SetBinError(i,0); }
   }
+  
+  delete tmpHist;
+  
   if(m_dataHist[0]) {
+    //unblinded, so will draw transfer factor with full range ..
+    std::vector<double> binBoundaries;
+    for(int i=1;i<=m_dataHist[3]->GetNbinsX();i++) binBoundaries.push_back( m_dataHist[3]->GetBinLowEdge(i) );
+    for(int i=1;i<=m_dataHist[1]->GetNbinsX()+1;i++) binBoundaries.push_back( m_dataHist[1]->GetBinLowEdge(i) );
+    
+    TH1* data_ratio2 = (TH1*)m_dataHist[0]->Clone("data_ratio2");
+    if(m_signal[0]) data_ratio2->Add( m_signal[0]->GetHistogram(), -1. );
+    if(m_other[0]) data_ratio2->Add( m_other[0]->GetHistogram(), -1. );
+    TH1* tmpHist = (TH1*)m_dataHist[1]->Clone("data_denom");
+    if(m_signal[1]) tmpHist->Add( m_signal[1]->GetHistogram(), -1. );
+    if(m_other[1]) tmpHist->Add( m_other[1]->GetHistogram(), -1. );
+    data_ratio2->Divide(tmpHist);
+    
+    //only show it for bins where there was data in both parts
+    for(int i=1;i<=data_ratio->GetNbinsX();i++) {
+      if(m_dataHist[0]->GetBinContent(i)==0 || m_dataHist[1]->GetBinContent(i)==0) { data_ratio2->SetBinContent(i,0);data_ratio2->SetBinError(i,0); }
+    }
+    
+    delete tmpHist;
+    
+    TH1* data_ratio1 = data_ratio;
+    
+    data_ratio = new TH1D("data_ratio","Transfer factor",binBoundaries.size()-1,&binBoundaries[0]); data_ratio->SetDirectory(0);
+    *static_cast<TAttLine*>(data_ratio) = *static_cast<TAttLine*>(data_ratio1);
+    *static_cast<TAttMarker*>(data_ratio) = *static_cast<TAttMarker*>(data_ratio1);
+    data_ratio->Sumw2();
+    
+    for(int i=1;i<=data_ratio1->GetNbinsX();i++) {
+      data_ratio->SetBinContent( data_ratio->FindFixBin( data_ratio1->GetBinCenter(i) ), data_ratio1->GetBinContent(i) );
+      data_ratio->SetBinError( data_ratio->FindFixBin( data_ratio1->GetBinCenter(i) ), data_ratio1->GetBinError(i) );
+    }
+    for(int i=1;i<=data_ratio2->GetNbinsX();i++) {
+      data_ratio->SetBinContent( data_ratio->FindFixBin( data_ratio2->GetBinCenter(i) ), data_ratio2->GetBinContent(i) );
+      data_ratio->SetBinError( data_ratio->FindFixBin( data_ratio2->GetBinCenter(i) ), data_ratio2->GetBinError(i) );
+    }
+    delete data_ratio1; delete data_ratio2;
+  }
+  
+  data_ratio->SetXTitle(m_xVar->GetTitle());
+  data_ratio->SetStats(0);
+  currPad->cd(5);data_ratio->Draw();
+  if(fr) m_transferFactor->Draw("val L same e3005",fr);
+  else  m_transferFactor->Draw("val L same e3005");
+  
+  TLatex t;
+  
+  if(fr && fr->floatParsFinal().find("m0")) {
+    RooRealVar* m = static_cast<RooRealVar*>(fr->floatParsFinal().find("m0"));
+    t.DrawLatexNDC(0.3,1.-gPad->GetTopMargin()+0.01,Form("%s = %g #pm %g",m->GetTitle(),m->getVal(),m->getError()));
+  }
+  
+  if(fr && fr->floatParsFinal().find("m1")) {
+    RooRealVar* m = static_cast<RooRealVar*>(fr->floatParsFinal().find("m1"));
+    t.DrawLatexNDC(0.3,1.-gPad->GetTopMargin()+0.05,Form("%s = %g #pm %g",m->GetTitle(),m->getVal(),m->getError()));
+  }
+
+  currPad->cd(6);
+  
+  
+  
+  
+  
+  double prediction = GetBkgIntegral(0,fr);
+  double predictionError = GetBkgIntegralError(0,fr);
+  
+  
+  //check for fixedValue fit results ...
+  //these are associated fit results with a single floating parameter missing ...
+  std::map<RooRealVar*,TRooFitResult*> fixedFitResults;
+  
+  if(fr) {
+    for(auto& afr : fr->GetAssociatedFitResults()) {
+      if(!afr.second) continue; //just in case!
+      RooArgList l( fr->floatParsFinal() );
+      RooArgList l2( afr.second->floatParsFinal() );
+      if(l.getSize()!=l2.getSize()+1) continue; //looking for fits with a single parameter lost
+      l.remove(l2,true,true/*remove by name*/);
+      if(l.getSize()!=1) continue;
+      fixedFitResults[static_cast<RooRealVar*>(l.at(0))] = afr.second;
+    }
+  }
+  
+ 
+  double latexY = 0.8;
+  
+  double extraErr(0);
+  
+  t.DrawLatex(0.05,latexY,Form("%sR Bkg Predicted = %g #pm %g (syst.)",(m_isVR)?"V":"S",prediction,predictionError));latexY-=0.05;
+  for(auto& ffr : fixedFitResults) {
+    double prediction_ffr = GetBkgIntegral(0,ffr.second);
+    t.DrawLatex(0.05,latexY,Form("                   #pm %g (%s syst.)",fabs(prediction_ffr-prediction),ffr.first->GetTitle()));latexY-=0.05;
+    extraErr += pow( prediction-prediction_ffr, 2);
+  }
+  
+  
+  if(m_signal[0]!=0) {
+    //fit had signal, so print signal prediction in SR
+    t.DrawLatex(0.05,latexY,Form("%sR Signal Predicted = %g #pm %g",(m_isVR)?"V":"S",GetSignalIntegral(0),GetSignalIntegralError(0)));latexY-=0.05;
+  }
+  
+  
+  if(m_dataHist[0]) {
+    predictionError = sqrt( pow(predictionError,2) + extraErr );
     double signif = RooStats::NumberCountingUtils::BinomialObsZ(m_dataHist[0]->Integral(),prediction,predictionError/prediction);
     
     if(signif < 1) t.SetTextColor(kGreen);
     else if(signif < 2.5) t.SetTextColor(kOrange);
     else t.SetTextColor(kRed);
     
-    t.DrawLatex(0.05,0.75,Form("SR Observed = %g (%.1f#sigma)",m_dataHist[0]->Integral(),signif));
+    t.DrawLatex(0.05,latexY,Form("%sR Observed = %g (%.1f#sigma)",(m_isVR)?"V":"S",m_dataHist[0]->Integral(),signif));latexY-=0.05;
   }
-  else t.DrawLatex(0.05,0.75,Form("SR Observed = BLINDED"));
+  else {
+    t.DrawLatex(0.05,latexY,Form("%sR Observed = BLINDED",(m_isVR)?"V":"S"));latexY-=0.05;
+  }
   
+  
+  //exit here if we don't have a fit result
+  if(!fr) {
+    if(cc) {
+      cc->Modified(1);
+      cc->Update();
+    }
+    return;
+  }
+
+  
+  const char* statusMeanings[6] = {"OK", 
+                                  "Covariance was made pos definite", 
+                                  "Hesse is invalid", 
+                                  "Edm is above max", 
+                                  "Reached call limit", 
+                                  "Any other failure"};
+  int statusCols[6] = {kGreen,kOrange,kRed,kRed,kRed,kRed};
+  
+  latexY-=0.05;
+  
+  
+  
+  t.SetTextColor(statusCols[fr->status()%10]);
+  t.DrawLatex(0.05,latexY,Form("Fit Status = %d (%s)",fr->status(),statusMeanings[fr->status()%10]));
+  latexY-=0.05;
   //compute chi^2 for the available data .
+  double pVal = GetChi2PValue(fr);
+  if(pVal<1) {
+    if(RooStats::PValueToSignificance(pVal) < 1) t.SetTextColor(kGreen);
+    else if(RooStats::PValueToSignificance(pVal) < 2.5) t.SetTextColor(kOrange);
+    else t.SetTextColor(kRed);
+    t.DrawLatex(0.05,latexY,Form("Fit #chi^{2} p-value = %g (%.1f#sigma)",pVal,RooStats::PValueToSignificance(pVal)));
+    latexY-=0.05;
+  }
   
+  for(auto& ffr : fixedFitResults) {
+    t.SetTextColor(statusCols[ffr.second->status()%10]);
+    t.DrawLatex(0.05,latexY,Form("%s=%s Fit Status = %d (%s)",ffr.first->GetTitle(),ffr.first->getStringAttribute("fixedValue"),ffr.second->status(),statusMeanings[ffr.second->status()]));
+    latexY-=0.05;
+    
+    pVal = GetChi2PValue(ffr.second);
+    if(pVal<1) {
+      if(RooStats::PValueToSignificance(pVal) < 1) t.SetTextColor(kGreen);
+      else if(RooStats::PValueToSignificance(pVal) < 2.5) t.SetTextColor(kOrange);
+      else t.SetTextColor(kRed);
+      t.DrawLatex(0.05,latexY,Form("%s=%s Fit #chi^{2} p-value = %g (%.1f#sigma)",ffr.first->GetTitle(),ffr.first->getStringAttribute("fixedValue"),pVal,RooStats::PValueToSignificance(pVal)));
+      latexY-=0.05;
+    }
+    
+  }
+  
+   
+    
+    
+  
+  
+  if(cc) {
+    cc->Modified(1);
+    cc->Update();
+  }
+
+
+
+}
+
+double TRooABCD::GetBinomialPValue(TRooFitResult* fr) {
+  //this pvalue is the product of pvalues of all regions of observables where data is more 'extreme' than observed
+  //this pvalue is calculated per bin and then multiplied
+
+  if(!fr) fr = m_lastFitResult;
+  double pVal(1.);
+  
+  for(int i=0;i<4;i++) {
+    if(!m_dataHist[i]) continue;
+    TH1* model = m_stacks[i]->GetHistogram(fr,true);
+    for(int j=1;j<=m_dataHist[i]->GetNbinsX();j++) {
+      pVal *= (1.-RooStats::NumberCountingUtils::BinomialObsP(m_dataHist[i]->GetBinContent(j),model->GetBinContent(j),model->GetBinError(j)/model->GetBinContent(j)));
+    }
+  }
+  return pVal;
+  
+}
+
+double TRooABCD::GetChi2PValue(TRooFitResult* fr) {
+  if(!fr) fr = m_lastFitResult;
   double chi2 = 0;
   int ndof=0;
   for(int i=0;i<4;i++) {
     if(!m_dataHist[i]) continue;
-    TH1* model = m_stacks[i]->GetHistogram(m_lastFitResult,true);
+    TH1* model = m_stacks[i]->GetHistogram(fr,true);
     for(int j=1;j<=m_dataHist[i]->GetNbinsX();j++) {
       if(m_dataHist[i]->GetBinContent(j) != model->GetBinContent(j)) {
         double val = pow( (m_dataHist[i]->GetBinContent(j) - model->GetBinContent(j)) , 2 )/( pow(model->GetBinError(j),2)+model->GetBinContent(j) ); //using error = model poisson error + model error (in quadrature)
@@ -603,30 +860,18 @@ TRooFitResult* TRooABCD::Fit(int modelType, bool floatSignal) {
       ndof++;
     }
     //pVal *= m_dataHist[i]->Chi2Test( model, "UW" );
-    delete model;
   }
   
   //correct ndof to account for free parameters
-  if(floatSignal && hasSignal) ndof--;
+  if(fr && fr->floatParsFinal().find("mu")) ndof--;
   ndof -= m_dataHist[1]->GetNbinsX();
   ndof -= m_dataHist[3]->GetNbinsX();
-  if(modelType==0) ndof--;
-  else if(modelType==1) ndof -= 2;
   
-  if(ndof>0) {
-    double pVal = TMath::Prob(chi2,ndof);
-    if(RooStats::PValueToSignificance(pVal) < 1) t.SetTextColor(kGreen);
-    else if(RooStats::PValueToSignificance(pVal) < 2.5) t.SetTextColor(kOrange);
-    else t.SetTextColor(kRed);
-    t.DrawLatex(0.05,0.65,Form("Fit #chi^{2} p-value = %g (%.1f#sigma)",pVal,RooStats::PValueToSignificance(pVal)));
-  }
+  if(fr && fr->floatParsFinal().find("m0")) ndof--;
+  if(fr && fr->floatParsFinal().find("m1")) ndof--;
   
   
-  //compute signal contributions in unblinded regions ... any bigger than ??? just recommend
-  //that user rerun Fit with fixed signal strength = 0 (SetSignalStrength(0);Fit(x,false) and compare bkg predictions
+  if(ndof<=0) return 1.;
   
-  
-
-  return m_lastFitResult;
+  return TMath::Prob(chi2,ndof);
 }
-
