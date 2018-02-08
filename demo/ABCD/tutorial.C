@@ -66,6 +66,12 @@
     abcd.AddSignal(i,h_signal[i]);
   }*/
   
+  //if we want to use asimov data (corresponding to mu=0) in the signal region we do:
+  //abcd.AddAsimovData(0,0 /*signal strength*/);
+  
+  //if we want this to be a validation, we can add 'signal region' data, will be displayed in blue
+  //will not be used in the fit but will be used in computing the pvalues
+  //abcd.AddValidationData(0,h_data[0]);
   
   //if we want to add a relative uncertainty  of e.g. 4% to bkg prediction in region A
   //we add a scale factor with value 1 and uncert = 0.04 to region 0

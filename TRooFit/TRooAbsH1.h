@@ -96,6 +96,7 @@ public:
   //the next lot of functions rely on what is returned by GetRangeName to choose the binning
   Double_t getBinVolume() const; //return volume of current bin
   Double_t getError(const RooFitResult& fr) const;
+  static std::pair<double,double> getError(const RooFitResult& fr, const RooAbsReal* func, RooArgList obs, int nZ=0); 
   virtual Double_t getBinError(const RooFitResult& fr) const { return getBinVolume()*getError(fr); }
   inline virtual Double_t getBinContent(const RooArgSet* nset=0) const { return getBinVolume()*getVal(nset)*(expectedEvents(nset) /*+ missingEvents()*/); } //FIXME: assumes getVal is
   inline Double_t getBinContent(const RooArgSet& nset) const { return getBinContent(&nset); }   //  flat across the bin!
@@ -116,6 +117,7 @@ public:
   
   //other methods to mimic TH1 behaviour 
   Double_t Integral(Option_t* opt="", const TRooFitResult* fr=0) const;
+  Double_t IntegralAndErrors(Double_t& errUp, Double_t& errDown, const TRooFitResult* fr=0, const char* rangeName=0, Option_t* opt="") const;
   Double_t IntegralAndError(Double_t& err, const TRooFitResult* fr=0, const char* rangeName=0, Option_t* opt="") const;
   Double_t IntegralAndError(Double_t& err, const TRooFitResult& fr, const char* rangeName=0, Option_t* opt="") const { return IntegralAndError(err,&fr,rangeName,opt); }
   
@@ -145,8 +147,10 @@ public:
     resetNormMgr(); //clear any existing normalizations
   }
   
+  TRooH1* GetMissingBin() { return fMissingBin; }
+  
 protected:
-  Double_t IntegralAndErrorImpl(Double_t& err, const RooFitResult& fr, const char* rangeName=0, Option_t* opt="") const;
+  Double_t IntegralAndErrorImpl(Double_t& err, Double_t& errDown, const RooFitResult& fr, const char* rangeName=0, Option_t* opt="") const;
 
   TH1* createOrAdjustHistogram(TH1* hist, bool noBinLabels=false) const; //rebins and styles the given histogram (creating it if no hist given
 

@@ -32,6 +32,45 @@ void TRooFitResult::init(const RooArgList& pars) {
   resetCovarianceMatrix(); //fills covariance matrix from float pars final
   setInitParList(floatParsFinal());
   
+  removeFromDir(_dir); //don't put in the TDirectory
+}
+
+void TRooFitResult::adjustCovarianceMatrix() {
+  //when the fit has put a parameter near the limit, the covariance matrix 
+  //ends up being underestimated ... so we will compare the error to the diagonal in the covariance 
+  //matrix and derive scale factors to be applied to the rows and columns ...
+  
+  
+  RooFIter itr2( floatParsFinal().fwdIterator() );
+  RooAbsArg* arg = 0;
+  int i=0;
+  
+  std::vector<double> error_sf(floatParsFinal().getSize(),1.);
+  
+  TMatrixDSym cov( covarianceMatrix() );
+  
+  while( (arg = itr2.next()) ) {
+    
+    double bigErr = std::max(dynamic_cast<RooRealVar*>(arg)->getErrorHi(),-dynamic_cast<RooRealVar*>(arg)->getErrorLo());
+    if(cov(i,i)==0) { cov(i,i)=pow(bigErr,2); } //when hessian was bad, we will recover the errors into the covariance matrix
+    else {error_sf[i] = bigErr / sqrt(cov(i,i)); }
+    i++;
+  }
+  
+  for(int i=0;i<floatParsFinal().getSize();i++) {
+    if(error_sf[i]>1.01) { //1.01 to cover rounding errors
+      //inflating entries in ith row and column
+      Warning("adjustCovarianceMatrix","Inflating %s covariance matrix entries by %g",floatParsFinal().at(i)->GetName(),error_sf[i]);
+      for(int j=0;j<cov.GetNcols();j++) {
+        cov(i,j) = cov(i,j)*error_sf[i];
+        cov(j,i) = cov(j,i)*error_sf[i];
+      }
+    }
+  }
+  
+  setCovarianceMatrix( cov );
+  
+  
 }
 
 

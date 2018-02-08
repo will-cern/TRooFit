@@ -45,7 +45,11 @@ public:
       setCovarianceMatrix( covMatrix );
     }
     
+    adjustCovarianceMatrix();
+    
    };
+   
+   
 
   TRooFitResult(const char* name, const char* title, const RooArgList& finalPars); //will construct a covariance matrix assuming all uncorrelated
 
@@ -91,6 +95,7 @@ public:
   TGraphAsymmErrors* GetPullGraph() { return fPullGraph; }
   
 protected:
+  void adjustCovarianceMatrix();
   void resetCovarianceMatrix();
 
 private:

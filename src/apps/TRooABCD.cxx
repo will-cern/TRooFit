@@ -10,7 +10,7 @@
 #include "RooStats/RooStatsUtils.h"
 
 TRooABCD::TRooABCD(const char* name, const char* title) : TNamed(name,title) {
-  m_xVar = new RooRealVar("x","x",0,1);
+  m_xVar = new RooRealVar("x","x",0,1);m_xVar->setAttribute("isInit",true);
   m_cat = new RooCategory("region","region");
   const char* regionLabels[4] = {"A","B","C","D"};
   for(int i=0;i<4;i++) m_cat->defineType(regionLabels[i]);
@@ -38,6 +38,12 @@ TRooABCD::TRooABCD(const char* name, const char* title) : TNamed(name,title) {
 
 void TRooABCD::checkRangeChange(TH1* hist) {
   bool changedXRange(false);
+  if(m_xVar->getAttribute("isInit")) {
+    //first hist load 
+    changedXRange=true;
+    m_xVar->setRange(hist->GetXaxis()->GetXmin(), hist->GetXaxis()->GetXmax());
+    m_xVar->setAttribute("isInit",false);
+  }
   if(hist->GetXaxis()->GetXmin() < m_xVar->getMin()) {
     m_xVar->setRange(hist->GetXaxis()->GetXmin(), m_xVar->getMax());
     changedXRange=true;
@@ -55,6 +61,70 @@ void TRooABCD::checkRangeChange(TH1* hist) {
   }
 }
 
+Bool_t TRooABCD::AddAsimovData(int region, double signalStrength) {
+  if(region!=0) {
+    Error("AddAsimovData","Can only add to region 0 at the moment");
+    return false;
+  }
+  m_useAsimov=true;
+  m_asimovSignalStrength=signalStrength;
+  return true;
+}
+
+Bool_t TRooABCD::addAsimovData(int region, TH1* data) {
+  m_cat->setIndex(region);
+  
+  checkRangeChange(data);
+  
+  if(!m_asimovData) {
+    m_asimovData = new RooDataSet("asimovdata","asimovdata",RooArgSet(*m_xVar,*m_cat,*m_weightVar),"w");
+  }
+  
+  for(int i=1;i<=data->GetNbinsX();i++) {
+    *m_xVar = data->GetBinCenter(i);
+    if(data->GetBinContent(i)) {
+      double remain;
+      if(std::modf(data->GetBinContent(i),&remain)==0) {
+        for(int j=0;j<int(data->GetBinContent(i)+0.5);j++) m_asimovData->add( RooArgSet(*m_xVar,*m_cat) ); //adds each event individually
+      } else {
+        m_asimovData->add( RooArgSet(*m_xVar,*m_cat), data->GetBinContent(i)/*, data->GetBinError(i)*/ ); //errors don't store properly in RooDataSet :-(
+     }
+    }
+  }
+  
+  
+  
+  //refresh the dataHist
+  if(m_asimovDataHist[region]==0) {
+    m_asimovDataHist[region] = (TH1*)data->Clone(Form("asimovdata%d",region));
+    m_asimovDataHist[region]->SetDirectory(0); m_asimovDataHist[region]->Sumw2();
+    m_asimovDataHist[region]->SetMarkerStyle(24);m_asimovDataHist[region]->SetLineStyle(2);
+  }
+  
+  m_asimovDataHist[region]->Reset();
+  m_asimovData->fillHistogram( m_asimovDataHist[region], *m_xVar, Form("region==%d",region ) );
+  
+  //histograms filled from RooDataSet dont retain errors properly
+  for(int i=1;i<=m_asimovDataHist[region]->GetNbinsX();i++) m_asimovDataHist[region]->SetBinError(i, sqrt( m_asimovDataHist[region]->GetBinContent(i) ) );
+  
+
+  return kTRUE;
+}
+
+Bool_t TRooABCD::AddValidationData(int region, TH1* data) {
+  if(region!=0) {
+    Error("AddValidationData","Validation data can only be added to the signal region at this time");
+    return false;
+  }
+  if(m_dataHist[0] && !m_isVR) {
+    Error("AddValidationData","Regular data was already added to region %d so cannot add validation data",region);
+    return false;
+  }
+  bool out = AddData(region,data);
+  SetValidationMode(true);
+  return out;
+}
+
 Bool_t TRooABCD::AddData(int region, TH1* data) {
   m_cat->setIndex(region);
   
@@ -63,18 +133,18 @@ Bool_t TRooABCD::AddData(int region, TH1* data) {
   for(int i=1;i<=data->GetNbinsX();i++) {
     *m_xVar = data->GetBinCenter(i);
     if(data->GetBinContent(i)) {
-      double remain;
+      /*double remain;
       if(std::modf(data->GetBinContent(i),&remain)==0) {
         for(int j=0;j<int(data->GetBinContent(i)+0.5);j++) m_data->add( RooArgSet(*m_xVar,*m_cat) ); //adds each event individually
-      } else {
+      } else {*/
         m_data->add( RooArgSet(*m_xVar,*m_cat), data->GetBinContent(i)/*, data->GetBinError(i)*/ ); //errors don't store properly in RooDataSet :-(
-     }
+     //}
     }
   }
   
   if(m_bkg[region]==0) {
     m_bkg[region] = (data->GetXaxis()->IsVariableBinSize()) ? 
-                                      new TRooH1D(Form("bkd%d",region),
+                                      new TRooH1D(Form("bkg%d",region),
                                        Form("Background in region %d",region),*m_xVar,
                                        data->GetNbinsX(),
                                        data->GetXaxis()->GetXbins()->GetArray())
@@ -141,7 +211,7 @@ Bool_t TRooABCD::AddData(int region, TH1* data) {
     //update the nominal value to match the data ...
     
     for(int i=1;i<=data->GetNbinsX();i++) {
-      m_bkg[region]->SetBinContent(i,m_bkg[region]->GetBinContent(i)+data->GetBinContent(i));
+      m_bkg[region]->SetBinContent(i,/*m_bkg[region]->GetBinContent(i)+*/data->GetBinContent(i));
       if(m_bkg[region]->GetBinContent(i)<2) m_bkg[region]->SetBinContent(i,2);
     }
     
@@ -156,8 +226,15 @@ Bool_t TRooABCD::AddData(int region, TH1* data) {
   
   m_dataHist[region]->Reset();
   m_data->fillHistogram( m_dataHist[region], *m_xVar, Form("region==%d",region ) );
+  //histograms filled from RooDataSet dont retain errors properly
+  for(int i=1;i<=m_dataHist[region]->GetNbinsX();i++) m_dataHist[region]->SetBinError(i, sqrt( m_dataHist[region]->GetBinContent(i) ) );
   
-  
+  //change the color of the 'signal region' data histogram if we are
+  //in validation mode
+  if(region==0) {
+    m_dataHist[0]->SetLineColor((m_isVR)?kBlue:kBlack);
+    m_dataHist[0]->SetMarkerColor((m_isVR)?kBlue:kBlack);
+  }
 
   return kTRUE;
 }
@@ -359,12 +436,13 @@ bool TRooABCD::BuildModel() {
   }
 
   RooFormulaVar* m_linearFormula = new RooFormulaVar("transferFunc","Transfer Factor as function of x","(m1*x + m0)",RooArgList(*m_modelPars[0],*m_modelPars[1],*m_xVar));
+  RooFormulaVar* transFactor = new RooFormulaVar("ratio","Transfer Factor as function of x","(@0+@1)/(@2+@3)",RooArgList(*m_bkg[0],*m_bkg[2],*m_bkg[1],*m_bkg[3]));
   m_transferFactor = new TRooHF1D("transfer1","Transfer Factor D->C",*m_xVar);
   m_transferFactor->SetLineColor(kBlue);
-  m_transferFactor->Fill( *m_linearFormula );
-  m_transferFactor->setFloor(true); //can't go negative, would be unphysical
-  m_bkg[2]->addNormFactor( *m_transferFactor );
-  m_bkg[0]->addNormFactor( *m_transferFactor );
+  m_transferFactor->Fill( *transFactor );
+  //m_transferFactor->setFloor(true); //can't go negative, would be unphysical
+  m_bkg[2]->addNormFactor( *m_linearFormula );
+  m_bkg[0]->addNormFactor( *m_linearFormula );
   
   
   //assemble stacks
@@ -385,6 +463,7 @@ bool TRooABCD::BuildModel() {
   
   //initialize transfer factor as flat with 0 gradient
   double parEstimate = m_dataHist[2]->Integral()/m_dataHist[3]->Integral();
+  if(parEstimate==0) parEstimate=1;
   m_modelPars[0]->setRange(0,parEstimate*100);
   m_modelPars[0]->setVal(parEstimate);
   
@@ -411,10 +490,31 @@ TRooFitResult* TRooABCD::Fit(bool drawPostFit) {
   bool hasSignal = false;
   for(int i=0;i<4;i++) if(m_signal[i]) hasSignal=true;
   
-  if(hasSignal && m_dataHist[0]==0 && !m_signalStrength->isConstant() && m_dataHist[1]->GetNbinsX()==1 && m_dataHist[3]->GetNbinsX()==1) {
-    Error("Fit","Cannot float signal when signal region is blinded and only have 1 bin in the control regions");
-    Error("Fit","Please fix the signal strength (with GetParameter(\"mu\")->setConstant(true))");
-    return 0;
+  //if(hasSignal && (m_dataHist[0]==0||m_isVR) && !m_signalStrength->isConstant()) {
+  if( (m_useAsimov) && !m_fitForAsimov ) { //if validating or blinded ...
+    //when we are blinded and have floating signal, we will run a fit with signal strength = 0
+    //i.e. we will obtain the expected data under the bkg-only hypothesis (i.e. asimov data)
+    //then we will run the full fit using the asimov data
+    
+    double val = m_signalStrength->getVal();
+    bool cstate = m_signalStrength->isConstant();
+    m_signalStrength->setConstant(true);m_signalStrength->setVal(m_asimovSignalStrength);
+    m_fitForAsimov=true;
+    TRooFitResult* res = Fit(false);
+    TH1* pseudo_data = m_stacks[0]->GetHistogram(res);
+    addAsimovData(0,pseudo_data);
+    auto args = m_model->getObservables(res->floatParsInit());
+    *args = res->floatParsInit(); //resets arg values to prefit values
+    delete args;
+    delete res;
+    m_signalStrength->setConstant(cstate);m_signalStrength->setVal(val);
+    /*
+    if(m_dataHist[1]->GetNbinsX()==1 && m_dataHist[3]->GetNbinsX()==1) {
+      Error("Fit","Cannot float signal when signal region is blinded and only have 1 bin in the control regions");
+      Error("Fit","Please fix the signal strength (with GetParameter(\"mu\")->setConstant(true))");
+      return 0;
+    }
+    */
   }
   
   
@@ -423,6 +523,7 @@ TRooFitResult* TRooABCD::Fit(bool drawPostFit) {
   if(!m_model) BuildModel();
 
   double parEstimate = m_dataHist[2]->Integral()/m_dataHist[3]->Integral();
+  if(parEstimate==0) parEstimate=1;
   if(m_modelPars[1]->isConstant()) {
     //doing flat model     
     //A = mB
@@ -451,7 +552,7 @@ TRooFitResult* TRooABCD::Fit(bool drawPostFit) {
    
   //ensure the range of mu parameter is big enough to cover all data with signal 
   
-  if(!m_signalStrength->isConstant()) {
+  if(hasSignal && !m_signalStrength->isConstant()) {
     m_signalStrength->setVal(1.); //for getting the bin content
     
     double totSignal = 0;
@@ -477,11 +578,17 @@ TRooFitResult* TRooABCD::Fit(bool drawPostFit) {
   }
   
   //blind the signal region if necessary
-  RooAbsData* theData = m_data;
-  if(m_dataHist[0]==0 || m_isVR) {
-    m_xVar->setRange("myRange",m_dataHist[1]->GetXaxis()->GetXmin(),m_dataHist[1]->GetXaxis()->GetXmax());
-    m_stacks[0]->setBlindRange("myRange"); //the blind range will make the value of this component appear to be 0 in this range
-    theData = m_data->reduce("region!=0"); //removes the region A data
+  RooDataSet* theData = m_data;
+  if(m_dataHist[0]==0 || m_useAsimov || m_isVR) {
+    theData = static_cast<RooDataSet*>(m_data->reduce("region!=0")); //removes the region A data
+    //if we have asimovdata then don't blind, just use that ..
+    if(!m_asimovData) {
+      m_xVar->setRange("myRange",m_dataHist[1]->GetXaxis()->GetXmin(),m_dataHist[1]->GetXaxis()->GetXmax());
+      m_stacks[0]->setBlindRange("myRange"); //the blind range will make the value of this component appear to be 0 in this range
+    } else {
+      theData->append( *m_asimovData ); 
+    }
+    
   }
   
   
@@ -511,7 +618,8 @@ TRooFitResult* TRooABCD::Fit(bool drawPostFit) {
     v->setConstant(true);
     
     
-    TRooFitResult* res = new TRooFitResult(m_model->fitTo(*theData,RooFit::Save(),RooFit::Minimizer("Minuit2")));
+    auto x = m_model->fitTo(*theData,RooFit::Save(),RooFit::Minimizer("Minuit2"),RooFit::Minos());
+    TRooFitResult* res = new TRooFitResult(x);
     
     //special retry of fit with restricted mu range, since we played with the mu ranges above
     if(res->status()!=0 && !m_signalStrength->isConstant() && hasSignal) { 
@@ -522,8 +630,9 @@ TRooFitResult* TRooABCD::Fit(bool drawPostFit) {
       *args = m_lastFitResult->floatParsInit(); //resets arg values to mu=0 postfit values
       m_signalStrength->setVal(m_signalStrength->getMax()/2.); //but put the signal back at its post fit value
       delete args;
-      delete res;
-      res = new TRooFitResult(m_model->fitTo(*theData,RooFit::Save(),RooFit::Minimizer("Minuit2")));
+      delete res;delete x;
+      x = m_model->fitTo(*theData,RooFit::Save(),RooFit::Minimizer("Minuit2"));
+      res = new TRooFitResult(x);
       m_signalStrength->setMax(oldMax);
     }
     
@@ -545,7 +654,8 @@ TRooFitResult* TRooABCD::Fit(bool drawPostFit) {
     Info("Fit","Running Fit ... (use SetPrintLevel(RooFit::INFO) to show roofit output)...");
   }
   
-  m_lastFitResult = new TRooFitResult(m_model->fitTo(*theData,RooFit::Save(),RooFit::Minimizer("Minuit2")));
+  auto x = m_model->fitTo(*theData,RooFit::Save(),RooFit::Minimizer("Minuit2"),RooFit::Minos(),RooFit::PrintLevel(3));
+  m_lastFitResult = new TRooFitResult(x);
   
   //special retry of fit with restricted mu range, since we played with the mu ranges above
   if(m_lastFitResult->status()%10!=0 && !m_signalStrength->isConstant() && hasSignal) { 
@@ -555,11 +665,12 @@ TRooFitResult* TRooABCD::Fit(bool drawPostFit) {
     *args = m_lastFitResult->floatParsInit(); //resets arg values to mu=0 postfit values
     m_signalStrength->setVal(m_signalStrength->getMax()/2.); //but put the signal back at its post fit value
     delete args;
-    delete m_lastFitResult;
+    delete x; delete m_lastFitResult;
     m_lastFitResult = new TRooFitResult(m_model->fitTo(*theData,RooFit::Save(),RooFit::Minimizer("Minuit2")));
   }
   
-  if(m_dataHist[0]==0 || m_isVR) {
+  
+  if(m_useAsimov || m_dataHist[0]==0 || m_isVR) {
     m_stacks[0]->setBlindRange(""); //remove the blinding range for the post-fit plotting
     delete theData;
   }
@@ -571,7 +682,11 @@ TRooFitResult* TRooABCD::Fit(bool drawPostFit) {
     m_lastFitResult->AddAssociatedFitResult(a.first,a.second);
   }
   
-  
+  //check the postFit errors and ensure the ranges on parameters are adjusted to cover them ... otherwise we can underestimate uncerts 
+  for(uint i=0;i<m_modelPars.size();i++) {
+  // if( m_modelPars[i]->getVal()+m_modelPars[i]->getErrorLo() < m_modelPars[i]->getMin() ) m_modelPars[i]->setMin( m_modelPars[i]->getVal()+m_modelPars[i]->getErrorLo() - 1. );
+  // if( m_modelPars[i]->getVal()+m_modelPars[i]->getErrorHi() > m_modelPars[i]->getMax() ) m_modelPars[i]->setMax( m_modelPars[i]->getVal()+m_modelPars[i]->getErrorHi() + 1. );
+  }
   
   if(drawPostFit) {
     ///draw the post-fit results
@@ -605,7 +720,13 @@ void TRooABCD::Draw(TRooFitResult* fr, const char* canvasName) {
   for(int i=0;i<4;i++) {
     if(!m_dataHist[i]) continue;
     double maxData = m_dataHist[i]->GetBinContent( m_dataHist[i]->GetMaximumBin() );
-    if(maxData) m_stacks[i]->SetMaximum( maxData*1.1 ); //ensures data is in axis range
+    double maxPred(0);
+    for(int j=1;j<=m_dataHist[i]->GetNbinsX();j++) {
+      double v = m_stacks[i]->GetBinContent(j,fr);
+      if(v>maxPred) maxPred=v;
+    }
+    if(maxData > maxPred) m_stacks[i]->SetMaximum( maxData*1.1 ); //ensures data is in axis range
+    else m_stacks[i]->SetMaximum(-1111); //removes max
   }
   
   TText tt;
@@ -618,6 +739,7 @@ void TRooABCD::Draw(TRooFitResult* fr, const char* canvasName) {
   if(fr) {m_stacks[0]->Draw("e3005",fr);}
   else {m_stacks[0]->Draw("e3005");}
   if(m_dataHist[0]) m_dataHist[0]->Draw("same");
+  if(m_asimovDataHist[0]) m_asimovDataHist[0]->Draw("same");
   tt.DrawTextNDC(gPad->GetLeftMargin(),1.-gPad->GetTopMargin()+0.02,Form("Region %s (%s Region)",m_cat->lookupType(0)->GetName(),(m_isVR)?"Validation":"Signal"));
   currPad->cd(3);
   if(fr) {m_stacks[3]->Draw("e3005",fr); }
@@ -787,26 +909,30 @@ void TRooABCD::Draw(TRooFitResult* fr, const char* canvasName) {
   t.DrawLatex(0.05,latexY,Form("Fit Status = %d (%s)",fr->status(),statusMeanings[fr->status()%10]));
   latexY-=0.05;
   //compute chi^2 for the available data .
-  double pVal = GetChi2PValue(fr);
+  double pVal = Get2LLRPValue(fr); //GetChi2PValue(fr);
   if(pVal<1) {
     if(RooStats::PValueToSignificance(pVal) < 1) t.SetTextColor(kGreen);
     else if(RooStats::PValueToSignificance(pVal) < 2.5) t.SetTextColor(kOrange);
     else t.SetTextColor(kRed);
-    t.DrawLatex(0.05,latexY,Form("Fit #chi^{2} p-value = %g (%.1f#sigma)",pVal,RooStats::PValueToSignificance(pVal)));
+    //t.DrawLatex(0.05,latexY,Form("Fit #chi^{2} p-value = %g (%.1f#sigma)",pVal,RooStats::PValueToSignificance(pVal)));
+    t.DrawLatex(0.05,latexY,Form("Fit 2LLR p-value = %g (%.1f#sigma)",pVal,RooStats::PValueToSignificance(pVal)));
     latexY-=0.05;
   }
   
   for(auto& ffr : fixedFitResults) {
-    t.SetTextColor(statusCols[ffr.second->status()%10]);
-    t.DrawLatex(0.05,latexY,Form("%s=%s Fit Status = %d (%s)",ffr.first->GetTitle(),ffr.first->getStringAttribute("fixedValue"),ffr.second->status(),statusMeanings[ffr.second->status()]));
+    int stat = ffr.second->status()%10;
+    if(!(stat>=0 && stat<=5)) stat=5;
+    t.SetTextColor(statusCols[stat]);
+    t.DrawLatex(0.05,latexY,Form("%s=%s Fit Status = %d (%s)",ffr.first->GetTitle(),ffr.first->getStringAttribute("fixedValue"),ffr.second->status(),statusMeanings[stat]));
     latexY-=0.05;
     
-    pVal = GetChi2PValue(ffr.second);
+    pVal = Get2LLRPValue(ffr.second); //GetChi2PValue(ffr.second);
     if(pVal<1) {
       if(RooStats::PValueToSignificance(pVal) < 1) t.SetTextColor(kGreen);
       else if(RooStats::PValueToSignificance(pVal) < 2.5) t.SetTextColor(kOrange);
       else t.SetTextColor(kRed);
-      t.DrawLatex(0.05,latexY,Form("%s=%s Fit #chi^{2} p-value = %g (%.1f#sigma)",ffr.first->GetTitle(),ffr.first->getStringAttribute("fixedValue"),pVal,RooStats::PValueToSignificance(pVal)));
+      //t.DrawLatex(0.05,latexY,Form("%s=%s Fit #chi^{2} p-value = %g (%.1f#sigma)",ffr.first->GetTitle(),ffr.first->getStringAttribute("fixedValue"),pVal,RooStats::PValueToSignificance(pVal)));
+      t.DrawLatex(0.05,latexY,Form("%s=%s Fit 2LLR p-value = %g (%.1f#sigma)",ffr.first->GetTitle(),ffr.first->getStringAttribute("fixedValue"),pVal,RooStats::PValueToSignificance(pVal)));
       latexY-=0.05;
     }
     
@@ -824,24 +950,6 @@ void TRooABCD::Draw(TRooFitResult* fr, const char* canvasName) {
 
 
 
-}
-
-double TRooABCD::GetBinomialPValue(TRooFitResult* fr) {
-  //this pvalue is the product of pvalues of all regions of observables where data is more 'extreme' than observed
-  //this pvalue is calculated per bin and then multiplied
-
-  if(!fr) fr = m_lastFitResult;
-  double pVal(1.);
-  
-  for(int i=0;i<4;i++) {
-    if(!m_dataHist[i]) continue;
-    TH1* model = m_stacks[i]->GetHistogram(fr,true);
-    for(int j=1;j<=m_dataHist[i]->GetNbinsX();j++) {
-      pVal *= (1.-RooStats::NumberCountingUtils::BinomialObsP(m_dataHist[i]->GetBinContent(j),model->GetBinContent(j),model->GetBinError(j)/model->GetBinContent(j)));
-    }
-  }
-  return pVal;
-  
 }
 
 double TRooABCD::GetChi2PValue(TRooFitResult* fr) {
@@ -874,4 +982,136 @@ double TRooABCD::GetChi2PValue(TRooFitResult* fr) {
   if(ndof<=0) return 1.;
   
   return TMath::Prob(chi2,ndof);
+}
+
+double TRooABCD::Get2LLRPValue(TRooFitResult* fr, int nToys) {
+  double obsLLR = Get2LLR(fr,GetDataSet());
+  
+  if(nToys==0) {
+    //use chi2 approx with ndof = number of bins
+    int nBins=0;
+    for(int i=0;i<4;i++) {
+      if(m_dataHist[i]) {
+        nBins += m_dataHist[i]->GetNbinsX();
+      }
+    }
+    return TMath::Prob(obsLLR,nBins);
+  }
+  
+  double low=0;
+  for(int i=0;i<nToys;i++) {
+    auto toy = createToyDataSet();
+    if( Get2LLR(fr,toy)>obsLLR) low++;
+    delete toy;
+  }
+  
+  if(low==0) low=1; //to avoid returning 0 pValue
+  
+  return low/nToys;
+}
+
+double TRooABCD::Get2LLR(TRooFitResult* fr, RooAbsData* data) {
+  //log likelihood ratio 'test statistic' as studied by Baker-Cousins
+  //The denominator of the ratio is the likelihood for the 'perfect' binned model
+  
+  //NOTE: 2*LLR is approximately chi2 distribution, ndof ~= nBins (comes out a little higher) ??
+  
+  if(!fr) fr = m_lastFitResult;
+  
+  //move parameter values onto fr values
+  //and constant parameters too
+  RooArgList floatAndConst; floatAndConst.add(fr->floatParsFinal()); floatAndConst.add(fr->constPars());
+  auto params = m_model->getObservables(floatAndConst);
+  auto snap = static_cast<RooArgSet*>(params->snapshot());
+  *params = floatAndConst;
+
+  double nll = 0;
+  double nll2 = 0; //denominator
+  
+  //first activate blinding for regions without data
+  for(int i=0;i<4;i++) {
+    if(!m_dataHist[i]) {
+      m_xVar->setRange("myRange",m_xVar->getMin(),m_xVar->getMax());
+      m_stacks[i]->setBlindRange("myRange");
+    }
+  }
+  
+  //now evaluate the NLL of the data
+  RooAbsPdf* model = GetModel();
+  if(data==0) data = GetDataSet();
+  
+  RooArgSet* obs = model->getObservables(data);
+  for(int i=0;i<data->numEntries();i++) {
+    *obs = *data->get(i); //move observables values of ith entry
+    nll -= model->getLogVal( obs )*data->weight(); //get probability of ith entry (scale by weight)
+  }
+  //if model is extended, add extended term ..
+  nll += model->extendedTerm(data->sumEntries(),obs);
+  
+  //ll2 is the likelihood from the 'saturated' model where each bin prediction equals the data
+  //use data histograms to estimate this ...
+  //formula is:
+  // nll2 = - sum_i [ n_i * log(n_i/(w_i*N)) ] + N - NlogN = -sum_i [ n_i*log(n_i/w_i) ] + N
+  //last equality comes from sum_i [n_i * log(N)] = Nlog N 
+  
+  for(int i=0;i<4;i++) {
+    if(!m_dataHist[i]) continue;
+    for(int j=1;j<=m_dataHist[i]->GetNbinsX();j++) {
+      double nObs = data->sumEntries(Form("region==%d&&x>=%f&&x<%f",i,m_dataHist[i]->GetBinLowEdge(j),m_dataHist[i]->GetBinLowEdge(j+1)));
+      if(nObs<=0) continue;
+      nll2 -= nObs*log(nObs/m_dataHist[i]->GetBinWidth(j));
+      nll2 += nObs; //adds the 'N' term
+    }
+  }
+  
+  
+  //remove blind ranges ..
+  for(int i=0;i<4;i++) {
+    m_stacks[i]->setBlindRange("");
+  }
+  
+  
+  //restore parameter values in model
+  *params = *snap;
+  delete params;
+  delete snap;
+  
+  return 2.*(nll - nll2);
+  
+}
+
+#include "RooRandom.h"
+
+RooDataSet* TRooABCD::createToyDataSet(bool expected) {
+  //create a toy dataset from the current state of the model, using the data hist binning ...
+  //Question: should we be flucuating the underlying parameters, hybrid style?
+  //frequentist approach would say not to, since we just use the best fit values as they are
+  
+  RooAbsPdf* model = GetModel();
+  RooAbsData* data = GetDataSet();
+  
+  RooArgSet* obs = model->getObservables(data);
+  
+  double nExpected = model->expectedEvents(obs);
+  RooRealVar weight("weight","weight",0,1e9) ;
+  RooArgSet tmp(*obs) ;
+  tmp.add(weight) ;
+  
+  RooDataSet* binnedData = new RooDataSet("toy","toy",tmp,RooFit::WeightVar("weight"));
+  
+  for(int i=0;i<4;i++) {
+    if(!m_dataHist[i]) continue;
+    m_cat->setIndex(i);
+    for(int j=1;j<=m_dataHist[i]->GetNbinsX();j++) {
+      m_xVar->setVal( m_dataHist[i]->GetBinCenter(j) );
+      double binExpectation = model->getVal( data->get() )*nExpected*m_dataHist[i]->GetBinWidth(j); //exploits flatness of pdf across bin width
+      double w = (expected) ? binExpectation : RooRandom::randomGenerator()->Poisson( binExpectation );
+      binnedData->add( *obs, w);
+    }
+  }
+  
+  delete obs;
+  
+  return binnedData;
+
 }

@@ -132,7 +132,7 @@ Double_t TRooAbsH1::Integral(Option_t* opt, const TRooFitResult* fr) const {
   return out;
   
 }
-Double_t TRooAbsH1::IntegralAndErrorImpl(Double_t& err, const RooFitResult& fr, const char* rangeName, Option_t* opt) const {
+Double_t TRooAbsH1::IntegralAndErrorImpl(Double_t& err, Double_t& errDown, const RooFitResult& fr, const char* rangeName, Option_t* opt) const {
   TString sOpt(opt);
   std::unique_ptr<RooAbsReal> inte( (sOpt.Contains("m")) ?  createIntegralWM(fObservables,rangeName) : dynamic_cast<const RooAbsReal*>(this)->createIntegral(fObservables,rangeName) );
   
@@ -152,7 +152,8 @@ Double_t TRooAbsH1::IntegralAndErrorImpl(Double_t& err, const RooFitResult& fr, 
   *params = fr2.floatParsFinal();
   *params = fr2.constPars();
   
-  err = inte->getPropagatedError(fr2);
+  auto res = TRooAbsH1::getError(fr2,&*inte,fObservables, sOpt.Contains("toys")?1:0);/*inte->getPropagatedError(fr2);*/
+  err = res.first; errDown = res.second;
   
   double out = inte->getVal();
   
@@ -162,14 +163,19 @@ Double_t TRooAbsH1::IntegralAndErrorImpl(Double_t& err, const RooFitResult& fr, 
   return out;
 }
 
-Double_t TRooAbsH1::IntegralAndError(Double_t& err, const TRooFitResult* fr, const char* rangeName, Option_t* opt) const {
+Double_t TRooAbsH1::IntegralAndError(Double_t& errUp, const TRooFitResult* fr, const char* rangeName, Option_t* opt) const {
+  double blah = 0;
+  return IntegralAndErrors(errUp,blah,fr,rangeName,opt);
+}
+
+Double_t TRooAbsH1::IntegralAndErrors(Double_t& errUp, Double_t& errDown, const TRooFitResult* fr, const char* rangeName, Option_t* opt) const {
   double out=0;
   if(fr==0) {
     //create one with anything that isn't my observables 
     RooArgSet* params =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
     TRooFitResult r(*params);
     delete params;
-    out = IntegralAndErrorImpl(err,static_cast<const RooFitResult&>(r),rangeName,opt);
+    out = IntegralAndErrorImpl(errUp,errDown,static_cast<const RooFitResult&>(r),rangeName,opt);
   } else if(fr->floatParsFinal().getSize()==0) {
       //no floating pars ... error would by definition be zero for this case
       //we assume here that isn't what the user wanted ... instead assume they wanted all parameters 
@@ -178,7 +184,7 @@ Double_t TRooAbsH1::IntegralAndError(Double_t& err, const TRooFitResult* fr, con
       cdeps->remove(fr->constPars(),true,true);
       RooArgList l; l.add(*cdeps);
       TRooFitResult r(l,fr->constPars());
-      out = IntegralAndErrorImpl(err,static_cast<const RooFitResult&>(r),rangeName,opt);
+      out = IntegralAndErrorImpl(errUp,errDown,static_cast<const RooFitResult&>(r),rangeName,opt);
       delete cdeps;
       
       
@@ -203,7 +209,7 @@ Double_t TRooAbsH1::IntegralAndError(Double_t& err, const TRooFitResult* fr, con
     
     
     
-    out = IntegralAndErrorImpl(err,static_cast<const RooFitResult&>(*fr),rangeName,opt);
+    out = IntegralAndErrorImpl(errUp,errDown,static_cast<const RooFitResult&>(*fr),rangeName,opt);
     
     *cdeps = *crsnap; //this will also revert constant status
     delete cdeps;
@@ -238,18 +244,24 @@ bool TRooAbsH1::addNormFactor( RooAbsReal& factor ) {
 }
 
 bool TRooAbsH1::removeNormFactor( RooAbsReal& factor ) {
+  if(fMissingBin) fMissingBin->removeNormFactor( factor );
+
   if(fNormFactors.find( factor )) {
     fNormFactors.remove(factor);
     if(fNormFactors.getSize()==0) fNormFactors.setName("!normFactors"); //hides from printout again
+  } else {
+    //nothing removed so no need to update 
+    return false;
   }
-  if(fMissingBin) fMissingBin->removeNormFactor( factor );
+  
   
   //need to also tell all clients that we have a new parameter to depend on
-  TIterator* citer(dynamic_cast<RooAbsArg*>(this)->clientIterator());//std::unique_ptr<TIterator> citer(clientIterator());
+  /*TIterator* citer(dynamic_cast<RooAbsArg*>(this)->clientIterator());//std::unique_ptr<TIterator> citer(clientIterator());
   while( RooAbsArg* client = (RooAbsArg*)( citer->Next() ) ) {
-    client->addServer(factor);client->setValueDirty();client->setShapeDirty();
-  }
-  delete citer;
+    client->removeServer(factor);client->setValueDirty();client->setShapeDirty();
+  } IS IT SAFE TO removeServer ... what if it depends on it through another thing???
+  delete citer;*/
+  
   resetNormMgr();
   return true;
   
@@ -919,24 +931,29 @@ void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool inclu
 
 
 #include "TVectorD.h"
+#include "Math/ProbFuncMathCore.h"
+
+Double_t TRooAbsH1::getError(const RooFitResult& fr) const {
+  return getError(fr,dynamic_cast<const RooAbsReal*>(this), fObservables).first;
+}
 
 ///BORROWED THIS CODE FROM RooAbsReal
 ///But added dependencies on expectedEvents too!
 //_____________________________________________________________________________
-Double_t TRooAbsH1::getError(const RooFitResult& fr) const 
+std::pair<double,double> TRooAbsH1::getError(const RooFitResult& fr, const RooAbsReal* func, RooArgList obs, int nZ)  
 {
 
   if(fr.floatParsFinal().getSize()==0) {
       //no floating pars ... error would by definition be zero for this case
       //we assume here that isn't what the user wanted ... instead assume they wanted all parameters 
       //that are not in the constPars list 
-      RooAbsCollection* cdeps =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables);
+      RooAbsCollection* cdeps =  func->getParameters(obs);
       cdeps->remove(fr.constPars(),true,true);
-      double out=0;
+      std::pair<double,double> out=std::make_pair(0.,0.);
       if(cdeps->getSize()) {
         RooArgList l; l.add(*cdeps);
         TRooFitResult r(l,fr.constPars());
-        out = getError(r);
+        out = TRooAbsH1::getError(r,func,obs);
       }
       delete cdeps;
       return out;
@@ -945,7 +962,7 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
   //check if any of the floatPars have "injectValueAndError" attached ... if they do then we need to setVal and error on them 
     RooAbsCollection* injectPars = fr.floatParsFinal().selectByAttrib("injectValueAndError",true);
     if(injectPars->getSize()) {
-      RooAbsCollection* cdeps =  dynamic_cast<const RooAbsArg*>(this)->getParameters(fObservables); //everything except observables
+      RooAbsCollection* cdeps =  func->getParameters(obs); //everything except observables
       *injectPars = *cdeps; 
       const_cast<TRooFitResult&>(dynamic_cast<const TRooFitResult&>(fr)).resetCovarianceMatrix(); //updates covariance matrix with new errors
       delete cdeps;
@@ -963,7 +980,8 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
 
 
   // Clone self for internal use
-  RooAbsReal* cloneFunc = (RooAbsReal*)(dynamic_cast<const RooAbsReal*>(this)->cloneTree()) ;
+  RooAbsReal* cloneFunc = (RooAbsReal*)(func->cloneTree()) ;
+  RooAbsPdf* cloneFuncPdf = dynamic_cast<RooAbsPdf*>(cloneFunc);
   RooArgSet* errorParams = cloneFunc->getObservables(fr.floatParsFinal()) ;
   RooArgSet* nset = cloneFunc->getParameters(*errorParams) ;
   //remove const pars from nset ...
@@ -976,81 +994,117 @@ Double_t TRooAbsH1::getError(const RooFitResult& fr) const
   nset->remove(*constpars); delete constpars;
   
   
-  // Make list of parameter instances of cloneFunc in order of error matrix
-  RooArgList paramList ;
-  const RooArgList& fpf = fr.floatParsFinal() ;
-  std::vector<int> fpf_idx ;
-  for (Int_t i=0 ; i<fpf.getSize() ; i++) {
-    RooAbsArg* par = errorParams->find(fpf[i].GetName()) ;
-    //if (par) {
-    if(par && ((RooRealVar&)fpf[i]).getError()>1e-9) { //WB2017: added this line to stop tiny errors breaking things
-      paramList.add(*par) ;
-      fpf_idx.push_back(i) ;
+  if(nZ==0) {
+  
+    // Make list of parameter instances of cloneFunc in order of error matrix
+    RooArgList paramList ;
+    const RooArgList& fpf = fr.floatParsFinal() ;
+    std::vector<int> fpf_idx ;
+    for (Int_t i=0 ; i<fpf.getSize() ; i++) {
+      RooAbsArg* par = errorParams->find(fpf[i].GetName()) ;
+      //if (par) {
+      if(par && ((RooRealVar&)fpf[i]).getError()>1e-9) { //WB2017: added this line to stop tiny errors breaking things
+        paramList.add(*par) ;
+        fpf_idx.push_back(i) ;
+      }
     }
-  }
-  
-  if(paramList.getSize()==0) {
-    delete cloneFunc; delete errorParams; delete nset;
-    return 0; //no error
-  }
-
-  //DONT NEED TO SNAP BECAUSE WE cloneTree'd! RooArgSet psnap;errorParams->snapshot(psnap); //save the current values
-  *errorParams = fpf; //sets all param values to central values, including ones that had no error in floatParsFinal
-  
-
-  std::vector<Double_t> plusVar, minusVar ;    
-  
-  // Create vector of plus,minus variations for each parameter  
-  TMatrixDSym V(paramList.getSize()==fr.floatParsFinal().getSize()?
-		fr.covarianceMatrix():
-		fr.reducedCovarianceMatrix(paramList)) ;
-  
-  for (Int_t ivar=0 ; ivar<paramList.getSize() ; ivar++) {
     
-    RooRealVar& rrv = (RooRealVar&)fpf[fpf_idx[ivar]] ;
-    
-    Double_t cenVal = rrv.getVal() ;
-    Double_t errVal = sqrt(V(ivar,ivar)) ;
-    
-    
-    // Make Plus variation
-    ((RooRealVar*)paramList.at(ivar))->setVal(cenVal+errVal) ;
-    plusVar.push_back(cloneFunc->getVal(nset)*(dynamic_cast<TRooAbsH1*>(cloneFunc))->expectedEvents(nset)) ;
-    // Make Minus variation
-    ((RooRealVar*)paramList.at(ivar))->setVal(cenVal-errVal) ;
-    minusVar.push_back(cloneFunc->getVal(nset)*(dynamic_cast<TRooAbsH1*>(cloneFunc))->expectedEvents(nset)) ;
-    ((RooRealVar*)paramList.at(ivar))->setVal(cenVal) ;
-    
-  }
-
-  TMatrixDSym C(paramList.getSize()) ;      
-  std::vector<double> errVec(paramList.getSize()) ;
-  for (int i=0 ; i<paramList.getSize() ; i++) {
-    errVec[i] = sqrt(V(i,i)) ;
-    for (int j=i ; j<paramList.getSize() ; j++) {
-      C(i,j) = V(i,j)/sqrt(V(i,i)*V(j,j)) ;
-      C(j,i) = C(i,j) ;
+    if(paramList.getSize()==0) {
+      delete cloneFunc; delete errorParams; delete nset;
+      return std::make_pair(0.,0.); //no error
     }
+  
+    //DONT NEED TO SNAP BECAUSE WE cloneTree'd! RooArgSet psnap;errorParams->snapshot(psnap); //save the current values
+    *errorParams = fpf; //sets all param values to central values, including ones that had no error in floatParsFinal
+    
+  
+    std::vector<Double_t> plusVar, minusVar ;    
+    
+    // Create vector of plus,minus variations for each parameter  
+    TMatrixDSym V(paramList.getSize()==fr.floatParsFinal().getSize()?
+                  fr.covarianceMatrix():
+                  fr.reducedCovarianceMatrix(paramList)) ;
+    
+    
+    
+    for (Int_t ivar=0 ; ivar<paramList.getSize() ; ivar++) {
+      
+      RooRealVar& rrv = (RooRealVar&)fpf[fpf_idx[ivar]] ;
+      
+      Double_t cenVal = rrv.getVal() ;
+      Double_t errVal = sqrt(V(ivar,ivar)) ;
+      
+      
+      // Make Plus variation
+      ((RooRealVar*)paramList.at(ivar))->setVal(cenVal+errVal) ;
+      plusVar.push_back(cloneFunc->getVal(nset)*( (cloneFuncPdf) ? cloneFuncPdf->expectedEvents(nset) : 1.)) ;
+      // Make Minus variation
+      ((RooRealVar*)paramList.at(ivar))->setVal(cenVal-errVal) ;
+      minusVar.push_back(cloneFunc->getVal(nset)*( (cloneFuncPdf) ? cloneFuncPdf->expectedEvents(nset) : 1.)) ;
+      ((RooRealVar*)paramList.at(ivar))->setVal(cenVal) ;
+      
+    }
+  
+    TMatrixDSym C(paramList.getSize()) ;      
+    std::vector<double> errVec(paramList.getSize()) ;
+    for (int i=0 ; i<paramList.getSize() ; i++) {
+      errVec[i] = sqrt(V(i,i)) ;
+      for (int j=i ; j<paramList.getSize() ; j++) {
+        C(i,j) = V(i,j)/sqrt(V(i,i)*V(j,j)) ;
+        C(j,i) = C(i,j) ;
+      }
+    }
+    
+    // Make vector of variations
+    TVectorD F(plusVar.size()) ;
+    for (unsigned int j=0 ; j<plusVar.size() ; j++) {
+      F[j] = (plusVar[j]-minusVar[j])/2 ;
+    }
+    
+    //*errorParams = psnap; //puts all params back
+    //*nset = nsnap;
+  
+    // Calculate error in linear approximation from variations and correlation coefficient
+    Double_t sum = F*(C*F) ;
+
+
+    delete cloneFunc ;
+    delete errorParams ;
+    delete nset ;
+  
+    return std::make_pair(sqrt(sum),-sqrt(sum));
   }
   
-  // Make vector of variations
-  TVectorD F(plusVar.size()) ;
-  for (unsigned int j=0 ; j<plusVar.size() ; j++) {
-    F[j] = (plusVar[j]-minusVar[j])/2 ;
+  //if got here, then toys have been requested 
+  
+  //throw nToys from HessePdf of fit result, propagate, and evaluate the function value ...
+  RooAbsPdf* paramPdf = fr.createHessePdf(*errorParams);
+  int n = int(100./TMath::Erfc(nZ/sqrt(2.)));
+  if(n<100) n=100;
+  
+  std::vector<double> vals(n);
+  
+  *errorParams = fr.floatParsFinal(); //sets all param values to central values, including ones that had no error in floatParsFinal
+  double nomVal = cloneFunc->getVal(nset)*( (cloneFuncPdf) ? cloneFuncPdf->expectedEvents(nset) : 1.);
+  
+  RooDataSet* d = paramPdf->generate(*errorParams,n);
+  for(int i=0;i<d->numEntries();i++) {
+    *errorParams = (*d->get(i)); //set params to the random value ...
+    vals[i] = cloneFunc->getVal(nset)*( (cloneFuncPdf) ? cloneFuncPdf->expectedEvents(nset) : 1.);
   }
   
-  //*errorParams = psnap; //puts all params back
-  //*nset = nsnap;
-
-  // Calculate error in linear approximation from variations and correlation coefficient
-  Double_t sum = F*(C*F) ;
-
-
-  delete cloneFunc ;
-  delete errorParams ;
-  delete nset ;
-
-  return sqrt(sum);
+  std::sort(vals.begin(),vals.end());
+  
+  
+  
+  delete paramPdf;
+  
+  delete cloneFunc;
+  delete errorParams;
+  delete nset;
+  
+  return std::make_pair( vals[ int(n * ROOT::Math::normal_cdf(nZ,1) + 0.5 ) ] - nomVal, vals[ int(n * ROOT::Math::normal_cdf(-nZ,1) + 0.5 ) ] - nomVal) ;
+  
 }
 
 

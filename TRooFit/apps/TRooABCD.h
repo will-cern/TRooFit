@@ -24,7 +24,10 @@ class TRooABCD : public TNamed  {
     
     Bool_t AddSignal(int region, TH1* signal);
     Bool_t AddData(int region, TH1* data);
+    Bool_t AddValidationData(int region, TH1* data); //currently can only be added to region 0
     Bool_t AddOther(int region, TH1* other);
+    
+    Bool_t AddAsimovData(int region, double signalStrength=0); //will create asimov data for this region, corresponding to the given signal strength
     
     RooRealVar* AddBkgScaleFactor(int region, double value, double uncert);
     RooRealVar* AddSignalScaleFactor(int region, double value, double uncert);
@@ -55,8 +58,7 @@ class TRooABCD : public TNamed  {
 
     void SetPrintLevel(RooFit::MsgLevel level) { m_printLevel = level; } //use RooFit::INFO etc etc
 
-    //use this method to blind the SR from the fit, even if there is data!
-    void SetValidationRegion(bool in) { m_isVR = in; }
+    
 
     bool BuildModel(); //Finishes constructing the TRooFit model
     RooSimultaneous* GetModel() { return m_model; }
@@ -72,9 +74,27 @@ class TRooABCD : public TNamed  {
     void Draw(TRooFitResult* fr, const char* canvasName="");
     
     double GetChi2PValue(TRooFitResult* fr=0);
-    double GetBinomialPValue(TRooFitResult* fr=0);
-
+    double Get2LLR(TRooFitResult* fr=0, RooAbsData* data=0);
+    double Get2LLRPValue(TRooFitResult* fr=0, int nToys=0);
+    
+    RooDataSet* createToyDataSet(bool expected=false);
+  
+  
+    //use this method to run the fit in 'blinded' state (will use asimov data for mu=0) and compare to actual data
+    void SetValidationMode(bool in) { 
+      m_isVR = in; 
+      if(m_dataHist[0]) {
+        m_dataHist[0]->SetLineColor((m_isVR)?kBlue:kBlack);
+        m_dataHist[0]->SetMarkerColor((m_isVR)?kBlue:kBlack);
+      }
+    }
+    
+    TRooHF1D* getTF() { return m_transferFactor; }
+    
+  
   private:
+    Bool_t addAsimovData(int region, TH1* data);
+    
     void checkRangeChange(TH1* hist);
   
     RooRealVar* m_xVar = 0;
@@ -82,6 +102,8 @@ class TRooABCD : public TNamed  {
     RooCategory* m_cat = 0;
     RooDataSet* m_data = 0;
     RooRealVar* m_signalStrength = 0;
+    
+    RooDataSet* m_asimovData = 0;
   
     std::map<int, TRooH1D*> m_signal;
     std::map<int, TRooH1D*> m_bkg;
@@ -92,6 +114,7 @@ class TRooABCD : public TNamed  {
     RooSimultaneous* m_model = 0;
 
     std::map<int, TH1*> m_dataHist; //data histograms, constructed from m_data
+    std::map<int, TH1*> m_asimovDataHist; //data histograms, constructed from m_asimoveData
 
     std::vector<RooRealVar*> m_modelPars;
 
@@ -104,6 +127,10 @@ class TRooABCD : public TNamed  {
     RooArgList m_allParameters; //!
     
     bool m_isVR = false;
+    bool m_fitForAsimov=false;
+
+    bool m_useAsimov = false;
+    double m_asimovSignalStrength = 0;
 
 };
 
