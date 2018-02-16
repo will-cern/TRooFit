@@ -918,7 +918,7 @@ void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool inclu
     if(xVar) { obs[0] = xVar; tmpVals[0]=obs[0]->getVal(); }
     else if(fObservables.getSize()>0) {obs[0] = dynamic_cast<RooAbsRealLValue*>(&fObservables[0]); tmpVals[0]=obs[0]->getVal(); }
     
-    RooAbsCollection *deps, *cdeps, *rsnap, *crsnap;
+    RooAbsCollection *deps = 0, *cdeps = 0, *rsnap = 0, *crsnap = 0;
     if(r) {
       //move onto finalPars values 
       deps = dynamic_cast<const RooAbsArg*>(this)->getDependents(r->floatParsFinal());

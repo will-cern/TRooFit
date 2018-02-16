@@ -5,7 +5,7 @@
 //___________________________________
 /* BEGIN_HTML
 <p>A TRooH1D is the TRooFit PDF version of a TH1D</p>
-<p>The value (returned by getVal) of a TRooH1D is a <b>density</b>, i.e. the value of a bin is the content / volume</p>
+<p>The value (returned by getVal) of a TRooH1D is a <b>density</b>, i.e. the object's value for a bin is the content / volume</p>
 <p>In contrast, a TRooHF1D is not a density, and the value of that object is simply the content</p>
 
 <p>You must first create a RooFit variable (e.g. RooRealVar or RooCategory) before you can
@@ -41,7 +41,7 @@ h.SetBinContent("A",3);
 nuisance parameter to represent the statistical uncertainty for that bin. 
 The nuisance parameter appears as a <i>shapeFactor</i> for that bin.</p>
 
-<p>There are three types of factors:
+<p>There are two types of factors, normFactors and shapeFactors:
 <ul>
  <li><b><i>normFactors</i></b> : These multiply the content of every bin. Add one with TRooAbsH1::addNormFactor </li>
  <li><b><i>shapeFactors</i></b> : These multiply the content of a specific bin. Add one with TRooAbsH1::addShapeFactor</li>
