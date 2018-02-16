@@ -29,6 +29,7 @@
 #include "RooAbsData.h"
 
 #include "TH1.h"
+#include "TGraph2D.h"
 
 #include "TVirtualPad.h"
 
@@ -113,7 +114,10 @@ public:
   TH1* GetHistogram(const RooFitResult* fr = 0, bool includeErrors=false, TH1* histToFill=0) const; //fills a histogram with the values (and errors) corresponding to the fit result
   TH1* GetHistogram(const TRooFitResult& fr) const { return GetHistogram(&fr); }
   void fillHistogram(TH1* histToFill, const RooFitResult* r, bool includeErrors) const;
-  void fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints=100) const;
+  void fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints=100, RooRealVar* xVar=0) const;
+  
+  void fillGraph(TGraph* graphToFill, RooRealVar& plotVar, int nPoints=100) const;
+  void fillGraph(TGraph2D* graphToFill, const RooArgList& plotVars, int nPointsX=100, int nPointsY=100) const;
   
   //other methods to mimic TH1 behaviour 
   Double_t Integral(Option_t* opt="", const TRooFitResult* fr=0) const;

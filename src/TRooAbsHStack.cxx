@@ -44,29 +44,39 @@ Double_t TRooAbsHStack::missingEvents() const {
   return out;
 }
 
-void TRooAbsHStack::Add(RooAbsReal* func) {
-  //Add a generic function to the stack
-  //
-  //If the function is a PDF (Inherits from RooAbsPdf), and you are adding to a TRooHStack, then 
-  //the pdf must be extended (i.e. can provide an expectedEvents)
 
-  if(this->IsA() == TRooHStack::Class()) {
-    //must be extendable to be added
-    if(func->InheritsFrom(RooAbsPdf::Class()) && !static_cast<RooAbsPdf*>(func)->canBeExtended()) {
-      Error("Add","Cannot add an unextended pdf to a TRooHStack. Please wrap it in a RooExtendPdf first");
-      return;
-    }
-  }
-  compList().add(*func);
-  reinit();
-}
 
-void TRooAbsHStack::Add(TRooH1* hist, bool acquireStatFactors) {
-  //Add a component (a TRooH1) to the stack 
+void TRooAbsHStack::Add(RooAbsReal* func, bool acquireStatFactors) {
+  //Add a component (a TRooH1 or a generic function) to the stack 
   //
+  //in case of func being a TRooAbsH1 ...
   //statFactors are automatically acquired and combined by the stack 
   //This is known as 'Beeston-Barlow lite'
   //To add a TRooH1 without its stat factors being acquired, set acquireStatFactors=false
+  //
+  //in case of generic roofit pdf
+  //If the function is a PDF (Inherits from RooAbsPdf), and you are adding to a TRooHStack, then 
+  //the pdf must be extended (i.e. can provide an expectedEvents)
+  
+  TRooAbsH1* hist = dynamic_cast<TRooAbsH1*>(func);
+  if(hist==0) {
+      //not a troofit object ...
+      
+      if(this->IsA() == TRooHStack::Class()) {
+        //must be extendable to be added
+        if(func->InheritsFrom(RooAbsPdf::Class()) && !static_cast<RooAbsPdf*>(func)->canBeExtended()) {
+          Error("Add","Cannot add an unextended pdf to a TRooHStack. Please wrap it in a RooExtendPdf first");
+          return;
+        }
+      }
+      
+      compList().add(*func);
+      compList().setName("hists"); //so that it now shows up in Print
+      reinit();
+      return;
+  }
+  
+
   
 
   //if this is the first one, take observables from it 
@@ -79,9 +89,11 @@ void TRooAbsHStack::Add(TRooH1* hist, bool acquireStatFactors) {
     //fHists.push_back((TH1*)hist->fHists[0]->Clone(GetName()));fHists[0]->Reset();fHists[0]->SetDirectory(0);
     SetRangeName( hist->GetName() );
   }
-
-  compList().add(*hist);
+  
+  compList().add(*func);
   compList().setName("hists"); //so that it now shows up in Print
+
+  
   //claim all statFactors as my own, if I can
   //binning must be consistent
   
@@ -113,7 +125,7 @@ void TRooAbsHStack::Add(TRooH1* hist, bool acquireStatFactors) {
           sfCount++;
           hist->fStatFactors.replace(*s,*ss);
           hist->fShapeFactors.replace(*s,*ss);
-          hist->removeServer(*ss);hist->addServer(*ss); //THIS IS NECESSARY ... bug in RooListProxy::replace ... was causing statFactor to lose its valueServer status!!!
+          func->removeServer(*ss);func->addServer(*ss); //THIS IS NECESSARY ... bug in RooListProxy::replace ... was causing statFactor to lose its valueServer status!!!
           ss->setStringAttribute("sumw",Form("%e",(TString(ss->getStringAttribute("sumw")).Atof() + TString(s->getStringAttribute("sumw")).Atof())));
           ss->setStringAttribute("sumw2",Form("%e",(TString(ss->getStringAttribute("sumw2")).Atof() + TString(s->getStringAttribute("sumw2")).Atof())));
           ((RooRealVar*)ss)->setError(sqrt((TString(ss->getStringAttribute("sumw2")).Atof()))/(TString(ss->getStringAttribute("sumw")).Atof()));

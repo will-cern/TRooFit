@@ -89,7 +89,8 @@ class TRooABCD : public TNamed  {
       }
     }
     
-    TRooHF1D* getTF() { return m_transferFactor; }
+    TRooHF1D* getTF() { return m_transferFactor2; }
+    RooRealVar* AddTransferFactorUncertainty(double uncert);
     
   
   private:
@@ -119,6 +120,7 @@ class TRooABCD : public TNamed  {
     std::vector<RooRealVar*> m_modelPars;
 
     TRooHF1D* m_transferFactor = 0; //this will be a normFactor on m_bkg in region A and B
+    TRooHF1D* m_transferFactor2 = 0;
 
     TRooFitResult* m_lastFitResult = 0;
 

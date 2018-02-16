@@ -8,6 +8,7 @@
 #include "RooAbsPdf.h"
 #include "TRooH1.h"
 
+#include "RooStats/ModelConfig.h"
 
 class TRooFit : public TObject  {
 
@@ -17,7 +18,10 @@ class TRooFit : public TObject  {
     //takes a pdf and dataset and builds a model from it (i.e. the pdf + constraint terms)
     static RooAbsPdf* BuildModel(TRooAbsH1& pdf, RooAbsData& data);
 
-  
+    //creates a roostats ModelConfig from a workspace containing a model (pdf), data, and give name of parameter of interest
+   static RooStats::ModelConfig* CreateModelConfig(RooWorkspace& w, const char* modelName, const char* dataName, const char* poiName );
+   
+   
     ClassDef(TRooFit,1);
 
 };

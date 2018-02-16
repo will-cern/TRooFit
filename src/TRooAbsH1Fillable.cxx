@@ -228,6 +228,27 @@ Bool_t TRooAbsH1Fillable::Add(const TH1* h1 , Double_t c1) {
   return out;
 }
 
+Bool_t TRooAbsH1Fillable::Add( RooAbsReal& val ) {
+  //adding a function is like filling every bin with it
+  
+  
+  if(fValues.index(&val)==-1) fValues.add(val);
+
+  getOrCreateParamSet(); //do this to create a paramSet at the current state
+    
+  fFunctionalBinValues[-1].push_back(fValues.index(&val)); 
+  
+  //if the function depends on any of our observables, we will stop using binwise integration!
+  //because we can no longer guarantee the function is flat across a given bin
+  if(val.dependsOn(fObservables)){
+    Info("Add","Disabling binwise integration for %s because %s depends on observables",GetName(),val.GetName());
+    dynamic_cast<RooAbsReal*>(this)->specialIntegratorConfig(kTRUE)->method1D().setLabel("RooIntegrator1D");
+    resetNormMgr();
+  }
+  return 0;
+  
+}
+
 
 void TRooAbsH1Fillable::Scale( double x) {
   //first adjust any stat factors ...
@@ -308,8 +329,7 @@ Int_t TRooAbsH1Fillable::Fill( Double_t x, RooAbsReal& val ) {
 
   getOrCreateParamSet(); //do this to create a paramSet at the current state
   
-  int bin = (fObservables.getSize()==0) ? 1 : FindFixBin(x);
-  if(fObservables.getSize()==0) { bin = -1; } 
+  int bin = (fObservables.getSize()==0) ? -1 : FindFixBin(x);
   
   fFunctionalBinValues[bin].push_back(fValues.index(&val)); //FIXME: add checks on validity of bin!
   return fValues.index(&val);
@@ -317,17 +337,7 @@ Int_t TRooAbsH1Fillable::Fill( Double_t x, RooAbsReal& val ) {
 }
 
 
-Int_t TRooAbsH1Fillable::Fill( RooAbsReal& val ) {
-  //fill every bin with this function
-  
-  if(fValues.index(&val)==-1) fValues.add(val);
 
-  getOrCreateParamSet(); //do this to create a paramSet at the current state
-    
-  fFunctionalBinValues[-1].push_back(fValues.index(&val)); //FIXME: add checks on validity of bin!
-  return 0;
-  
-}
 
 
 Int_t TRooAbsH1Fillable::getOrCreateParamSet() {
@@ -600,6 +610,13 @@ Bool_t TRooAbsH1Fillable::isBinnedDistribution(const RooArgSet& obs) const {
   while( RooAbsArg* arg = itr.next() ) {
     if(!fObservables.find(*arg)) return kFALSE;
   }
+  //if any of the global functions depend on our observables, we are also not binned ...
+  auto&& fIter1 = fFunctionalBinValues.find(-1);
+  if(fIter1!=fFunctionalBinValues.end()) {
+    for(auto& vals : fIter1->second) {
+      if(static_cast<RooAbsReal&>(fValues[vals]).dependsOn(fObservables)) return kFALSE;
+    }
+  }
   return kTRUE;
 }
 
@@ -728,8 +745,9 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
       if(divideByBinWidth && !gotBinVol) { gotBinVol=true; binVol /= GetBinVolume(bin); }
       for(auto& vals : fIter1->second) {
         //warning: dont want to use getVal(_normSet) because we've added a pdf, not necessarily added a NORMALIZED pdf
-        val = static_cast<RooAbsReal&>(fValues[vals]).getVal();
-        if( (divideByBinWidth) && !fValues[vals].InheritsFrom(RooAbsPdf::Class()) ) val *= binVol; //if function is a pdf, we assume it is already a density!
+        RooAbsReal& func = static_cast<RooAbsReal&>(fValues[vals]);
+        val = func.getVal();
+        if( (divideByBinWidth) && !func.InheritsFrom(RooAbsPdf::Class()) && !func.getAttribute("isDensity") ) val *= binVol; //if function is a pdf, we assume it is already a density!
         out += val;
       }
     }
@@ -737,8 +755,9 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
     if(fIter2 != fFunctionalBinValues.end()) {
       if(divideByBinWidth && !gotBinVol) { gotBinVol=true; binVol /= GetBinVolume(bin); }
       for(auto& vals : fIter2->second) {
-        val = static_cast<RooAbsReal&>(fValues[vals]).getVal();
-        if( (divideByBinWidth) && !fValues[vals].InheritsFrom(RooAbsPdf::Class()) ) val *= binVol;   //should we divide these by bin volume!!?? perhaps only if is function of observables
+        RooAbsReal& func = static_cast<RooAbsReal&>(fValues[vals]);
+        val = func.getVal();
+        if( (divideByBinWidth) && !func.InheritsFrom(RooAbsPdf::Class()) && !func.getAttribute("isDensity") ) val *= binVol; //should we divide these by bin volume!!?? perhaps only if is function of observables
         out += val;
       }
     }

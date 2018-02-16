@@ -60,8 +60,9 @@ public:
   
   TRooFitResult(const RooArgList& finalPars, const RooArgList& _constPars) : TRooFitResult(0,0,finalPars) {
     //constructor that also sets the constPars
-    RooArgList tmp(constPars()); //some of the finalPars may have been const, ending up in here
-    tmp.add(_constPars);
+    RooArgList tmp;
+    tmp.addClone(constPars()); //some of the finalPars may have been const, ending up in here
+    tmp.addClone(_constPars);
     setConstParList(tmp);
   }
   

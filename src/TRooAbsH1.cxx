@@ -891,7 +891,7 @@ void TRooAbsH1::fillHistogram(TH1* histToFill, const RooFitResult* r, bool inclu
   }
 }
 
-void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints) const {
+void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints, RooRealVar* xVar) const {
   if(nPoints>0) {
     TRooFitResult* myR = 0;
     if(includeErrors) {
@@ -906,28 +906,121 @@ void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool inclu
         delete params;
       }
     }
+    //FIXME: remove xVar from the roofitResult!
+
     //sample between min and max with nPoints
     graphToFill->Set(nPoints); //FIXME: remove points over nPoints
     //FIXME: handle discrete variables!
-    double low = fDummyHist->GetXaxis()->GetBinLowEdge(1);
-    double high = fDummyHist->GetXaxis()->GetBinLowEdge(fDummyHist->GetXaxis()->GetNbins()+1);
+    double low = (xVar) ? xVar->getMin() : fDummyHist->GetXaxis()->GetBinLowEdge(1);
+    double high = (xVar) ? xVar->getMax() : fDummyHist->GetXaxis()->GetBinLowEdge(fDummyHist->GetXaxis()->GetNbins()+1);
     RooAbsRealLValue* obs[3] = {0,0,0}; double tmpVals[3] = {0,0,0};
-    if(fObservables.getSize()>0) {obs[0] = dynamic_cast<RooAbsRealLValue*>(&fObservables[0]); tmpVals[0]=obs[0]->getVal(); }
-    double expec = expectedEvents(fObservables);
+    
+    if(xVar) { obs[0] = xVar; tmpVals[0]=obs[0]->getVal(); }
+    else if(fObservables.getSize()>0) {obs[0] = dynamic_cast<RooAbsRealLValue*>(&fObservables[0]); tmpVals[0]=obs[0]->getVal(); }
+    
+    RooAbsCollection *deps, *cdeps, *rsnap, *crsnap;
+    if(r) {
+      //move onto finalPars values 
+      deps = dynamic_cast<const RooAbsArg*>(this)->getDependents(r->floatParsFinal());
+      rsnap = deps->snapshot();
+      *deps = r->floatParsFinal(); //overrides with values from fit result
+      //likewise for constPars 
+      cdeps =  dynamic_cast<const RooAbsArg*>(this)->getDependents(r->constPars());
+      crsnap = cdeps->snapshot();
+      *cdeps = r->constPars(); cdeps->setAttribAll("Constant",true);
+    }
+  
+    
+    
+    
+    double expec = (xVar) ? 0 : expectedEvents(fObservables); //if xVar specified we will evaluate for each point
     for(int i=0;i<nPoints;i++) {
       double x = low + i*(high-low)/(nPoints-1);
       if(obs[0]) obs[0]->setVal( x );
+      if(xVar) expec = expectedEvents(fObservables); //expectation can be a function of xVar, so need to update
       graphToFill->SetPoint(i, x, getVal(fObservables)*expec );
       if(includeErrors) {
         (static_cast<TGraphErrors*>(graphToFill))->SetPointError(i,0,getError(*r));
       }
     }
     for(int i=0;i<3;i++) if(obs[i]) obs[i]->setVal(tmpVals[i]);
+    
+    if(r) {
+      *deps = *rsnap;
+      *cdeps = *crsnap; //this will also revert constant status
+      delete deps;delete cdeps;
+      delete rsnap;delete crsnap;
+    }
+    
+    TString myUnit = dynamic_cast<const RooAbsReal*>(this)->getUnit();
+    
+    if(obs[0] && strlen(obs[0]->getUnit())) {
+      graphToFill->GetHistogram()->GetXaxis()->SetTitle(Form("%s [%s]",obs[0]->GetTitle(),obs[0]->getUnit()));
+      if(fObservables.find(*obs[0]) && dynamic_cast<const TObject*>(this)->InheritsFrom(RooAbsPdf::Class())){
+        if(myUnit.Length()) myUnit += " ";
+        myUnit += Form("%s^{-1}",obs[0]->getUnit());
+      }
+    } else if(obs[0]) {
+      graphToFill->GetHistogram()->GetXaxis()->SetTitle(obs[0]->GetTitle());
+    }
+      
+    if(obs[0] && fObservables.find(*obs[0]) && dynamic_cast<const TObject*>(this)->InheritsFrom(RooAbsPdf::Class())) {
+      if(myUnit.Length()) {
+        graphToFill->GetHistogram()->GetYaxis()->SetTitle(Form("d(%s)/d%s [%s]",GetTitle(),obs[0]->GetTitle(),myUnit.Data()));
+      } else {
+        graphToFill->GetHistogram()->GetYaxis()->SetTitle(Form("d(%s)/d%s",GetTitle(),obs[0]->GetTitle()));
+      }
+    } else {
+      if(myUnit.Length()) {
+        graphToFill->GetHistogram()->GetYaxis()->SetTitle(Form("%s [%s]",GetTitle(),myUnit.Data()));
+      } else {
+        graphToFill->GetHistogram()->GetYaxis()->SetTitle(GetTitle());
+      }
+    }
+    
+
+    
     if(myR) delete myR;
   }
 }
 
+void TRooAbsH1::fillGraph(TGraph* graphToFill, RooRealVar& plotVar, int nPoints) const {
+  fillGraph(graphToFill,0,false,nPoints,&plotVar);
+}
 
+void TRooAbsH1::fillGraph(TGraph2D* graphToFill, const RooArgList& plotVars, int nPointsX, int nPointsY) const {
+  if(plotVars.getSize()!=2) {
+    Error("fillGraph","Mismatch ... need exactly 2 vars to fill TGraph2D");
+  }
+  graphToFill->Set(nPointsX*nPointsY);
+  
+  RooAbsRealLValue* obs[2] = {0,0}; 
+  double tmpVals[2] = {0,0};
+  double low[2] = {0,0};
+  double high[2] = {0,0};
+  
+  for(int i=0;i<2;i++) {
+    obs[i] = dynamic_cast<RooAbsRealLValue*>(plotVars.at(i));
+    tmpVals[i] = obs[i]->getVal();
+    low[i] = obs[i]->getMin();
+    high[i] = obs[i]->getMax();
+  }
+  
+  double n=0;
+  for(int j=0;j<nPointsY;j++) {
+    double y = low[1] + j*(high[1]-low[1])/(nPointsY-1);
+    obs[1]->setVal( y );
+    for(int i=0;i<nPointsX;i++) {
+      double x = low[0] + i*(high[0]-low[0])/(nPointsX-1);
+      obs[0]->setVal( x );
+      double expec = expectedEvents(fObservables); //expectation can be a function of xVar, so need to update
+      graphToFill->SetPoint(n, x, y, getVal(fObservables)*expec );
+      n++;
+    }
+  }
+  for(int i=0;i<2;i++) obs[i]->setVal(tmpVals[i]);
+  
+}
 
 
 #include "TVectorD.h"
@@ -1309,23 +1402,33 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         h = g->GetHistogram();
       }
       
-      if(fObservables.getSize() && dynamic_cast<TObject*>(this)->InheritsFrom(RooAbsPdf::Class())) {
+      if(fObservables.getSize()) {
         RooAbsArg& arg = fObservables[0];
         RooAbsReal* argreal = dynamic_cast<RooAbsReal*>(&arg);
         
         TString myUnit = dynamic_cast<const RooAbsReal*>(this)->getUnit();
         if(argreal && strlen(argreal->getUnit())) {
           h->GetXaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
-          if(myUnit.Length()) myUnit += " ";
-          myUnit += Form("%s^{-1}",argreal->getUnit());
+          if(dynamic_cast<TObject*>(this)->InheritsFrom(RooAbsPdf::Class())){
+            if(myUnit.Length()) myUnit += " ";
+            myUnit += Form("%s^{-1}",argreal->getUnit());
+          }
         } else {
           h->GetXaxis()->SetTitle(arg.GetTitle());
         }
         
-        if(myUnit.Length()) {
-          h->GetYaxis()->SetTitle(Form("d%s/d%s [%s]",GetTitle(),arg.GetTitle(),myUnit.Data()));
+        if(dynamic_cast<TObject*>(this)->InheritsFrom(RooAbsPdf::Class())) {
+          if(myUnit.Length()) {
+            h->GetYaxis()->SetTitle(Form("d(%s)/d%s [%s]",GetTitle(),arg.GetTitle(),myUnit.Data()));
+          } else {
+            h->GetYaxis()->SetTitle(Form("d(%s)/d%s",GetTitle(),arg.GetTitle()));
+          }
         } else {
-          h->GetYaxis()->SetTitle(Form("d%s/d%s",GetTitle(),arg.GetTitle()));
+          if(myUnit.Length()) {
+            h->GetYaxis()->SetTitle(Form("%s [%s]",GetTitle(),myUnit.Data()));
+          } else {
+            h->GetYaxis()->SetTitle(GetTitle());
+          }
         }
       }
       

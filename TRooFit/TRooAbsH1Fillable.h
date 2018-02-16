@@ -39,9 +39,10 @@ public:
   
 
   Bool_t Add( const TH1* h1 , Double_t c1 = 1);
+  Bool_t Add( RooAbsReal& val ); 
 
   Int_t Fill( double x, RooAbsReal& val );
-  Int_t Fill( RooAbsReal& val ); 
+  
   Int_t Fill( const char* name , double w = 1. );
   Int_t Fill( double x , double w =1.); 
   

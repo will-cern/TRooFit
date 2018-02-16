@@ -177,7 +177,7 @@ TRooMatrixMethod::TRooMatrixMethod(const char* name, const char* title, uint nOb
       }
       
       TRooH1D* hist = new TRooH1D(Form("h_%s_%s",m_cat->lookupType(i)->GetName(),label.c_str()),Form("h_%s_%s",m_cat->lookupType(i)->GetName(),label.c_str()),*m_xVar,nBinsTot);
-      hist->Fill(*m_truthComps[j]);
+      hist->Add(*m_truthComps[j]);
       if(!doAveraging) {
         RooFormulaVar* c = new RooFormulaVar(Form("c_%s",hist->GetName()),factorFormula.Data(),terms);
         hist->Scale(*c);

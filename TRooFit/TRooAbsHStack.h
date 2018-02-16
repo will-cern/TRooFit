@@ -34,8 +34,7 @@ public:
   void Draw(Option_t* option,const TRooFitResult& r);
   void Draw(Option_t* option = "");
   
-  void Add(RooAbsReal* func);
-  void Add(TRooH1* hist, bool acquireStatFactors=true);
+  void Add(RooAbsReal* func, bool acquireStatFactors=true);
   THStack* GetStack(const RooFitResult* fr = 0) const;
   THStack* GetStack(const TRooFitResult& fr) const { return GetStack(&fr); }
 

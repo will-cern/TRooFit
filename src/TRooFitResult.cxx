@@ -115,7 +115,7 @@ TRooFitResult::TRooFitResult(const char* name, const char* title, const RooArgLi
 }
 
 TRooFitResult::TRooFitResult(const char* constPars) : RooFitResult() {
-  //constructor that takes a string "x=y,a=b" etc ... copies those into constPars
+  //constructor that takes a string "x=y;a=b" etc ... copies those into constPars
   //Anything without an = sign in it will be interpreted as a floating parameter ... as long as it has "~" in it
   //This can be used for quickly checking what a TRooFit histogram looks like 
   //at a given parameter value ... e.g. 
@@ -125,7 +125,7 @@ TRooFitResult::TRooFitResult(const char* constPars) : RooFitResult() {
   RooArgList pars;
   RooArgList floats;
   
-  TStringToken nameToken(constPars,",");
+  TStringToken nameToken(constPars,";");
   while(nameToken.NextToken()) {
       TString subName = (TString)nameToken;
       //split around "=" sign

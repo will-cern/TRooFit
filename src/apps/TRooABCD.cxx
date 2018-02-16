@@ -188,7 +188,7 @@ Bool_t TRooABCD::AddData(int region, TH1* data) {
         m_bkg[region-1]->SetLineColor(kBlue);
         m_bkg[region-1]->setFloor(true); //says that the value of this pdf histogram cannot be less than 0
         m_bkg[region-1]->SetMinimum(1e-9);//y-axis minimum ... for when we draw the histograms later
-        m_bkg[region-1]->Fill( *m_bkg[region] );
+        m_bkg[region-1]->Add( *m_bkg[region] );
       }
       
     } else {
@@ -201,7 +201,7 @@ Bool_t TRooABCD::AddData(int region, TH1* data) {
         delete emptyHist;
       }
       
-      m_bkg[region]->Fill( *m_bkg[region+1] );
+      m_bkg[region]->Add( *m_bkg[region+1] );
       
     }
     
@@ -333,6 +333,27 @@ Bool_t TRooABCD::AddSignal(int region, TH1* signal) {
 
 }
 
+RooRealVar* TRooABCD::AddTransferFactorUncertainty(double uncert) {
+  //adds a uncertainty to the transfer factor
+  if(m_transferFactor2==0) {
+    BuildModel();
+  }
+  
+  int i=1;
+  while( m_transferFactor2->findServer(Form("tf_sf%d",i)) ) {
+    i++;
+  }
+  
+  RooRealVar* sf = new RooRealVar(Form("tf_sf%d",i),Form("#alpha_{%d}^{%s}",i,"TF"),1.,0.,1.+5*uncert);
+  if(uncert) sf->setStringAttribute("constraintType",Form("GAUSSIAN(%f,%f)",1.,uncert));
+  else sf->setConstant(1);
+  
+  m_transferFactor2->addNormFactor( *sf );
+  m_allParameters.add(*sf);
+  
+  return sf;
+  
+}
 
 
 RooRealVar* TRooABCD::AddBkgScaleFactor(int region, double value, double uncert) {
@@ -436,14 +457,15 @@ bool TRooABCD::BuildModel() {
   }
 
   RooFormulaVar* m_linearFormula = new RooFormulaVar("transferFunc","Transfer Factor as function of x","(m1*x + m0)",RooArgList(*m_modelPars[0],*m_modelPars[1],*m_xVar));
+  m_transferFactor2 = new TRooHF1D("transfer2","Transfer factor",*m_xVar); m_transferFactor2->Add( *m_linearFormula );
+  //m_transferFactor->setFloor(true); //can't go negative, would be unphysical
+  m_bkg[2]->addNormFactor( *m_transferFactor2 );
+  m_bkg[0]->addNormFactor( *m_transferFactor2 );
+  
   RooFormulaVar* transFactor = new RooFormulaVar("ratio","Transfer Factor as function of x","(@0+@1)/(@2+@3)",RooArgList(*m_bkg[0],*m_bkg[2],*m_bkg[1],*m_bkg[3]));
   m_transferFactor = new TRooHF1D("transfer1","Transfer Factor D->C",*m_xVar);
   m_transferFactor->SetLineColor(kBlue);
-  m_transferFactor->Fill( *transFactor );
-  //m_transferFactor->setFloor(true); //can't go negative, would be unphysical
-  m_bkg[2]->addNormFactor( *m_linearFormula );
-  m_bkg[0]->addNormFactor( *m_linearFormula );
-  
+  m_transferFactor->Add( *transFactor );
   
   //assemble stacks
   for(int i=0;i<4;i++) {
