@@ -49,8 +49,8 @@
 
   //we can overlay the PDF value (i.e. the probability DENSITY)
   //this will be scanned more finely than the binning of the TRooH1D
-  //"val" draws a TGraph
-  sb.Draw("val L same","mu=50");
+  //"v" draws a TGraph
+  sb.Draw("v L same","mu=50");
   sb.SetLineColor(kBlue);sb.SetLineWidth(2);
   
   

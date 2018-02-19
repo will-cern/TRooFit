@@ -411,7 +411,7 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
    
    if(!gPad->IsEditable()) return;
    
-   if(opt.Contains("val")) {
+   if(opt.Contains("v")) {
     //FIXME: ideally would draw a stack of pdfs (in a TMultiGraph?)
     TRooAbsH1::Draw(opt,r);
    

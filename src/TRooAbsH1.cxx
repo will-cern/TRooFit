@@ -1296,9 +1296,9 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
   //
   //Extra Options available:
   //    init: use floatParsInit from TRooFitResult when drawing content + errors
-  //    val: Draw the raw value (pdf density for TRooH1, or value for TRooHF1), as a TGraphErrors (you then usually include "AL" option) (samples 100 points)
-  //    valXXXX (where XXXX is a number > 100): Same as above but can control the number of points sampled
-  //    val hist: Draw raw value but as a histogram .. no error bar unless 'e' option included .. for TRooHF1 this is the same as no extra option
+  //    v: Draw the raw value (pdf density for TRooH1, or value for TRooHF1), as a TGraphErrors (you then usually include "AL" option) (samples 100 points)
+  //    vXXXX (where XXXX is a number > 100): Same as above but can control the number of points sampled
+  //    v hist: Draw raw value but as a histogram .. no error bar unless 'e' option included .. for TRooHF1 this is the same as no extra option
   
 
   TString opt = option;
@@ -1357,10 +1357,13 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
    }
    if(!found) me->AppendPad(opt.Data()); //will create gPad
    
+   bool hasSame = opt.Contains("same");
+   opt.ReplaceAll("same","");
+   
    if(gPad->IsEditable()) {
     fDrawHistograms.emplace_back( DrawnHistogram() );
     fDrawHistograms.back().pad = gPad;
-    if(opt.Contains("val")) {
+    if(opt.Contains("v")) {
       TGraph* g = 0;
       TH1* h = 0;
       
@@ -1393,8 +1396,8 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         TRooAbsH1::createOrAdjustHistogram( g->GetHistogram() );
         
         //check for an integer straight after pdf ... that will be the nPoints
-        int nPoints = TString(opt(opt.Index("val")+3,opt.Length())).Atoi();
-        if(nPoints>0) opt.ReplaceAll(Form("val%d",nPoints),"");
+        int nPoints = TString(opt(opt.Index("v")+1,opt.Length())).Atoi();
+        if(nPoints>0) opt.ReplaceAll(Form("v%d",nPoints),"");
         fillGraph(g,r2,opt.Contains("e"), (nPoints>100) ? nPoints : 100);
         (*dynamic_cast<TAttFill*>(g)) = *this;
         (*dynamic_cast<TAttLine*>(g)) = *this;
@@ -1432,7 +1435,7 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         }
       }
       
-      opt.ReplaceAll("val","");
+      opt.ReplaceAll("v","");
       
       if(opt.Contains("e") && opt.Contains("l") && g) {
         //want to ensure line appears above error band, so draw put a copy in the posthist ..
@@ -1476,14 +1479,14 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         //since we are showing error bar, the main hist should only be drawn as a line
         opt += "hist";
         //also if not drawing with 'same' option then draw axis of the hist, so that axis span the error bar 
-        if(!opt.Contains("same")) {
+        if(!hasSame) {
           gPad->GetListOfPrimitives()->AddFirst( hist , "axis" ); //NOTE: sadly this means that the histogram title does not show up ... because this 'axis' version gets no title, but is drawn first
           opt += "same";
         }
       }
     }
     
-    
+    if(hasSame) opt += "same";
     
     fDrawHistograms.back().opt = opt; //have to store opt separately because not all object types we can SetOption on
     fDrawHistograms.back().fr = r2;

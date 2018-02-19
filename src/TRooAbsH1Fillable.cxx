@@ -249,6 +249,25 @@ Bool_t TRooAbsH1Fillable::Add( RooAbsReal& val ) {
   
 }
 
+void TRooAbsH1Fillable::AddVariation(RooRealVar& par, TH1* up, TH1* down) {
+  if(up==0 && down==0) return;
+  if(!fParameters.find(par)) {
+    par = 0;
+    addParameter(par);
+  }
+  double tmpVal = par.getVal();
+  if(up) {
+    par = 1;
+    Add(up);
+  }
+  if(down) {
+    par = -1;
+    Add(down);
+  }
+  par = tmpVal;
+}
+
+
 
 void TRooAbsH1Fillable::Scale( double x) {
   //first adjust any stat factors ...

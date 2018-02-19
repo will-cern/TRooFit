@@ -54,8 +54,8 @@ public:
   using TRooAbsH1::Scale;
   void Scale( double x );
 
-  
-  
+  void AddVariation(RooRealVar& par, TH1* up=0, TH1* down=0);
+
 
   TH1* GetHist(unsigned int paramSet) const { 
     //Returns the raw histogram associated to the given parameter spacepoint (paramSet)
