@@ -349,7 +349,7 @@ RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
       std::unique_ptr<TIterator> clients(dynamic_cast<RooAbsArg*>(this)->clientIterator());
       
       while(TObject* a = clients->Next()) {
-        if(a->InheritsFrom(TRooAbsHStack::Class())) { stack = (TRooAbsHStack*)a; break; }
+        if(a->InheritsFrom(TRooAbsHStack::Class())) { stack = dynamic_cast<TRooAbsHStack*>(a); break; }
       }
       if(!stack) { std::cout << "COULD NOT FIND MY STACK!???" << std::endl; }
       else {
@@ -887,6 +887,8 @@ void TRooAbsH1::fillHistogram(TH1* histToFill, const RooFitResult* r, bool inclu
     if(val) histToFill->SetBinContent(i,val);
     if(includeErrors) {
       histToFill->SetBinError(i,GetBinError(i,r));
+    } else {
+      histToFill->SetBinError(i,0);
     }
   }
 }

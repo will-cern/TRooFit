@@ -25,12 +25,13 @@ class TRooGPConstraint : public RooAbsPdf {
 public:
 
   // Constructors, assignment etc
-  TRooGPConstraint(const char *name, const char *title, TRooH1& pdf, RooDataHist& ref, const TMatrixD& kernel);
+  TRooGPConstraint(const char *name, const char *title, TRooH1& pdf, RooDataHist& ref, const TMatrixD& kernel, bool isInverted=false);
 	    
   TRooGPConstraint(const TRooGPConstraint& other, const char* name=0);
   virtual TObject* clone(const char* newname) const { return new TRooGPConstraint(*this,newname); }
 
 
+  void setKernel(const TMatrixD& kernel, bool isInverted=false);
   
   virtual ~TRooGPConstraint();
 
@@ -55,11 +56,12 @@ protected:
 
 class TRooGPVar : public RooChi2Var {
 public:
-  TRooGPVar(const char* name, const char* title, RooAbsPdf& pdf, RooDataHist& data, const TMatrixD& kernel);
+  TRooGPVar(const char* name, const char* title, RooAbsPdf& pdf, RooDataHist& data, const TMatrixD& kernel, bool isInverted=false);
   virtual ~TRooGPVar();
   TRooGPVar(const TRooGPVar& other, const char* name=0);
   virtual TObject* clone(const char* newname) const { return new TRooGPVar(*this,newname); }
   
+  void setKernel(const TMatrixD& kernel, bool isInverted=false) { fKernelInv = kernel; if(!isInverted) fKernelInv.Invert(); setValueDirty(); }
   
 protected:
   TMatrixD fKernelInv;

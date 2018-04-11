@@ -458,7 +458,9 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
     
    } else {
     //not drawing the stack, pass onto parent class to draw as a hist instead
+    opt.ReplaceAll("histhist","TMPSTRING");
     opt.ReplaceAll("hist","");
+    opt.ReplaceAll("TMPSTRING","hist");
     if(hadInit) opt += " init";
     TRooAbsH1::Draw(opt,r);
    }

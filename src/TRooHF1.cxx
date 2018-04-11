@@ -23,7 +23,7 @@ TRooHF1::TRooHF1(const TRooHF1& other, const char* name) :
 
 Double_t TRooHF1::evaluate() const 
 {
-  double out1 = TRooAbsH1Fillable::evaluateImpl(false);if(kMustBePositive && out1 < fFloorValue) out1=fFloorValue;
+  double out1 = TRooAbsH1Fillable::evaluateImpl(false);
   return out1;
 
   //The main roofit evaluation method. Users should not call this directly 

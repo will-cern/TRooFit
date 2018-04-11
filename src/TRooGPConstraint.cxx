@@ -10,11 +10,11 @@ using namespace std;
 
 
 
-TRooGPConstraint::TRooGPConstraint(const char *name, const char *title, TRooH1& pdf, RooDataHist& ref, const TMatrixD& kernel)
+TRooGPConstraint::TRooGPConstraint(const char *name, const char *title, TRooH1& pdf, RooDataHist& ref, const TMatrixD& kernel, bool isInverted)
 	    : RooAbsPdf(name,title), /*fPdf("pdf","pdf",this,pdf), fRef(&ref), fKernelInv(kernel),*/ fGP("gp","gp",this,true,false,false/*owns arg*/)
 {
  
-  TRooGPVar* gp = new TRooGPVar("chi2","chi2",pdf,ref,kernel);
+  TRooGPVar* gp = new TRooGPVar("chi2","chi2",pdf,ref,kernel,isInverted);
   fGP.setArg(*gp); //will take ownership of it, so will manage its deletion
   
   //fKernelInv.Invert();
@@ -46,6 +46,11 @@ TRooGPConstraint::~TRooGPConstraint()
   // Destructor
 }
 
+void TRooGPConstraint::setKernel(const TMatrixD& kernel, bool isInverted){ 
+  static_cast<TRooGPVar&>(const_cast<RooAbsReal&>(fGP.arg())).setKernel(kernel,isInverted); 
+  setValueDirty();
+}
+
 // Double_t TRooGPConstraint::evaluate() const {
 // 
 //   //need to loop over bins of RooDataHist, for each one get the value of the pdf, and compute 
@@ -70,10 +75,10 @@ TRooGPConstraint::~TRooGPConstraint()
 ClassImp(TRooGPVar)
 
 TRooGPVar::TRooGPVar(const char *name, const char *title, RooAbsPdf& pdf, RooDataHist& hdata,
-	    const TMatrixD& kernel)
+	    const TMatrixD& kernel, bool isInverted)
 	    : RooChi2Var(name,title,pdf,hdata,true), fKernelInv(kernel)
 {
-  fKernelInv.Invert();
+  if(!isInverted) fKernelInv.Invert();
 }
 
 
@@ -120,8 +125,9 @@ Double_t TRooGPVar::evaluatePartition(Int_t firstEvent, Int_t lastEvent, Int_t s
     const Double_t nData = hdata->weight() ;
     const Double_t nPdf = _funcClone->getVal(_normSet) * normFactor * hdata->binVolume() ;
     d(i) = nPdf-nData ;
-
   }
+  
+  //std::cout <<  d*(fKernelInv*d) << std::endl;
     
   return d*(fKernelInv*d) ;
 }

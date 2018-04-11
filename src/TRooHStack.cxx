@@ -171,6 +171,8 @@ Double_t TRooHStack::getValV(const RooArgSet* nset) const
     Double_t rawVal = evaluate() ;
     Bool_t error = (TMath::IsNaN(rawVal)) ? traceEvalPdf(rawVal) : false; //allows negative and zero values // Error checking and printing
 
+    if((kMustBePositive||getFloor()||getFloorGlobal()) && rawVal < fFloorValue) rawVal=fFloorValue;
+
     // Evaluate denominator
     Double_t normVal(_norm->getVal()) ;
     
@@ -189,7 +191,7 @@ Double_t TRooHStack::getValV(const RooArgSet* nset) const
 //       cout << "RooAbsPdf::getValV(" << GetName() << ") writing _value = " << rawVal << "/" << normVal << " = " << _value << endl ;
     }
     if(rawVal==0 && normVal==0) _value=1;
-    if((kMustBePositive||getFloor()||getFloorGlobal()) && _value < fFloorValue) _value=fFloorValue;
+    
 
     clearValueAndShapeDirty() ; //setValueDirty(kFALSE) ;
   } 

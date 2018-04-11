@@ -396,6 +396,8 @@ Double_t TRooH1::getValV(const RooArgSet* nset) const
     Double_t rawVal = evaluate() ;
     Bool_t error = (TMath::IsNaN(rawVal)) ? traceEvalPdf(rawVal) : false; //allows negative and zero values // Error checking and printing
 
+    if(kMustBePositive && rawVal < fFloorValue) rawVal=fFloorValue;
+
     // Evaluate denominator
     Double_t normVal(_norm->getVal()) ;
     
@@ -418,7 +420,7 @@ Double_t TRooH1::getValV(const RooArgSet* nset) const
     }
 
     if(rawVal==0 && normVal==0) _value=1;
-    if(kMustBePositive && _value < fFloorValue) _value=fFloorValue;
+    
 
     clearValueAndShapeDirty() ; //setValueDirty(kFALSE) ;
   } 

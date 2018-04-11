@@ -103,6 +103,7 @@ TRooAbsH1Fillable::TRooAbsH1Fillable(RooAbsArg* me, const char *name, const char
   if(hist) {
        //FIXME: should do checks on hist dimensions 
       fHists.push_back( (TH1*)hist->Clone(name) );
+      if(!fHists[0]->GetSumw2()) fHists[0]->Sumw2();
       fHists[0]->SetDirectory(0);fHists[0]->Reset(); //clears it 
       //Add( hist ); //adds it, so that stat factors are created 
   } else {
@@ -185,6 +186,9 @@ bool TRooAbsH1Fillable::addParameter( RooAbsArg& arg , int interpCode ) {
     pars.push_back(val);
   }
   
+  fStandardUpSet.clear(); fStandardDownSet.clear(); 
+  fStandardUpSet.resize(fParameters.getSize(),-1); fStandardDownSet.resize(fParameters.getSize(),-1);
+  
   //need to also tell all clients that we have a new parameter to depend on
   TIterator* citer(dynamic_cast<RooAbsArg*>(this)->clientIterator());//std::unique_ptr<TIterator> citer(clientIterator());
   while( RooAbsArg* client = (RooAbsArg*)( citer->Next() ) ) {
@@ -249,23 +253,56 @@ Bool_t TRooAbsH1Fillable::Add( RooAbsReal& val ) {
   
 }
 
-void TRooAbsH1Fillable::AddVariation(RooRealVar& par, TH1* up, TH1* down) {
-  if(up==0 && down==0) return;
+Bool_t TRooAbsH1Fillable::AddVariation(RooRealVar& par, double parVal, TH1* h1) {
   if(!fParameters.find(par)) {
     par = 0;
     addParameter(par);
   }
   double tmpVal = par.getVal();
-  if(up) {
-    par = 1;
-    Add(up);
-  }
-  if(down) {
-    par = -1;
-    Add(down);
-  }
+  par = parVal;
+  Bool_t out = Add(h1);
   par = tmpVal;
+  return out;
 }
+
+Int_t TRooAbsH1Fillable::FillVariation(RooRealVar& par, double parVal, double x, double w) {
+  if(!fParameters.find(par)) {
+    par = 0;
+    addParameter(par);
+  }
+  double tmpVal = par.getVal();
+  par = parVal;
+  Int_t out = Fill(x,w);
+  par = tmpVal;
+  return out;
+}
+
+Bool_t TRooAbsH1Fillable::AddVariation(const char* parName, double parVal, TH1* h1) {
+  RooRealVar* par = dynamic_cast<RooRealVar*>(fParameters.find(parName));
+  if(!par) {
+    Error("FillVariation","%s not found, please addParameter this parameter first",parName);
+    return kFALSE;
+  }
+  double tmpVal = par->getVal();
+  *par = parVal;
+  Bool_t out = Add(h1);
+  *par = tmpVal;
+  return out;
+}
+
+Int_t TRooAbsH1Fillable::FillVariation(const char* parName, double parVal, double x, double w) {
+  RooRealVar* par = dynamic_cast<RooRealVar*>(fParameters.find(parName));
+  if(!par) {
+    Error("FillVariation","%s not found, please addParameter this parameter first",parName);
+    return kFALSE;
+  }
+  double tmpVal = par->getVal();
+  *par = parVal;
+  Int_t out = Fill(x,w);
+  *par = tmpVal;
+  return out;
+}
+
 
 
 
@@ -653,7 +690,10 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
   if(fBlindRangeName.Length()) {
     RooFIter obsItr(fObservables.fwdIterator());
     while(auto obs = obsItr.next() ) {
-      if(obs->inRange(fBlindRangeName)) return 0;
+      if(obs->inRange(fBlindRangeName)) {
+        if(kMustBePositive && 0 < fFloorValue) return fFloorValue;
+        return 0;
+      }
     }
   }
   
@@ -1051,6 +1091,8 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
       out *= ((RooAbsReal&)fShapeFactors[sfIdx]).getVal();
     }
   }
+  
+  if(kMustBePositive && out < fFloorValue) out=fFloorValue;
   
   return out;
   

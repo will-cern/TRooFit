@@ -54,8 +54,14 @@ public:
   using TRooAbsH1::Scale;
   void Scale( double x );
 
-  void AddVariation(RooRealVar& par, TH1* up=0, TH1* down=0);
-
+  //these methods will add par as a parameter if it isn't already defined as a parameter
+  Bool_t AddVariation(RooRealVar& par, double parVal, TH1* h1);
+  Int_t FillVariation(RooRealVar& par, double parVal, double x, double w=1.);
+  
+  //these methods require par to existing parameter
+  Bool_t AddVariation(const char* parName, double parVal, TH1* h1);
+  Int_t FillVariation(const char* parName, double parVal, double x, double w=1.);
+  
 
   TH1* GetHist(unsigned int paramSet) const { 
     //Returns the raw histogram associated to the given parameter spacepoint (paramSet)
