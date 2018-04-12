@@ -62,6 +62,7 @@ public:
   Bool_t AddVariation(const char* parName, double parVal, TH1* h1);
   Int_t FillVariation(const char* parName, double parVal, double x, double w=1.);
   
+  void SetVariationBinContent(const char* parName, double parVal, int bin, double val);
 
   TH1* GetHist(unsigned int paramSet) const { 
     //Returns the raw histogram associated to the given parameter spacepoint (paramSet)

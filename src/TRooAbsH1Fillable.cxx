@@ -303,6 +303,18 @@ Int_t TRooAbsH1Fillable::FillVariation(const char* parName, double parVal, doubl
   return out;
 }
 
+void TRooAbsH1Fillable::SetVariationBinContent(const char* parName, double parVal, int bin, double val) {
+  RooRealVar* par = dynamic_cast<RooRealVar*>(fParameters.find(parName));
+  if(!par) {
+    Error("SetVariationBinContent","%s not found, please addParameter this parameter first",parName);
+    return;
+  }
+  double tmpVal = par->getVal();
+  *par = parVal;
+  SetBinContent(bin,val);
+  *par = tmpVal;
+  //return out;
+}
 
 
 
