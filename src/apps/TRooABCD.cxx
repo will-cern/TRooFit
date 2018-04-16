@@ -830,8 +830,8 @@ void TRooABCD::Draw(TRooFitResult* fr, const char* canvasName) {
   data_ratio->SetXTitle(m_xVar->GetTitle());
   data_ratio->SetStats(0);
   currPad->cd(5);data_ratio->Draw();
-  if(fr) m_transferFactor->Draw("val L same e3005",fr);
-  else  m_transferFactor->Draw("val L same e3005");
+  if(fr) m_transferFactor->Draw("v L same e3005",fr);
+  else  m_transferFactor->Draw("v L same e3005");
   
   TLatex t;
   
