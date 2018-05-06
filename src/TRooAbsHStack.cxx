@@ -125,7 +125,7 @@ void TRooAbsHStack::Add(RooAbsReal* func, bool acquireStatFactors) {
           sfCount++;
           hist->fStatFactors.replace(*s,*ss);
           hist->fShapeFactors.replace(*s,*ss);
-          func->removeServer(*ss);func->addServer(*ss); //THIS IS NECESSARY ... bug in RooListProxy::replace ... was causing statFactor to lose its valueServer status!!!
+          func->removeServer(*ss);func->addServer(*ss,true); //THIS IS NECESSARY ... bug in RooListProxy::replace ... was causing statFactor to lose its valueServer status!!!
           ss->setStringAttribute("sumw",Form("%e",(TString(ss->getStringAttribute("sumw")).Atof() + TString(s->getStringAttribute("sumw")).Atof())));
           ss->setStringAttribute("sumw2",Form("%e",(TString(ss->getStringAttribute("sumw2")).Atof() + TString(s->getStringAttribute("sumw2")).Atof())));
           ((RooRealVar*)ss)->setError(sqrt((TString(ss->getStringAttribute("sumw2")).Atof()))/(TString(ss->getStringAttribute("sumw")).Atof()));
@@ -257,6 +257,10 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
   RooAbsReal* func ;
   int i=0;
 
+  TH1* totalHist = 0;
+
+  std::vector<TH1*> histsToAdd;
+
   while((func=(RooAbsReal*)funcIter.next())) {
     TH1* hist = (existingHists.GetSize()>i) ? (TH1*)(existingHists.At(i)) : 0;
     TRooAbsH1* trooFunc = dynamic_cast<TRooAbsH1*>(func);
@@ -317,9 +321,13 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
       
     }
     if(hist) {
+      //to avoid bin-by-bin effects in scale factors, we just obtain the full histogram and scale by the ratio ...
+      //do this after filling the whole stack
     
+    /*
       //need to apply shape and norm factors 
       //multiply by all the norm factors
+      //if the normFactors depend on our observables, we will would to go bin-by-bin
       if(fNormFactors.getSize()) {
         RooFIter itr(fNormFactors.fwdIterator());
         while( RooAbsReal* arg = (RooAbsReal*)itr.next() ) hist->Scale(arg->getVal());
@@ -335,12 +343,31 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
           }
         }
       }
-    
-      stack->Add(hist);
+    */
+      histsToAdd.push_back(hist);
+      
+      
+      if(totalHist==0) totalHist=(TH1*)hist->Clone("totalHist");
+      else totalHist->Add(hist);
       
     }
     i++;
   }
+  
+  if(fNormFactors.getSize() || fBinsShapeFactors.size()) {
+    if(histsToAdd.size()) {
+      TH1* h = GetHistogram(fr); //we don't own the histogram!
+      h->Divide(totalHist);
+      for(auto hist : histsToAdd) {
+        hist->Multiply(h);
+      }
+    }
+    
+    
+  }
+  if(totalHist) delete totalHist;
+  
+  for(auto hist : histsToAdd) stack->Add(hist); //for some reason cannot correctly scale histograms after adding to stack, so add to stack after scaling
   
   return stack;
 }
