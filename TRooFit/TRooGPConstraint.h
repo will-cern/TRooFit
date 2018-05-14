@@ -25,7 +25,7 @@ class TRooGPConstraint : public RooAbsPdf {
 public:
 
   // Constructors, assignment etc
-  TRooGPConstraint(const char *name, const char *title, TRooH1& pdf, RooDataHist& ref, const TMatrixD& kernel, bool isInverted=false);
+  TRooGPConstraint(const char *name, const char *title, TRooH1& pdf, RooDataHist& ref, const TMatrixD& kernel, bool isInverted=false, RooRealVar* strength=0);
 	    
   TRooGPConstraint(const TRooGPConstraint& other, const char* name=0);
   virtual TObject* clone(const char* newname) const { return new TRooGPConstraint(*this,newname); }
@@ -45,9 +45,14 @@ protected:
   
   RooRealProxy fGP;
   
+  RooRealProxy fStrength; //a scale factor 
+  
   virtual Bool_t selfNormalized() const { return true; }
 
-  virtual Double_t evaluate() const { return std::exp(-(fGP)); }
+  virtual Double_t evaluate() const { 
+    double scaleFactor = (fStrength.absArg()) ? double(fStrength) : 1.;
+    return std::exp(-(fGP)); 
+  }
   
   ClassDef(TRooGPConstraint,1) // Generalised constraint, inspired by Gaussian Processes
 };

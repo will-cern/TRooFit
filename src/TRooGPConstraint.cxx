@@ -10,12 +10,15 @@ using namespace std;
 
 
 
-TRooGPConstraint::TRooGPConstraint(const char *name, const char *title, TRooH1& pdf, RooDataHist& ref, const TMatrixD& kernel, bool isInverted)
-	    : RooAbsPdf(name,title), /*fPdf("pdf","pdf",this,pdf), fRef(&ref), fKernelInv(kernel),*/ fGP("gp","gp",this,true,false,false/*owns arg*/)
+TRooGPConstraint::TRooGPConstraint(const char *name, const char *title, TRooH1& pdf, RooDataHist& ref, const TMatrixD& kernel, bool isInverted, RooRealVar* strengthVar)
+	    : RooAbsPdf(name,title), /*fPdf("pdf","pdf",this,pdf), fRef(&ref), fKernelInv(kernel),*/ fGP("gp","gp",this,true,false,false/*owns arg*/), fStrength("gpStrength","strength",this)
 {
  
   TRooGPVar* gp = new TRooGPVar("chi2","chi2",pdf,ref,kernel,isInverted);
   fGP.setArg(*gp); //will take ownership of it, so will manage its deletion
+  
+  if(strengthVar) fStrength.setArg(*strengthVar);
+  
   
   //fKernelInv.Invert();
   //need to attach the buffers so that when we loop over fRef it updates pdf var too 
@@ -29,7 +32,7 @@ TRooGPConstraint::TRooGPConstraint(const char *name, const char *title, TRooH1& 
 
 //_____________________________________________________________________________
 TRooGPConstraint::TRooGPConstraint(const TRooGPConstraint& other, const char* name) : 
-  RooAbsPdf(other,name)/*,fPdf("pdf",this,other.fPdf),fRef(other.fRef),fKernelInv(other.fKernelInv)*/
+  RooAbsPdf(other,name),fGP("chi2",this,other.fGP),fStrength("strength",this,other.fStrength)
 {
   // Copy constructor
   //fRef->resetBuffers();
