@@ -101,8 +101,13 @@ class TRooUnfold : public TNamed  {
     
     virtual void Print(Option_t* opt="") const;
     
+    void SetFloor(double floor=1e-9) { m_floor=floor; } //set to negative value to remove the floor
+    
+    
     RooAbsData* m_dataSet = 0;
     RooAbsPdf* m_fullModel = 0;
+    
+    
     
   private:
     bool m_builtModel = false;
@@ -146,6 +151,8 @@ class TRooUnfold : public TNamed  {
 
 
     TH1* m_prefitTruth = 0;
+    
+    double m_floor = 1e-9;
 };
 
 #endif

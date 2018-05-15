@@ -323,6 +323,7 @@ Bool_t TRooUnfold::BuildModel() {
     i++;
     m_stack->Add( m_bkgPdfs[bkgName] );
   }
+  if(m_floor>=0) m_stack->setFloor(true,1e-9);
   
   
   //build the data from the data hist 
@@ -439,6 +440,7 @@ RooFitResult* TRooUnfold::runFit(RooAbsPdf* pdf, RooAbsData* data) {
 
   auto nll = pdf->createNLL( *data, RooFit::Offset(1) );
 
+  Info("Fit","Running unconditional global fit ... ");
   auto uFit = TRooFit::minimize(nll); //run unconditional fit 
   
   //now run minos errors for poi
@@ -451,7 +453,6 @@ RooFitResult* TRooUnfold::runFit(RooAbsPdf* pdf, RooAbsData* data) {
   
   return uFit;
 
-  
 }
 
 TH1* TRooUnfold::GetExpectedRecoHistogram() {
