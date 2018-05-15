@@ -36,7 +36,7 @@ public:
   //using TRooAbsH1::Draw; ... seems that this isn't enough, even though works for TRooH1 inside workspaces??
 
   bool addParameter( RooAbsArg& arg , int interpCode = 0 ); //current value is taken as value for all existing data
-  
+  RooAbsArg* getParameter(const char* name) { return fParameters.find(name); }
 
   Bool_t Add( const TH1* h1 , Double_t c1 = 1);
   Bool_t Add( RooAbsReal& val ); 
