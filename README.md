@@ -30,3 +30,8 @@ Examples
 So far, try to look at the macros provided in the demo dir
 
 The documentation for the latest version of TRooFit is also available at: http://will.web.cern.ch/will/TRooFit/
+
+Binder
+=======
+[![Binder](https://mybinder.org/badge.svg)](https://mybinder.org/v2/gh/will-cern/TRooFit-binder/master)
+
