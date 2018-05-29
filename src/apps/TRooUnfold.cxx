@@ -268,7 +268,7 @@ Bool_t TRooUnfold::BuildModel() {
     for(auto v : myPair.second) {
       if(v.first=="Nominal") continue;
       if(!v.second) continue;
-      TString vName = (v.first.Index("__")==-1) ? v.first : v.first(0,v.first.Index("__"));
+      TString vName = (v.first.Index("__")==-1) ? v.first : v.first(0,v.first.Index("__")); //format is "VARIATION_1" or "VARIATION__-1" for example
       if(m_systNP[vName]==0) {
         m_systNP[vName] = new RooRealVar(vName,vName,0,-5,5);
         m_systNP[vName]->setStringAttribute("constraintType","normal");
@@ -326,14 +326,10 @@ Bool_t TRooUnfold::BuildModel() {
   if(m_floor>=0) m_stack->setFloor(true,1e-9);
   
   
-  //build the data from the data hist 
-  m_dataSet = new RooDataHist("obsData","obsData",*m_recoVar,m_data);
-  
+ 
   
   //build a 'result' histogram, which is just a histogram function containing the values of the signal norm terms
-  
   m_result = new TRooH1D("sigNorm","Signal Normalizations",*m_truthVar);
-  
   for(int i=1;i<=m_truthVar->numBins();i++) {
     m_result->Fill(m_result->GetXaxis()->GetBinCenter(i),*m_normFactor[Form("signalNorm_bin%d",i)]);
   }
@@ -341,6 +337,8 @@ Bool_t TRooUnfold::BuildModel() {
   //save as prefit distribution
   m_prefitTruth = (TH1*)m_result->GetHistogram()->Clone("prefit"); m_prefitTruth->SetDirectory(0); m_prefitTruth->SetLineColor(kRed);
   
+  //build the data from the data hist 
+  m_dataSet = new RooDataHist("obsData","obsData",*m_recoVar,m_data);
   m_fullModel = TRooFit::BuildModel( *m_stack, *m_dataSet );
   
   //if regularization given, construct a regularization constraint term ...
@@ -356,7 +354,7 @@ Bool_t TRooUnfold::BuildModel() {
     RooDataHist* truth_ref = new RooDataHist("truth_ref","truth_ref",*m_truthVar,m_regularizationHist);
     m_regStrength = new RooRealVar("regStrength","Regularization strength",1);
     TMatrixD k(m_regularizationHist->GetNbinsX(),m_regularizationHist->GetNbinsX());
-    for(int i=0;i<m_regularizationHist->GetNbinsX();i++) k(i,i)=2.*pow(m_regularizationHist->GetBinError(i+1),2);
+    for(int i=0;i<m_regularizationHist->GetNbinsX();i++) k(i,i)=pow(m_regularizationHist->GetBinError(i+1),2);
     m_regularizationConstraint = new TRooGPConstraint("penalty","penalty",*m_result,*truth_ref,k,false,m_regStrength);
     m_fullModel = new RooProdPdf(Form("%s_with_reg",m_fullModel->GetName()),Form("%s with regularization",m_fullModel->GetTitle()),RooArgList(*m_fullModel,*m_regularizationConstraint));
   }
@@ -371,6 +369,8 @@ Bool_t TRooUnfold::BuildModel() {
   for(auto normFactor : m_normFactor) {
     m_npAndUnconstrained.add(*normFactor.second);
   }
+  
+  m_nll = m_fullModel->createNLL( *m_dataSet, RooFit::Offset(1) );
   
 
   m_builtModel = true;
@@ -416,21 +416,154 @@ Bool_t TRooUnfold::ClearSignalMCUncert() {
 
 }
 
+//NLL without regularization
+Double_t TRooUnfold::GetNLLMin() {
+  double tmp = m_regStrength->getVal();
+  m_regStrength->setVal(0);
+  auto result = TRooFit::minimize(m_nll);
+  
+  
 
-TRooFitResult* TRooUnfold::Fit() {
+  m_nllMin = m_nll->getVal();
+  
+  m_regStrength->setVal(1e-9); //trick for getting hold of ConstraintMax ...
+  m_constraintMax = -m_regularizationConstraint->getLogVal() / 1e-9;
+  
+  m_regStrength->setVal(tmp);
+  
+  //restore initial float par values ...
+  RooArgSet* pars = m_nll->getObservables( result->floatParsInit() );
+  *pars = result->floatParsInit();
+  delete pars;
+  delete result;
+  
+  return m_nllMin;
+  
+}
+
+//NLL when fixing POI to regularization (prior) values
+//we do this by running a fit where all the POI are fixed at prior values ...
+Double_t TRooUnfold::GetNLLMax() {
+  std::vector<double> tmp;
+  
+  for(int i=1;i<=m_truthVar->numBins();i++) {
+    RooRealVar* poi = m_normFactor[Form("signalNorm_bin%d",i)];
+    tmp.push_back(poi->getVal());
+    poi->setVal( m_regularizationHist->GetBinContent(i) );
+    poi->setConstant(true);
+  }
   
   
+  RooFitResult* result = 0;
+  RooArgSet* pars = m_nll->getParameters(RooArgSet());
+  auto fpars = pars->selectByAttrib("Constant",0);
+  if(fpars->getSize()!=0) {
+    result = TRooFit::minimize(m_nll);
+  }
+  delete pars;delete fpars;
+  
+  m_nllMax = m_nll->getVal();
+  
+  //restore initial float par values ...
+  if(result) {
+    RooArgSet* pars = m_nll->getObservables( result->floatParsInit() );
+    *pars = result->floatParsInit();
+    delete pars;
+    delete result;
+  }
+  
+  //and refloat the poi
+  for(int i=1;i<=m_truthVar->numBins();i++) {
+    RooRealVar* poi = m_normFactor[Form("signalNorm_bin%d",i)];
+    poi->setVal( tmp[i-1] );
+    poi->setConstant(false);
+  }
+
+  return m_nllMax;
+}
+
+//constraint min by definition is 0
+Double_t TRooUnfold::GetConstraintNLLMax() {
+  return m_constraintMax;
+}
+
+Double_t TRooUnfold::GetNLL() {
+  return m_nll->getVal() + m_regularizationConstraint->getLogVal();
+}
+
+Double_t TRooUnfold::GetConstraintNLL() {
+  return -m_regularizationConstraint->getLogVal()/m_regStrength->getVal();
+}
+
+
+
+Double_t TRooUnfold::ScanRegularizationStrength(TGraph** g) {
+  
+  GetNLLMax();
+  GetNLLMin();
+  
+  if(m_nllMax <= m_nllMin) {
+    Warning("ScanRegularizationStrength","Equivalent or better fit found from full regularization, returning 0");  //happens if fit was 'perfect' e.g. closure test
+    return 0;
+  }
+  
+  if(m_constraintMax <= 0) {
+    Warning("ScanRegularizationStrength","Constraint term is 0 in unregularized fit, returning 0"); //happens if fit was 'perfect' e.g. closure test
+    return 0;
+  }
+  
+  //we scan values of regularizationStrength, at each point evaluating the NLL and the Constraint term 
+  
+  if(g) *g = new TGraph;
+  
+  //double lastNllNorm = 0;
+  //double lastConstraintNorm = 1;
+  double lastDiff = 1;
+  double lastTau = 0;
+  
+  for(float i=-10;i<=10;i+=0.5) {
+    m_regStrength->setVal( std::pow(10,i) );
+    auto uFit = TRooFit::minimize(m_nll); 
+    delete uFit;
+    double nllNorm = (GetNLL()-m_nllMin)/(m_nllMax-m_nllMin);
+    double constraintNorm = GetConstraintNLL()/m_constraintMax;
+    double diff =  nllNorm-constraintNorm ;
+    if(g) (*g)->SetPoint((*g)->GetN(),i,diff);
+    if(diff < 0) {
+     lastTau = std::pow(10,i);
+      //lastNllNorm = nllNorm;
+      //lastConstraintNorm = constraintNorm;
+      lastDiff = nllNorm - constraintNorm;
+     continue;
+    }
+    
+    return lastTau - lastDiff*(std::pow(10,i)-lastTau)/(diff - lastDiff);
+  }
+  
+  return 99999;
+  
+}
+
+
+TRooFitResult* TRooUnfold::Fit(TH1* data) {
+  
+  if(!m_data) AddData(data);
   if(!m_builtModel) BuildModel();
   
  
   if(m_fitResult) delete m_fitResult;
   
+  if(data) {
+    //rebuild the dataset
+    if(m_dataSet) delete m_dataSet;
+    m_dataSet = new RooDataHist("obsData","obsData",*m_recoVar,m_data);
+  }
   
+  auto fitResult = runFit( m_fullModel, m_dataSet);
   
+  m_fitResult = new TRooFitResult( fitResult ); //extends functionality of RooFitResult
   
-  m_fitResult = new TRooFitResult( runFit( m_fullModel, m_dataSet) );
-
-  //m_fitResult = new TRooFitResult( m_fullModel->fitTo( *m_dataSet, RooFit::Save() ) );
+  delete fitResult; //no longer needed because TRooFitResult should copy all it needs
 
   return m_fitResult;
 
@@ -446,7 +579,7 @@ RooFitResult* TRooUnfold::runFit(RooAbsPdf* pdf, RooAbsData* data) {
   //now run minos errors for poi
   if(uFit->status()%1000 == 0) {
     Info("Fit","Computing Minos errors for parameters of interest ... ");
-    TRooFit::minos(nll,m_poi,uFit);
+    //TRooFit::minos(nll,m_poi,uFit);
   }
   
   delete nll;
@@ -455,8 +588,8 @@ RooFitResult* TRooUnfold::runFit(RooAbsPdf* pdf, RooAbsData* data) {
 
 }
 
-TH1* TRooUnfold::GetExpectedRecoHistogram() {
-  return (TH1*)m_stack->GetHistogram(m_fitResult,true,0)->Clone("expected");
+TH1* TRooUnfold::GetExpectedRecoHistogram(RooFitResult* fr) {
+  return (TH1*)m_stack->GetHistogram((fr==0)?m_fitResult:fr,true,0)->Clone("expected");
 }
 
 TH1* TRooUnfold::GetSignificanceHistogram() {
@@ -464,7 +597,7 @@ TH1* TRooUnfold::GetSignificanceHistogram() {
   //using the errors from standard (symmetric) error propagation of the covariance matrix
   //Note that the covariance matrix should already have been 'inflated' to cover minos errors
   TH1* out = new TH1D("significance","significance",m_recoVar->numBins(),m_recoVar->getBinning().array());
-  
+  out->SetDirectory(0);
   TH1* expectation = GetExpectedRecoHistogram();
   
   for(int i=1;i<=out->GetNbinsX();i++) {
@@ -476,6 +609,26 @@ TH1* TRooUnfold::GetSignificanceHistogram() {
   
   delete expectation;
   return out;
+}
+
+TH1* TRooUnfold::GetResidualHistogram(RooFitResult* fr) {
+  //the residual is the difference between the data and the prediction at reco level, with the error coming from the reco prediction (the data is taken to be 'exact') ...
+  TH1* out = new TH1D("residual","residual",m_recoVar->numBins(),m_recoVar->getBinning().array());out->Sumw2();
+  out->SetDirectory(0);
+  TH1* expectation = GetExpectedRecoHistogram(fr);
+  
+  for(int i=1;i<=out->GetNbinsX();i++) {
+    double expected = expectation->GetBinContent(i);
+    double err = expectation->GetBinError(i);
+    double data = m_data->GetBinContent(i);
+    out->SetBinContent(i,data-expected);
+    out->SetBinError(i,err);
+  }
+  
+  delete expectation;
+  return out;
+  
+  
 }
 
 TH1* TRooUnfold::GetPrefitTruthHistogram() {

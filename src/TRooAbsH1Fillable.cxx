@@ -63,6 +63,19 @@ TRooAbsH1Fillable::TRooAbsH1Fillable(RooAbsArg* me, const char *name, const char
 { 
   //Only experts should construct TRooHF1 directly. Please use derived classes (e.g. TRooHF1D)
 
+  std::vector<int> tmpBins; std::vector<const Double_t*> tmpEdges;
+  if(hist==0 && bins==0 && min==0 && binEdges.size()==0) {
+    bins = &tmpBins[0];
+    binEdges = tmpEdges;
+    //take binning from the observables .. 
+    for(int i=0;i<fObservables.getSize();i++) {
+      if(fObservables[i].IsA() == RooRealVar::Class()) {
+        RooAbsBinning& myBins = static_cast<RooRealVar&>(fObservables[i]).getBinning();
+        tmpBins.push_back( myBins.numBins() );
+        tmpEdges.push_back( myBins.array() );
+      }
+    }
+  }
  
   //add binning to the continuous observables
   //also store the binnings and category sizes
@@ -171,7 +184,7 @@ bool TRooAbsH1Fillable::addParameter( RooAbsArg& arg , int interpCode ) {
   //
   //The interpCode determines the interpolation between parameter points .
   //See TRooAbsH1Fillable::setInterpCode for description of different options.
-  //Default interpCode (0) is piecewise linear interpolation
+  //Default interpCode (4) is 6th order poly with log extrap
   //
 
   if(fParameters.find(arg)) return false; //already added

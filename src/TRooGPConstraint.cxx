@@ -49,6 +49,10 @@ TRooGPConstraint::~TRooGPConstraint()
   // Destructor
 }
 
+TMatrixD& TRooGPConstraint::getInvKernel(){ 
+  return static_cast<TRooGPVar&>(const_cast<RooAbsReal&>(fGP.arg())).getInvKernel(); 
+}
+
 void TRooGPConstraint::setKernel(const TMatrixD& kernel, bool isInverted){ 
   static_cast<TRooGPVar&>(const_cast<RooAbsReal&>(fGP.arg())).setKernel(kernel,isInverted); 
   setValueDirty();

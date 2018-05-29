@@ -33,6 +33,8 @@ public:
 
   void setKernel(const TMatrixD& kernel, bool isInverted=false);
   
+  TMatrixD& getInvKernel();
+  
   virtual ~TRooGPConstraint();
 
 
@@ -51,7 +53,7 @@ protected:
 
   virtual Double_t evaluate() const { 
     double scaleFactor = (fStrength.absArg()) ? double(fStrength) : 1.;
-    return std::exp(-(fGP)); 
+    return std::exp(-(scaleFactor*fGP)); 
   }
   
   ClassDef(TRooGPConstraint,1) // Generalised constraint, inspired by Gaussian Processes
@@ -67,6 +69,8 @@ public:
   virtual TObject* clone(const char* newname) const { return new TRooGPVar(*this,newname); }
   
   void setKernel(const TMatrixD& kernel, bool isInverted=false) { fKernelInv = kernel; if(!isInverted) fKernelInv.Invert(); setValueDirty(); }
+  
+  TMatrixD& getInvKernel() { return fKernelInv; }
   
 protected:
   TMatrixD fKernelInv;

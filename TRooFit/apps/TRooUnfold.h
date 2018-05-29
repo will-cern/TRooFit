@@ -84,16 +84,17 @@ class TRooUnfold : public TNamed  {
     
     RooAbsArg* GetServer(const char* name) {
       if(!m_fullModel) BuildModel();
-      RooArgSet s; m_stack->treeNodeServerList(&s);
+      RooArgSet s; m_fullModel->treeNodeServerList(&s);
       return dynamic_cast<RooAbsArg*>(s.find(name));
     }
     
     TH1* GetSignificanceHistogram();
-    TH1* GetExpectedRecoHistogram();
+    TH1* GetExpectedRecoHistogram(RooFitResult* fr=0);
+    TH1* GetResidualHistogram(RooFitResult* fr=0);
     
     TRooGPConstraint* GetRegularizationConstraint() { return m_regularizationConstraint; }
     
-    TRooFitResult* Fit();
+    TRooFitResult* Fit(TH1* data = 0);
     
     RooFitResult* runFit(RooAbsPdf* pdf, RooAbsData* data);
     
@@ -106,7 +107,16 @@ class TRooUnfold : public TNamed  {
     
     RooAbsData* m_dataSet = 0;
     RooAbsPdf* m_fullModel = 0;
+    RooAbsReal* m_nll = 0;
     
+    Double_t ScanRegularizationStrength(TGraph** g = 0);
+    
+    Double_t GetNLLMin();
+    Double_t GetNLLMax();
+    Double_t GetConstraintNLLMax();
+    
+    Double_t GetNLL();
+    Double_t GetConstraintNLL();
     
     
   private:
@@ -153,6 +163,11 @@ class TRooUnfold : public TNamed  {
     TH1* m_prefitTruth = 0;
     
     double m_floor = 1e-9;
+    
+    double m_constraintMax=0;
+    double m_nllMin = 0;
+    double m_nllMax = 0;
+    
 };
 
 #endif

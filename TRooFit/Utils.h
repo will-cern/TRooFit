@@ -9,6 +9,7 @@
 #include "TRooH1.h"
 
 #include "RooStats/ModelConfig.h"
+#include "RooDataSet.h"
 
 #include "TFile.h"
 
@@ -17,41 +18,69 @@ class TRooFit : public TObject  {
   public:
     TRooFit();
     
-    //takes a pdf and dataset and builds a model from it (i.e. the pdf + constraint terms)
-    static RooAbsPdf* BuildModel(TRooAbsH1& pdf, RooAbsData& data);
-
-    //creates a roostats ModelConfig from a workspace containing a model (pdf), data, and give name of parameter of interest
-    static RooStats::ModelConfig* CreateModelConfig(RooWorkspace& w, const char* modelName, const char* dataName, const char* poiName );
-   
-   
-    //minimize a function using a good retry strategy
+    ///Static methods of TRooFit, can be used on their own ...
+    //set the recommended options for the minimization methods 
+    static void setRecommendedDefaultOptions();
+    //create a NLL method with the recommended settings
+    static RooAbsReal* createNLL(RooAbsPdf* pdf, RooAbsData* data, const RooArgSet* gobs);
+    //minimize a function using a good retry strategy ... if save is true then return a RooFitResult
     static RooFitResult* minimize(RooAbsReal* nll, bool save=true);
-   
     //updates the asymmetric errors of the given fitResult with the minos errors of the specified pars
+    //This method improves on the built-in Minos() method of RooFit, which was found to be unstable
     static RooFitResult* minos(RooAbsReal* nll, const RooArgSet& pars,RooFitResult* unconditionalFitResult = 0);
-   
-    //do a series of minos fits, with progress parameters held constant as determined by the groups
+    //do a series of minos fits, with progressive parameters held constant as determined by the groups
+    //this is used when computing a breakdown of uncertainties
+    //runInitialMinos should be true if minos has not already been run on the unconditionalFitResult, if it was provided
     static std::vector<RooFitResult*> minos_series(RooAbsReal* nll, const RooArgSet& pars, std::vector<TString> groups, RooFitResult* unconditionalFitResult=0, bool runInitialMinos=false);
-   
-    //do uncertainty breakdown
-    //caller owns lists
+    //do uncertainty breakdown returning lists of the pars with the asymmetric errors set to the error corresponding to each group
+    //there is always a 'TOTAL' group for the total asymmetric uncertainty
     static const std::map<TString,RooArgList*> breakdown(RooAbsReal* nll, const RooArgSet& pars, std::vector<TString> groups, RooFitResult* unconditionalFitResult=0, bool runInitialMinos=false, bool doSTATCORR=false);
     
-    static double findSigma(RooAbsReal* nll, double nll_min, RooRealVar* par, double val_guess, double val_best, double N_sigma, double precision, bool mode = 0);
+    static std::pair<RooAbsData*,RooArgSet*> generateAsimovDataset(RooAbsPdf* thePdf, RooAbsData* data, const RooArgSet* gobs=0);
+    static std::pair<RooAbsData*,RooArgSet*> generateToy(RooAbsPdf* model, RooAbsData* data, const RooArgSet* gobs=0, bool doBinned=true);
+    
+    
+    //attempts to create a roostats ModelConfig from a workspace containing a model (pdf), data, and give name of parameter of interest
+    static RooStats::ModelConfig* CreateModelConfig(RooWorkspace& w, const char* modelName, const char* dataName, const char* poiName );
+    
+    
+    
+    //Following is only used when building models with TRooFit classes
+    //takes a pdf and dataset and builds a model from it (i.e. the pdf + constraint terms)
+    static RooAbsPdf* BuildModel(TRooAbsH1& pdf, RooAbsData& data);
    
+    static TObject& msg() { if(m_msgObj==0) m_msgObj=new TObject; return *m_msgObj; }
    
     
-   
-    static void setRecommendedDefaultOptions();
     
     static void SetDebugFile(TFile* debugFile) { m_debugFile = debugFile; }
     static TFile* GetDebugFile() { return m_debugFile; }
    
+   
+    static double GetBakerCousins(RooAbsPdf* model, RooAbsData* data);
+   
+   
+   static Double_t asymptoticPValue(double k, RooRealVar* mu, double mu_prime, double sigma, int compatCode);
+   
+   
+    //TRooFit( RooWorkspace& w, const char* poiNames=0 ); 
+   
+   
     ClassDef(TRooFit,1);
     
    private:
+    static double findSigma(RooAbsReal* nll, double nll_min, RooRealVar* par, double val_guess, double val_best, double N_sigma, double precision, bool mode = 0);
+   
     static TFile* m_debugFile;
 
+    static TObject* m_msgObj;
+
+
+    static Double_t Phi_m(double mu, double mu_prime, double a, double sigma, int compatCode);
+
+    //RooAbsReal* m_nll = 0;
+    
+  
 };
 
 #endif

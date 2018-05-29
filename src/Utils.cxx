@@ -4,6 +4,7 @@
 #include "RooMinimizer.h"
 
 TFile* TRooFit::m_debugFile = 0;
+TObject* TRooFit::m_msgObj = 0;
 
 ClassImp(TRooFit)
 
@@ -91,6 +92,110 @@ void TRooFit::setRecommendedDefaultOptions() {
   ROOT::Math::MinimizerOptions::SetDefaultPrintLevel(-1);
 }
 
+RooAbsReal* TRooFit::createNLL(RooAbsPdf* pdf, RooAbsData* data, const RooArgSet* gobs) {
+  //need to specify global observables so that they are included in the normalization set 
+  //Use the offset option because it improves fitting convergence, but consequence is that the 
+  //value of the FCN stored in the FitResult will not correspond to the actual NLL, it corresponds to the offset value
+  //the offset is determined by the initial (first) value of the NLL function
+  RooFit::MsgLevel msglevel = RooMsgService::instance().globalKillBelow();
+  RooMsgService::instance().setGlobalKillBelow(RooFit::WARNING); 
+  RooAbsReal* out = pdf->createNLL( *data, RooFit::GlobalObservables(*gobs), RooFit::Offset(1) );
+  RooMsgService::instance().setGlobalKillBelow(msglevel); 
+  return out;
+}
+
+
+//should perform a conditional fit before computing dataset
+std::pair<RooAbsData*,RooArgSet*> TRooFit::generateAsimovDataset(RooAbsPdf* thePdf, RooAbsData* data, const RooArgSet* gobs) { //should only depend on poi_prime value and args
+
+  std::pair<RooAbsData*,RooArgSet*> out = std::make_pair(nullptr,nullptr);
+  
+  RooArgSet* obs = thePdf->getObservables(data);
+
+   //Get the Asimov Dataset!
+   out.first = thePdf->generate(*obs,RooFit::ExpectedData(),RooFit::Extended()); //must specify we want extended ... because if it's a RooSimultaneous, RooSimSplitGenContext wont generate non-integer weights unless 'extended'
+   
+   
+   if(gobs) {
+      RooArgSet* asimov_gobs = new RooArgSet("asimov_gobs");
+      gobs->snapshot(*asimov_gobs);
+      out.second = asimov_gobs;
+      
+      //get all floating parameters ... 
+      RooArgSet* allPars = thePdf->getParameters(data);
+      RooAbsCollection* floatPars = allPars->selectByAttrib("Constant",kFALSE);
+      
+      
+      RooArgSet temp; temp.add(*floatPars);/*use a copy since don't want to modify the np set*/
+      RooArgSet* constraints = thePdf->getAllConstraints(*data->get(),temp);
+    
+      //loop over constraint pdfs, recognise gaussian, poisson, lognormal
+      TIterator* citer = constraints->createIterator();
+      RooAbsPdf* pdf = 0;
+      while((pdf=(RooAbsPdf*)citer->Next())) { 
+          //determine which gobs this pdf constrains. There should only be one!
+          std::unique_ptr<RooArgSet> cgobs(pdf->getObservables(out.second));
+          if(cgobs->getSize()!=1) { std::cout << "constraint " << pdf->GetName() << " constrains " << cgobs->getSize() << " global observables. skipping..." << std::endl; continue; }
+          RooAbsArg* gobs_arg = cgobs->first();
+    
+          //now iterate over the servers ... the first server to depend on a nuisance parameter we assume is the correct server to evaluate ..
+          std::unique_ptr<TIterator> itr(pdf->serverIterator());
+          for(RooAbsArg* arg = static_cast<RooAbsArg*>(itr->Next()); arg != 0; arg = static_cast<RooAbsArg*>(itr->Next())) {
+            RooAbsReal * rar = dynamic_cast<RooAbsReal *>(arg); 
+            if( rar && ( rar->dependsOn(*floatPars) ) ) {
+                out.second->setRealValue(gobs_arg->GetName(),rar->getVal()); //NOTE: We could add some checks that all gobs actually get set
+            }
+          }
+      }
+      delete citer;
+    
+      delete constraints;
+      
+      delete floatPars;
+      delete allPars;
+      
+      
+      
+   }
+   delete obs;
+   
+   return out;
+
+}
+
+std::pair<RooAbsData*,RooArgSet*> TRooFit::generateToy(RooAbsPdf* thePdf, RooAbsData* data, const RooArgSet* gobs, bool doBinned) {
+   
+   
+   std::pair<RooAbsData*,RooArgSet*> out = std::make_pair(nullptr,nullptr);
+   
+   if(gobs) {
+      RooArgSet* toy_gobs = new RooArgSet("toy_gobs");
+      gobs->snapshot(*toy_gobs);
+
+      //ensure we use the gobs from the model ...
+      RooArgSet* model_gobs = thePdf->getObservables(*gobs);
+      RooDataSet* globals = thePdf->generateSimGlobal(*model_gobs,1);
+      *toy_gobs = *globals->get(0);
+      delete globals; delete model_gobs;
+      out.second = toy_gobs;
+    }
+   
+    //have to first check if expected events are zero ... if it is, then the dataset is just empty ('generate' method fails when expectedEvents = 0)
+    RooArgSet* obs = thePdf->getObservables(data);
+    
+    if(thePdf->expectedEvents(*data->get())==0) {
+        out.first = new RooDataSet("toyData","toyData",*obs);
+    } else {
+      
+      out.first = (doBinned) ? thePdf->generate(*obs,RooFit::Extended(),RooFit::AllBinned()) : thePdf->generate(*obs,RooFit::Extended());
+    }
+    
+    delete obs;
+    
+   return out;
+
+}
+
 RooFitResult* TRooFit::minimize(RooAbsReal* nll, bool save) {
   
   
@@ -166,10 +271,12 @@ RooFitResult* TRooFit::minos(RooAbsReal* nll, const RooArgSet& pars, RooFitResul
   while( RooAbsArg* arg = itr.next() ) {
     RooRealVar* par = dynamic_cast<RooRealVar*>(arg);
     if(!par) continue; //only do minos errors for real vars 
-    if(!floatPars->find(*par)) {
+    par = dynamic_cast<RooRealVar*>(floatPars->find(*par)); //ensures we are using the actual version of the variable in nll
+    if(!par) {
       std::cout << Form("Warning: %s is not floating in the fit, so no minos error will be computed",par->GetName()) << std::endl;
       continue; //only do minos errors on pars that were floating in unconditional fit
     }
+
     
     
     //starting guess will be existing error on parameters
@@ -462,6 +569,7 @@ double TRooFit::findSigma(RooAbsReal* nll, double nll_min, RooRealVar* par, doub
         val_guess -= corr;
 
         if(printLevel>1) {
+          cout << "nPars:          " << nPars << std::endl;
           cout << "NLL:            " << nll->GetName() << " = " << nll->getVal() << endl;
           cout << "delta(NLL):     " << nll->getVal()-nll_min << endl;
          cout << "NLL min: " << nll_min << std::endl;
@@ -558,3 +666,246 @@ void setVal(RooRealVar* par, double val) {
 }
 
 
+
+//----------------- goodness of fit tests ------------
+
+#include "RooCategory.h"
+#include "RooSimultaneous.h"
+
+double TRooFit::GetBakerCousins(RooAbsPdf* model, RooAbsData* data) {
+  //log likelihood ratio 'test statistic' as studied by Baker-Cousins
+  //The denominator of the ratio is the likelihood for the 'perfect' binned model
+  
+  //NOTE: 2*LLR is approximately chi2 distribution, ndof ~= nBins (comes out a little higher) -- the constraint terms shift the unsaturated nll (saturated nll doesnt include)
+  
+  
+  //we must start by determing the binning for each observable in each channel of the data
+  RooArgSet* obs = model->getObservables(data);
+  
+  //do we have a category var? If so, assume that is the channel category ...
+  RooCategory* cat = 0;
+  RooFIter obsItr = obs->fwdIterator();
+  while( RooAbsArg* arg = obsItr.next() ) {
+    if(arg->IsA() == RooCategory::Class() ) {
+      if(cat!=0) {
+        msg().Error("Get2LLR","Multiple RooCategory found - unable to infer channel category");
+        return 0;
+      }
+      cat = dynamic_cast<RooCategory*>(arg);
+    }
+  }
+  
+  std::vector<RooRealVar*> channelObs; //observable used in each channel
+  
+  if(cat) {
+    //find the RooSimultaneous in the model (might not be the top node) and use each category pdf to try to infer observable
+    
+    RooSimultaneous* simPdf = 0;
+    if(model->InheritsFrom(RooSimultaneous::Class())) {
+      simPdf = dynamic_cast<RooSimultaneous*>(model);
+    } else {
+      //find in the server list ..
+      RooArgSet s; model->treeNodeServerList(&s);
+      RooFIter itr = s.fwdIterator();
+      while( RooAbsArg* arg = itr.next() ) {
+        if(arg->InheritsFrom(RooSimultaneous::Class())) {
+          if(simPdf!=0) {
+            msg().Error("Get2LLR","Multiple RooSimultaneous found - unable to infer main channel pdf");
+            return 0;
+          }
+          simPdf = dynamic_cast<RooSimultaneous*>(arg);
+        }
+      }
+    }
+    
+    if(!simPdf)  {
+      msg().Error("Get2LLR","Unable to infer RooSimultaneous"); 
+      return 0;
+    }
+    
+    for(int i=0;i<cat->numTypes();i++) {
+      RooAbsPdf* m = simPdf->getPdf( cat->lookupType(i)->GetName() );
+      if(!m) {
+        msg().Error("Get2LLR","Could not find channel %s in pdf %s",cat->lookupType(i)->GetName(),simPdf->GetName());
+        return 0;
+      }
+      RooArgSet* mobs = m->getObservables(data);
+      RooRealVar* var = 0;
+      RooFIter obsItr = mobs->fwdIterator();
+      while( RooAbsArg* arg = obsItr.next() ) {
+        if(arg->IsA() == RooRealVar::Class() ) {
+          if(var!=0) {
+            msg().Error("Get2LLR","Multiple RooRealVar found - unable to observable");
+            return 0;
+          }
+          var = dynamic_cast<RooRealVar*>(arg);
+        }
+      }
+      delete mobs;
+      if(!var) {
+        msg().Error("Get2LLR","Could not determine observable for channel %s",cat->lookupType(i)->GetName());
+        return 0;
+      }
+      channelObs.push_back( (RooRealVar*)data->get()->find(*var) ); //save the version of the var present in the dataset
+    }
+    
+    
+    
+  } else {
+    //no channel category
+    //there should only be one observable in the dataset
+    RooRealVar* var = 0;
+    RooFIter obsItr = obs->fwdIterator();
+    while( RooAbsArg* arg = obsItr.next() ) {
+      if(arg->IsA() == RooRealVar::Class() ) {
+        if(var!=0) {
+          msg().Error("Get2LLR","Multiple RooRealVar found - unable to observable");
+          return 0;
+        }
+        var = dynamic_cast<RooRealVar*>(arg);
+      }
+    }
+    if(!var) {
+      msg().Error("Get2LLR","Could not determine observable");
+      return 0;
+    }
+    channelObs.push_back( (RooRealVar*)data->get()->find(*var) ); //save the version of the var present in the dataset
+  }
+  
+  
+
+  double nll = 0;
+  double nll_saturated = 0; //denominator
+  
+  
+  //evaluate the NLL of the data
+  
+  for(int i=0;i<data->numEntries();i++) {
+    *obs = *data->get(i); //move observables values of ith entry
+    nll -= model->getLogVal( obs )*data->weight(); //get probability of ith entry (scale by weight)
+  }
+  //if model is extended, add extended term ..
+  if(model->canBeExtended()) nll += model->extendedTerm(data->sumEntries(),obs);
+  
+  //nll_saturated is the likelihood from the 'saturated' model where each bin prediction equals the data
+  //use data histograms to estimate this ...
+  //formula is:
+  // nll2 = - sum_i [ n_i * log(n_i/(w_i*N)) ] + N - NlogN = -sum_i [ n_i*log(n_i/w_i) ] + N
+  //last equality comes from sum_i [n_i * log(N)] = Nlog N 
+  
+  for(uint i=0;i<channelObs.size();i++) {
+    TString channelName = (cat) ? cat->lookupType(i)->GetName() : "";
+    for(int j=0;j<channelObs[i]->numBins(channelName);j++) {
+      double nObs(0);
+      if(cat) nObs = data->sumEntries(Form("%s==%d&&%s>=%f&&%s<%f",cat->GetName(),i,channelObs[i]->GetName(),channelObs[i]->getBinning(channelName).binLow(j),channelObs[i]->GetName(),channelObs[i]->getBinning(channelName).binHigh(j)));
+      else nObs =  data->sumEntries(Form("%s>=%f&&%s<%f",channelObs[i]->GetName(),channelObs[i]->getBinning(channelName).binLow(j),channelObs[i]->GetName(),channelObs[i]->getBinning(channelName).binHigh(j)));
+      if(nObs<=0) continue;
+      nll_saturated -= nObs*log(nObs/channelObs[i]->getBinning(channelName).binWidth(j));
+      nll_saturated += nObs; //adds the 'N' term
+    }
+  }
+  
+  delete obs;
+
+  
+  return 2.*(nll - nll_saturated);
+  
+}
+
+
+#include "Math/ProbFuncMathCore.h"
+
+Double_t TRooFit::Phi_m(double mu, double mu_prime, double a, double sigma, int compatCode) {
+   //implemented only for special cases of compatibility function
+   if(compatCode==0) {
+      return 0;
+   } 
+
+   //will need sigma unless mu = mu_prime ...
+   if(mu!=mu_prime && !sigma) {
+    msg().Error("Phi_m","Estimate of mu_hat sigma not provided but required");
+   } else if(mu==mu_prime) {
+    sigma = 1; //don't need to worry about sigma value when mu= mu_prime
+   }
+   
+   if(compatCode==1) {
+      //ignore region below x*sigma+mu_prime = mu ... x = (mu - mu_prime)/sigma 
+      if(a < (mu-mu_prime)/sigma) return 0;
+      return ROOT::Math::gaussian_cdf(a) - ROOT::Math::gaussian_cdf((mu-mu_prime)/sigma);
+   } else if(compatCode==2) {
+      //ignore region above x*sigma+mu_prime = mu ... 
+      if(a > (mu-mu_prime)/sigma) return ROOT::Math::gaussian_cdf((mu-mu_prime)/sigma);
+      return ROOT::Math::gaussian_cdf(a);
+   } else if(compatCode==3) {
+      //cutoff at x*sigma+mu_prime = mu for mu<0 , and turns back on at x*sigma+mu_prime=mu for mu>0
+      //ignore region between x = (-mu-mu_prime)/sigma and x = (mu-mu_prime)/sigma
+      double edge1 = (-mu - mu_prime)/sigma;
+      double edge2 = (mu-mu_prime)/sigma;
+
+      if(edge1>edge2) { double tmp=edge1; edge1=edge2; edge2=tmp; }
+
+      if(a<edge1) return ROOT::Math::gaussian_cdf(a);
+      if(a<edge2) return ROOT::Math::gaussian_cdf(edge1);
+      return ROOT::Math::gaussian_cdf(a) - (ROOT::Math::gaussian_cdf(edge2) - ROOT::Math::gaussian_cdf(edge1));
+   }
+   msg().Error("Phi_m","Unknown compatibility function ... can't evaluate");
+   return 0;
+}
+
+//must use asimov dataset corresponding to mu_prime, evaluating pll at mu
+
+Double_t TRooFit::asymptoticPValue(double k, RooRealVar* mu, double mu_prime, double sigma, int compatCode) {
+  if(k<0) return 1.;
+  if(k==0) {
+    if(compatCode==2) return 0.5; //when doing discovery (one-sided negative) use a 0.5 pValue
+    return 1.; //case to catch the delta function that ends up at exactly 0 for the one-sided tests 
+  }
+      //get the poi value that defines the test statistic, and the poi_prime hypothesis we are testing 
+   //when setting limits, these are often the same value 
+
+   Double_t poiVal = mu->getVal();
+   //Double_t k = getVal();
+
+   //if(fOutputLevel<=1) Info("asymptoticPValue","poiVal = %f poiPrimeVal=%f k=%f", poiVal, poi_primeVal, k);
+   Double_t Lambda_y = 0;
+
+   double lowBound = mu->getMin();
+   double upBound = mu->getMax();
+
+   Lambda_y = (poiVal-mu_prime)/sigma;
+
+
+   Double_t k_low = (lowBound == -std::numeric_limits<double>::infinity()) ? std::numeric_limits<double>::infinity() : pow((poiVal - lowBound)/sigma,2);
+   Double_t k_high = (upBound == std::numeric_limits<double>::infinity()) ? std::numeric_limits<double>::infinity() : pow((upBound - poiVal)/sigma,2);
+
+   //std::cout << " sigma = " << sigma << std::endl;
+
+   double out = Phi_m(poiVal,mu_prime,std::numeric_limits<double>::infinity(),sigma,compatCode) - 1;
+
+   //if(fOutputLevel<=0) Info("asymptoticPValue","sigma=%f k_low=%f k_high=%f ", sigma, k_low, k_high);
+     
+   //std::cout << " out = " << out << std::endl;
+   //std::cout << " k_low = " << k_low << std::endl;
+
+   //go through the 4 'regions' ... only two of which will apply
+   if( k <= k_low ) {
+      out += ROOT::Math::gaussian_cdf(sqrt(k)-Lambda_y) + Phi_m(poiVal,mu_prime,Lambda_y - sqrt(k),sigma,compatCode);
+   } else {
+      double Lambda_low = (poiVal - lowBound)*(poiVal + lowBound - 2.*mu_prime)/(sigma*sigma);
+      double sigma_low = 2.*(poiVal - lowBound)/sigma;
+      out +=  ROOT::Math::gaussian_cdf((k-Lambda_low)/sigma_low) + Phi_m(poiVal,mu_prime,(Lambda_low - k)/sigma_low,sigma,compatCode);
+   }
+   //std::cout << " out = " << out << std::endl;
+   //std::cout << " k_high = " << k_high << std::endl;
+
+   if( k <= k_high ) {
+      out += ROOT::Math::gaussian_cdf(sqrt(k)+Lambda_y) - Phi_m(poiVal,mu_prime,Lambda_y + sqrt(k),sigma,compatCode);
+   } else {
+      double Lambda_high = (poiVal - upBound)*(poiVal + upBound - 2.*mu_prime)/(sigma*sigma);
+      double sigma_high = 2.*(upBound-poiVal)/sigma;
+      out +=  ROOT::Math::gaussian_cdf((k-Lambda_high)/sigma_high) - Phi_m(poiVal,mu_prime,(k - Lambda_high)/sigma_high,sigma,compatCode);
+   }
+
+
+   return 1. - out;
+}

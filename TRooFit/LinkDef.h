@@ -46,5 +46,5 @@
 #pragma link C++ class TRooFit+;
 //#pragma link C++ function TRooFit::BuildModel;
 
-#pragma link C++ nestedfunction;
+//#pragma link C++ nestedfunction;
 #pragma link C++ nestedclasses;
