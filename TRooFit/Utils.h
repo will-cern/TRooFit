@@ -24,7 +24,7 @@ class TRooFit : public TObject  {
     //create a NLL method with the recommended settings
     static RooAbsReal* createNLL(RooAbsPdf* pdf, RooAbsData* data, const RooArgSet* gobs);
     //minimize a function using a good retry strategy ... if save is true then return a RooFitResult
-    static RooFitResult* minimize(RooAbsReal* nll, bool save=true);
+    static RooFitResult* minimize(RooAbsReal* nll, bool save=true, bool hesse=true);
     //updates the asymmetric errors of the given fitResult with the minos errors of the specified pars
     //This method improves on the built-in Minos() method of RooFit, which was found to be unstable
     static RooFitResult* minos(RooAbsReal* nll, const RooArgSet& pars,RooFitResult* unconditionalFitResult = 0);

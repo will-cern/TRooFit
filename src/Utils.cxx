@@ -196,7 +196,7 @@ std::pair<RooAbsData*,RooArgSet*> TRooFit::generateToy(RooAbsPdf* thePdf, RooAbs
 
 }
 
-RooFitResult* TRooFit::minimize(RooAbsReal* nll, bool save) {
+RooFitResult* TRooFit::minimize(RooAbsReal* nll, bool save, bool hesse) {
   
   
   int printLevel  =   ::ROOT::Math::MinimizerOptions::DefaultPrintLevel();
@@ -229,6 +229,8 @@ RooFitResult* TRooFit::minimize(RooAbsReal* nll, bool save) {
     if(tries == 2) _minimizer.setStrategy(strategy+1); //up the strategy
     if(tries == 3) { minim = "Minuit"; algorithm = "migradImproved"; }
   }
+  
+  if(hesse) _minimizer.hesse(); //note: I have seen that you can get 'full covariance quality' without running hesse ... is that expected?
   
   RooFitResult* out = 0;
   if(save) out = _minimizer.save("fitResult","fitResult");
@@ -651,7 +653,7 @@ double getNLL(RooAbsReal* nll, bool refit=true) {
     if(!refit) {
       return nll->getVal(); //no fit to do, just return nll;
     } else {
-      auto result = TRooFit::minimize(nll);
+      auto result = TRooFit::minimize(nll,true,false);
       double val = nll->getVal();//result->minNll(); --cannot use minNll because it might have been offset corrected
       delete result;
       return val;
