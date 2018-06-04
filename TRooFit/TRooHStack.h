@@ -51,7 +51,7 @@ public:
   //override getValV so we can suppress warnings about 0 and negative values
   virtual Double_t getValV( const RooArgSet* set = 0 ) const;
 
-  virtual void setFloor(Bool_t in, double floorValue=0.) { RooRealSumPdf::setFloor(in); kMustBePositive=in; fFloorValue=floorValue; }
+  virtual void setFloor(Bool_t in, double floorValue=0.) { RooRealSumPdf::setFloor(in); kMustBePositive=in; fFloorValue=floorValue; SetMinimum( (in) ? floorValue : -1111 ); }
 
   virtual void printMetaArgs(std::ostream& os) const;
 
