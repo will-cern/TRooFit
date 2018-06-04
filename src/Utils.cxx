@@ -247,6 +247,8 @@ RooFitResult* TRooFit::minimize(RooAbsReal* nll, bool save, bool hesse) {
 //The reason for this minos method is because the builtin ROOT method seems to be both inefficient and also fails to find solutions (e.g. runs out of iterations)
 RooFitResult* TRooFit::minos(RooAbsReal* nll, const RooArgSet& pars, RooFitResult* unconditionalFitResult) {
   
+  int printLevel  =   ::ROOT::Math::MinimizerOptions::DefaultPrintLevel();
+  
   const double minosPrecision = 0.002;
   
   //for each parameter will search the 2*pll distribution for where it equals +1/-1 
@@ -289,6 +291,8 @@ RooFitResult* TRooFit::minos(RooAbsReal* nll, const RooArgSet& pars, RooFitResul
    
     double sigma_hi = findSigma(nll, nll_absMin, par, bestFitVal+bestFitErrHi, bestFitVal, 1, minosPrecision);
     double sigma_lo = findSigma(nll, nll_absMin, par, bestFitVal+bestFitErrLo, bestFitVal, -1, minosPrecision);
+    
+    if(printLevel>0) { msg().Info("TRooFit::minos","%s +/- errors are %f / %f",arg->GetName(),sigma_hi,sigma_lo); }
     
     //copy the errors into the fit result
     ((RooRealVar*)unconditionalFitResult->floatParsFinal().find(*par))->setAsymError(-sigma_lo,sigma_hi);
