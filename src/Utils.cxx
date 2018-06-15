@@ -6,12 +6,38 @@
 TFile* TRooFit::m_debugFile = 0;
 TObject* TRooFit::m_msgObj = 0;
 
+std::map<TString,Int_t> TRooFit::m_colorsByName;
+
 ClassImp(TRooFit)
 
 TRooFit::TRooFit() : TObject() { }
 
 RooAbsPdf* TRooFit::BuildModel(TRooAbsH1& pdf, RooAbsData& data) {
   return pdf.buildConstraints( *data.get() , "", true );
+}
+
+Int_t TRooFit::GetColorByName(const char* name, bool generateColor) {
+  if(m_colorsByName.find(name)!=m_colorsByName.end()) return m_colorsByName[name];
+  if(!generateColor) return 0;
+  
+  //get list of all colors 
+  std::set<int> allCols;
+  for(auto c : m_colorsByName) allCols.insert(c.second);
+  
+  
+  int nextColor=1;
+  if(allCols.size()) {
+    auto colItr = allCols.begin();
+    int lastCol = (*colItr);
+    colItr++;
+    while( colItr!=allCols.end() && lastCol+1 == (*colItr) ) {lastCol=(*colItr); colItr++;}
+    nextColor=lastCol+1;
+  }
+  
+  m_colorsByName[name] = nextColor;
+  
+  return nextColor;
+  
 }
 
 
@@ -104,16 +130,44 @@ RooAbsReal* TRooFit::createNLL(RooAbsPdf* pdf, RooAbsData* data, const RooArgSet
   return out;
 }
 
+std::pair<RooAbsData*,RooArgSet*> TRooFit::generateAsimovDataset(RooAbsPdf* thePdf, RooAbsData* data, const RooArgSet* gobs) { //should only depend on poi_prime value and args 
+  RooArgSet* obs = thePdf->getObservables(data);
+  auto out = generateAsimovDataset(thePdf, obs, gobs);
+  delete obs;
+  return out;
+}
 
 //should perform a conditional fit before computing dataset
-std::pair<RooAbsData*,RooArgSet*> TRooFit::generateAsimovDataset(RooAbsPdf* thePdf, RooAbsData* data, const RooArgSet* gobs) { //should only depend on poi_prime value and args
+std::pair<RooAbsData*,RooArgSet*> TRooFit::generateAsimovDataset(RooAbsPdf* thePdf, const RooArgSet* obs, const RooArgSet* gobs) { //should only depend on poi_prime value and args
 
   std::pair<RooAbsData*,RooArgSet*> out = std::make_pair(nullptr,nullptr);
   
-  RooArgSet* obs = thePdf->getObservables(data);
+  
 
    //Get the Asimov Dataset!
    out.first = thePdf->generate(*obs,RooFit::ExpectedData(),RooFit::Extended()); //must specify we want extended ... because if it's a RooSimultaneous, RooSimSplitGenContext wont generate non-integer weights unless 'extended'
+   /*
+   if(thePdf->InheritsFrom(RooSimultaneous::Class())) {
+    RooSimultaneous* simPdf = static_cast<RooSimultaneous*>(thePdf);
+    TIterator* iter = simPdf->indexCat().typeIterator();
+    RooCatType* tt;
+    while( (tt=(RooCatType*)iter->Next()) ) {
+      RooAbsPdf* subPdf = simPdf->getPdf(tt->GetName());
+      
+      //adjust all binnings to match boundaries if needed ... 
+      RooFIter obsItr = obs->fwdIterator();
+      while( RooAbsArg* obsArg = obsItr.next() ) {
+        if(!subPdf->isBinnedDistribution(*obsArg)) continue;
+        
+      }
+      
+    }
+    delete iter;
+    //iterate over pdfs ...
+    
+   } else {
+    out.first = thePdf->generate(*obs,RooFit::ExpectedData(),RooFit::Extended()); //must specify we want extended ... because if it's a RooSimultaneous, RooSimSplitGenContext wont generate non-integer weights unless 'extended'
+   }*/
    
    
    if(gobs) {
@@ -122,12 +176,12 @@ std::pair<RooAbsData*,RooArgSet*> TRooFit::generateAsimovDataset(RooAbsPdf* theP
       out.second = asimov_gobs;
       
       //get all floating parameters ... 
-      RooArgSet* allPars = thePdf->getParameters(data);
+      RooArgSet* allPars = thePdf->getParameters(obs);
       RooAbsCollection* floatPars = allPars->selectByAttrib("Constant",kFALSE);
       
       
       RooArgSet temp; temp.add(*floatPars);/*use a copy since don't want to modify the np set*/
-      RooArgSet* constraints = thePdf->getAllConstraints(*data->get(),temp);
+      RooArgSet* constraints = thePdf->getAllConstraints(*obs,temp);
     
       //loop over constraint pdfs, recognise gaussian, poisson, lognormal
       TIterator* citer = constraints->createIterator();
@@ -157,7 +211,6 @@ std::pair<RooAbsData*,RooArgSet*> TRooFit::generateAsimovDataset(RooAbsPdf* theP
       
       
    }
-   delete obs;
    
    return out;
 
@@ -344,6 +397,9 @@ std::vector<RooFitResult*> TRooFit::minos_series(RooAbsReal* nll, const RooArgSe
       //no floating left
       std::cout << Form("minos_series: no float parameters in group %s (may have been covered by previous groups in series)",group.Data()) << std::endl;
     } else {
+      if(parsInGroup->getSize()==0) {
+        msg().Warning("minos_series","No parameters found in group %s",group.Data());
+      }
       //make selected parameters const, and move them from floatPars to constPars in the fit result
       parsInGroup->setAttribAll("Constant",kTRUE);
       //must create a copy since remove below will delete (because floatParsFinal is an owning collection)

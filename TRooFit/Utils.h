@@ -37,6 +37,7 @@ class TRooFit : public TObject  {
     static const std::map<TString,RooArgList*> breakdown(RooAbsReal* nll, const RooArgSet& pars, std::vector<TString> groups, RooFitResult* unconditionalFitResult=0, bool runInitialMinos=false, bool doSTATCORR=false);
     
     static std::pair<RooAbsData*,RooArgSet*> generateAsimovDataset(RooAbsPdf* thePdf, RooAbsData* data, const RooArgSet* gobs=0);
+    static std::pair<RooAbsData*,RooArgSet*> generateAsimovDataset(RooAbsPdf* thePdf, const RooArgSet* obs, const RooArgSet* gobs=0);
     static std::pair<RooAbsData*,RooArgSet*> generateToy(RooAbsPdf* model, RooAbsData* data, const RooArgSet* gobs=0, bool doBinned=true);
     
     
@@ -51,7 +52,9 @@ class TRooFit : public TObject  {
    
     static TObject& msg() { if(m_msgObj==0) m_msgObj=new TObject; return *m_msgObj; }
    
-    
+   
+    static Int_t GetColorByName(const char* name, bool generateColor=false);
+    static void PrintColorsByName() { for(auto c : m_colorsByName) { std::cout << c.first << " : " << c.second << std::endl; } }
     
     static void SetDebugFile(TFile* debugFile) { m_debugFile = debugFile; }
     static TFile* GetDebugFile() { return m_debugFile; }
@@ -64,6 +67,8 @@ class TRooFit : public TObject  {
    
    
     //TRooFit( RooWorkspace& w, const char* poiNames=0 ); 
+   
+   
    
    
     ClassDef(TRooFit,1);
@@ -79,6 +84,8 @@ class TRooFit : public TObject  {
     static Double_t Phi_m(double mu, double mu_prime, double a, double sigma, int compatCode);
 
     //RooAbsReal* m_nll = 0;
+    
+    static std::map<TString,Int_t> m_colorsByName;
     
   
 };

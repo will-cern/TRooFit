@@ -40,6 +40,7 @@ class TRooH1;
 class TRooAbsH1 : public TAttLine, public TAttFill, public TAttMarker {
 public:
   friend class TRooAbsHStack;
+  friend class TRooWorkspace;
 
   TRooAbsH1() { UseCurrentStyle(); }
 
@@ -65,6 +66,8 @@ public:
   virtual RooAbsReal* createIntegralWM(const RooArgSet& iset,const char* rangeName = 0) const;
   
   void UseCurrentStyle();
+  
+  const char* GetObservableName(int axis) { if(axis>fObservables.getSize()) return 0; return fObservables[axis].GetName(); }
   
   Int_t GetDimension() const { return fObservables.getSize(); }
   virtual TAxis* GetXaxis() const;

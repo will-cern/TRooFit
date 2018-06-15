@@ -6,6 +6,8 @@
 #include "TRooFit/TRooHStack.h"
 #include "RooRealVar.h"
 
+#include "TRooFit/Utils.h"
+
 using namespace std;
 
 //___________________________________
@@ -142,6 +144,9 @@ void TRooAbsHStack::Add(RooAbsReal* func, bool acquireStatFactors) {
         TString oldName(arg->GetName()); //dont correct the ones we already replaced above
         TString newName(oldName.Replace(0,strlen(hist->GetName()),GetName()));
         arg->SetName(newName);
+        TString oldTitle(arg->GetTitle()); //dont correct the ones we already replaced above
+        TString newTitle(oldTitle.ReplaceAll(hist->GetName(),GetName()));
+        arg->SetTitle(newTitle);
         fStatFactors.addOwned(*arg);
       }
       if(fStatFactors.getSize()) fStatFactors.setName("statFactors");
@@ -254,7 +259,9 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
    
 
   RooFIter funcIter = compList().fwdIterator() ;
+  RooFIter coefIter = coeffList().fwdIterator() ;
   RooAbsReal* func ;
+  RooAbsReal* coef ;
   int i=0;
 
   TH1* totalHist = 0;
@@ -262,6 +269,7 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
   std::vector<TH1*> histsToAdd;
 
   while((func=(RooAbsReal*)funcIter.next())) {
+    coef = (RooAbsReal*)coefIter.next();
     TH1* hist = (existingHists.GetSize()>i) ? (TH1*)(existingHists.At(i)) : 0;
     TRooAbsH1* trooFunc = dynamic_cast<TRooAbsH1*>(func);
     if(trooFunc) {
@@ -274,7 +282,7 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
        
        
        if(!(hist&&noRestyle)) hist = createOrAdjustHistogram(hist); 
-      
+      hist->SetName(func->GetName()); hist->SetTitle(func->GetTitle());
       //FIXME: need to use fit result to move parameters!
       
       RooAbsPdf* pdf = (RooAbsPdf*)func;
@@ -317,7 +325,23 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
       delete cdf;
       
     } else {
-      std::cout << "NOT SUPPORTED!!" << std::endl;
+    
+      if(!(hist&&noRestyle)) hist = createOrAdjustHistogram(hist);
+      hist->SetName(func->GetName()); 
+      TString myTitle(func->GetTitle());
+      //for nicer histfactory support ...
+      if(myTitle.Contains(TString("_")+GetTitle())) myTitle = myTitle.ReplaceAll(TString("_")+GetTitle(),"");
+      myTitle.ReplaceAll("L_x_",""); myTitle.ReplaceAll("_overallSyst_x_StatUncert",""); myTitle.ReplaceAll("_overallSyst_x_HistSyst","");
+      hist->SetTitle(myTitle); 
+      
+      hist->SetFillColor(TRooFit::GetColorByName(myTitle,true));
+      
+      func->fillHistogram(hist,fObservables); //this method assumes function is flat across each bin too (like getBinContent of TRooH1)
+    
+      //remove all error bars, since this is going in the stack ..
+      for(int i=1;i<=hist->GetNbinsX();i++) hist->SetBinError(i,0);
+    
+      //std::cout << "NOT SUPPORTED!!" << std::endl;
       
     }
     if(hist) {
@@ -344,6 +368,8 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
         }
       }
     */
+      hist->Scale( coef->getVal() ); //should always be 1 unless wrapping a Histfactor RooRealSumPdf
+      
       histsToAdd.push_back(hist);
       
       

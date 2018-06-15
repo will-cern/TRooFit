@@ -36,7 +36,7 @@ public:
   TRooHStack(const char* name, const char* title);
   virtual TObject* clone(const char* newname) const { return new TRooHStack(*this,newname); }
   TRooHStack(const TRooHStack& other, const char* name=0) ;
-  
+  TRooHStack(const RooRealSumPdf& other, const RooArgSet& observables);
   
 
   //virtual const char* GetRangeName() const { if(fRooHists.getSize()==0) return 0; return fRooHists[0].GetName(); }
@@ -59,6 +59,7 @@ protected:
   ///Methods required by TRooAbsHStack
   virtual TIterator*& compIter() { return _funcIter; }
   virtual RooListProxy& compList() { return _funcList; }
+  virtual const RooListProxy& coeffList() const { return _coefList; }
   virtual const RooListProxy& compList() const { return _funcList; }
   virtual void reinit();
 

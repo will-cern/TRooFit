@@ -26,7 +26,58 @@ TRooHStack::TRooHStack(const TRooHStack& other, const char* name) :
   //Copy constructor
 
   _extended = true; _haveLastCoef = true;
-} 
+}
+ 
+TRooHStack::TRooHStack(const RooRealSumPdf& other, const RooArgSet& observables) :
+  RooRealSumPdf(other,other.GetName()) {
+  //Constructor for making a TRooHStack object out of existing RooRealSumPdf 
+  
+  RooArgSet* obs = other.getObservables(observables);
+  
+  fObservables.add(*obs);  
+  delete obs;
+  
+  if(fObservables.getSize()) fObservables.setName("obs");
+  
+  std::vector<int> bins; std::vector<const Double_t*> binEdges;
+    //take binning from the observables .. 
+    for(int i=0;i<fObservables.getSize();i++) {
+      if(fObservables[i].IsA() == RooRealVar::Class()) {
+        RooAbsBinning& myBins = static_cast<RooRealVar&>(fObservables[i]).getBinning();
+        bins.push_back( myBins.numBins() );
+        binEdges.push_back( myBins.array() );
+      }
+    }
+  
+  
+  //create the default hist
+    if(fObservables.getSize()==0) {
+      fDummyHist = new TH1D(other.GetName(),other.GetTitle(),1,-0.5,0.5);
+      //specialIntegratorConfig(kTRUE)->method1D().setLabel("RooBinIntegrator");
+    } else if(fObservables.getSize()==1) {
+      if(dynamic_cast<TObject&>(fObservables[0]).InheritsFrom(RooAbsCategory::Class())) { 
+        RooAbsCategory& cat = static_cast<RooAbsCategory&>(fObservables[0]);
+        fDummyHist = new TH1D(other.GetName(),other.GetTitle(),cat.numTypes(),-0.5,cat.numTypes()-0.5);
+      } else {
+        fDummyHist = new TH1D(other.GetName(),other.GetTitle(),bins[0],binEdges[0]);
+      }
+      //specialIntegratorConfig(kTRUE)->method1D().setLabel("RooBinIntegrator");
+    } else if(fObservables.getSize()==2) {
+        fDummyHist = new TH2D(other.GetName(),other.GetTitle(),bins[0],binEdges[0],bins[1],binEdges[1]);
+    } else {
+      std::cout << "not supported!" << std::endl;
+    }
+ 
+ 
+  
+  fDummyHist->SetDirectory(0);fDummyHist->Sumw2();
+  fDummyHist->GetXaxis()->SetTitle("");fDummyHist->GetYaxis()->SetTitle("");
+  
+ 
+  
+  
+  
+}
 
 
 void TRooHStack::reinit() {

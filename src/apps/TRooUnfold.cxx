@@ -119,6 +119,19 @@ Bool_t TRooUnfold::AddData(TH1* data) {
   return kTRUE;
 }
 
+RooRealVar* TRooUnfold::GetSigNormVar(int bin) {
+  int nDigits = int(std::log10(m_truthVar->numBins()))+1;
+  TString formString(Form("mu_%%0%dd",nDigits));
+  RooRealVar* out = m_normFactor[Form(formString,bin)];
+  if(!out) {
+    AddNormFactor(Form(formString,bin),Form("#mu_{%d}",bin));
+    m_poi.add( *m_normFactor[Form(formString,bin)] );
+    out = m_normFactor[Form(formString,bin)];
+  }
+  return out;
+  
+}
+
 Bool_t TRooUnfold::AddRegularization(TH1* hist) {
   if(!m_regularizationHist) {
     m_regularizationHist = (TH1*)hist->Clone("regularization");
@@ -138,11 +151,12 @@ Bool_t TRooUnfold::BuildModel() {
 
   //define unconstrained scale factors for each truth bin, we will later need to adjust the ranges of these parameters to ensure we can cover the data ...
   for(int i=1;i<m_truthVar->numBins()+1;i++) {
-    if(!m_normFactor[Form("signalNorm_bin%d",i)]) {
+    /*if(!m_normFactor[Form("signalNorm_bin%d",i)]) {
       AddNormFactor(Form("signalNorm_bin%d",i),Form("SigNorm_%d",i));
       m_poi.add( *m_normFactor[Form("signalNorm_bin%d",i)] );
-    }
-    ApplyFactorToComponent(Form("signalNorm_bin%d",i),Form("signal_bin%d",i));
+    }*/
+    RooRealVar* f = GetSigNormVar(i);
+    ApplyFactorToComponent(f->GetName(),Form("signal_bin%d",i));
   }
 
   //start by deriving fiducial correction factors, if required (i.e. convert recoSignal histograms into purity histograms and add as scale factors for each of the signals)
@@ -158,36 +172,37 @@ Bool_t TRooUnfold::BuildModel() {
       }
       //project migration matrix onto x-axis .. this will be the numerator of the purity 
       TH1* recodTruth = migrationMatrix->ProjectionX();
+      recodTruth->SetDirectory(0);
       recodTruth->Divide( reco );
-      reco->Reset();
-      reco->Add(recodTruth);
-      reco->SetTitle(Form("Purity (%s)",myPair.first.Data()));
+      recodTruth->SetTitle(Form("Fiducial Purity (%s)",myPair.first.Data()));
+      m_fidPurity[myPair.first] = recodTruth;
       
       //check if any of the bins are > 1 ... which would indicate a problem ..
-      if(reco->GetBinContent( reco->GetMaximumBin() ) > 1.) {
-        Error("BuildModel","Purity > 1 (%f) found in bin %d", reco->GetBinContent( reco->GetMaximumBin() ), reco->GetMaximumBin());
+      if(recodTruth->GetBinContent( recodTruth->GetMaximumBin() ) > 1.) {
+        Error("BuildModel","Fiducial Purity > 1 (%f) found in bin %d", recodTruth->GetBinContent( recodTruth->GetMaximumBin() ), recodTruth->GetMaximumBin());
         return kFALSE;
       }
       
       //need to register inverse purity as a scale factor ...
-      recodTruth->Reset();
-      for(int i=1;i<=recodTruth->GetNbinsX();i++) { recodTruth->SetBinContent(i,1.); }
-      recodTruth->Divide(reco); //is now the inverse purity, add as a scale factor on all the signal components 
+      TH1* fidCorrection = (TH1*)recodTruth->Clone("fidCorrection");
+      fidCorrection->Reset();
+      for(int i=1;i<=fidCorrection->GetNbinsX();i++) { fidCorrection->SetBinContent(i,1.); }
+      fidCorrection->Divide(recodTruth); //is now the inverse purity, add as a scale factor on all the signal components 
       //only do so if the invPurity in any bin is sufficiently different from 1 
       bool nonUnity(false);
-      for(int i=1;i<=recodTruth->GetNbinsX();i++) { if(fabs(recodTruth->GetBinContent(i)-1.)>1e-5) {nonUnity=true; break; } }
+      for(int i=1;i<=fidCorrection->GetNbinsX();i++) { if(fabs(fidCorrection->GetBinContent(i)-1.)>1e-5) {nonUnity=true; break; } }
       if(nonUnity) {
-        AddScaleFactor(recodTruth,"invPurity",myPair.first);
+        AddScaleFactor(fidCorrection,"fidCorrection",myPair.first);
       } 
-      delete recodTruth;
+      delete fidCorrection;
       
     }
     Info("BuildModel","Built purity histograms");
     //was invPurity ever defined?
-    if(m_recoSF.find("invPurity")!=m_recoSF.end()) {
-      for(int i=1;i<=m_truthVar->numBins()+1;i++) ApplyFactorToComponent("invPurity",Form("signal_bin%d",i));
+    if(m_recoSF.find("fidCorrection")!=m_recoSF.end()) {
+      for(int i=1;i<=m_truthVar->numBins()+1;i++) ApplyFactorToComponent("fidCorrection",Form("signal_bin%d",i));
     } else {
-      Info("BuildModel","Skipping inverse purity factor");
+      Info("BuildModel","Skipping fiducial correction factor");
     }
   }
 
@@ -197,6 +212,7 @@ Bool_t TRooUnfold::BuildModel() {
   for(auto myPair : m_migrationMatrix) {
     //check for corresponding truthSignal histogram 
     TH1* truth = m_truthSignal[myPair.first];
+    if(truth==0) truth = m_truthSignal["Nominal"];
     TH2* migrationMatrix = myPair.second;
     if(!migrationMatrix) continue;
     for(int i=1;i<=migrationMatrix->GetNbinsY();i++) {
@@ -218,22 +234,20 @@ Bool_t TRooUnfold::BuildModel() {
       //since we converted migration into response matrix, we want to upscale the unconstrained scale factors to match ... 
       //only do this if doing Nominal ..
       if(myPair.first=="Nominal") {
-        m_normFactor[Form("signalNorm_bin%d",i)]->setRange(0,rowTotal*5.);
-        m_normFactor[Form("signalNorm_bin%d",i)]->setVal(rowTotal);
+        GetSigNormVar(i)->setRange(0,rowTotal*5.);
+        GetSigNormVar(i)->setVal(rowTotal);
       }
       
     }
     
     migrationMatrix->SetTitle(Form("Response Matrix (%s)",myPair.first.Data()));
     
-    //convert truth histogram into an efficiency ...
-    if(truth) {
-      TH1* recodTruth = migrationMatrix->ProjectionY(); //migration matrix has already been normalized
-      truth->Reset();
-      truth->Add(recodTruth);
-      delete recodTruth;
-      truth->SetTitle(Form("Efficiency (%s)",myPair.first.Data()));
-    }
+    //save efficiency ... 
+    TH1* recodTruth = migrationMatrix->ProjectionY(); //migration matrix has already been normalized
+    recodTruth->SetTitle(Form("Efficiency (%s)",myPair.first.Data()));
+    recodTruth->SetDirectory(0);
+    m_efficiency[myPair.first] = recodTruth;
+    
     
   }
   
@@ -268,10 +282,12 @@ Bool_t TRooUnfold::BuildModel() {
     for(auto v : myPair.second) {
       if(v.first=="Nominal") continue;
       if(!v.second) continue;
-      TString vName = (v.first.Index("__")==-1) ? v.first : v.first(0,v.first.Index("__")); //format is "VARIATION_1" or "VARIATION__-1" for example
+      TString vName = (v.first.Index("__")==-1) ? v.first : v.first(0,v.first.Index("__")); //format is "VARIATION__1" or "VARIATION__-1" for example
       if(m_systNP[vName]==0) {
         m_systNP[vName] = new RooRealVar(vName,vName,0,-5,5);
         m_systNP[vName]->setStringAttribute("constraintType","normal");
+        if(m_systGroup.find(vName)==m_systGroup.end()) m_systGroup[vName]="SYST";
+        m_systNP[vName]->setAttribute(m_systGroup[vName],kTRUE);
         m_systNP[vName]->setError(1);
       }
       double vVal = (vName==v.first) ? 1. : TString(v.first(v.first.Index("__")+2,v.first.Length())).Atof();
@@ -297,6 +313,8 @@ Bool_t TRooUnfold::BuildModel() {
       if(m_systNP[vName]==0) {
         m_systNP[vName] = new RooRealVar(vName,vName,0,-5,5);
         m_systNP[vName]->setStringAttribute("constraintType","normal");
+        if(m_systGroup.find(vName)==m_systGroup.end()) m_systGroup[vName]="SYST";
+        m_systNP[vName]->setAttribute(m_systGroup[vName],kTRUE);
         m_systNP[vName]->setError(1);
       }
       double vVal = (vName==v.first) ? 1. : TString(v.first(v.first.Index("__")+2,v.first.Length())).Atof();
@@ -331,7 +349,7 @@ Bool_t TRooUnfold::BuildModel() {
   //build a 'result' histogram, which is just a histogram function containing the values of the signal norm terms
   m_result = new TRooH1D("sigNorm","Signal Normalizations",*m_truthVar);
   for(int i=1;i<=m_truthVar->numBins();i++) {
-    m_result->Fill(m_result->GetXaxis()->GetBinCenter(i),*m_normFactor[Form("signalNorm_bin%d",i)]);
+    m_result->Fill(m_result->GetXaxis()->GetBinCenter(i),*GetSigNormVar(i));
   }
   
   //save as prefit distribution
@@ -340,6 +358,16 @@ Bool_t TRooUnfold::BuildModel() {
   //build the data from the data hist 
   m_dataSet = new RooDataHist("obsData","obsData",*m_recoVar,m_data);
   m_fullModel = TRooFit::BuildModel( *m_stack, *m_dataSet );
+  
+  
+  //get all floating parameters and any that have constraintType attribute, decorate 'OTHER' attribute ..
+  RooArgSet* allPars = m_fullModel->getParameters(RooArgSet());
+  RooFIter itrr(allPars->fwdIterator());
+  while( RooAbsArg* arg = itrr.next() ) {
+    if(arg->getStringAttribute("constraintType")) arg->setAttribute("OTHER",kTRUE);
+    if(m_systGroup.find(arg->GetName())==m_systGroup.end()) m_systGroup[arg->GetName()]="OTHER";
+  }
+  delete allPars;
   
   //if regularization given, construct a regularization constraint term ...
   if(m_regularizationHist) {
@@ -370,13 +398,79 @@ Bool_t TRooUnfold::BuildModel() {
     m_npAndUnconstrained.add(*normFactor.second);
   }
   
-  m_nll = m_fullModel->createNLL( *m_dataSet, RooFit::Offset(1) );
+  m_nll = TRooFit::createNLL(m_fullModel,m_dataSet,0);
   
 
   m_builtModel = true;
 
   return kTRUE;
 
+}
+
+void TRooUnfold::WriteModelInputs(const char* file,const char* opt) {
+  TFile f(file,opt);
+  
+  for(auto myPair : m_fidPurity) {
+    if(!f.GetDirectory(myPair.first)) f.mkdir(myPair.first);
+    f.GetDirectory(myPair.first)->cd();
+    myPair.second->Write("fidPurity");
+  }
+  for(auto myPair : m_efficiency) {
+    if(!f.GetDirectory(myPair.first)) f.mkdir(myPair.first);
+    f.GetDirectory(myPair.first)->cd();
+    myPair.second->Write("efficiency");
+  }
+  for(auto myPair : m_recoSF) {
+    for(auto myVariation : myPair.second) {
+      if(!f.GetDirectory(myVariation.first)) f.mkdir(myVariation.first);
+      f.GetDirectory(myVariation.first)->cd();
+      myVariation.second->Write(myPair.first);
+    }
+  }
+  for(auto myPair : m_bkg) {
+    //want to record list of normFactors and scaleFactors that multiply each term 
+    TString sfApplied("");
+    for(auto mySF : m_sfApplied) {
+      if( mySF.second.find(myPair.first)!=mySF.second.end() ) {
+        if(sfApplied!="") sfApplied+=",";
+        sfApplied += mySF.first;
+      }
+    }
+    for(auto myVariation : myPair.second) {
+      myVariation.second->SetTitle(Form("%s [%s]",myPair.first.Data(),sfApplied.Data()));
+      if(!f.GetDirectory(myVariation.first)) f.mkdir(myVariation.first);
+      f.GetDirectory(myVariation.first)->cd();
+      myVariation.second->Write(myPair.first);
+    }
+  }
+  
+  f.Close();
+}
+
+void TRooUnfold::WriteHistograms(const char* file,const char* opt) {
+  BuildModel(); //ensures model is built
+  
+  TFile f(file,opt);
+  
+  m_data->Write("data");
+  
+  
+  TH1* h = m_stack->GetHistogram(m_fitResult,true);
+  h->SetFillStyle(3005);h->SetFillColor(kBlue);h->Write("reco");
+  m_stack->GetStack(m_fitResult)->Write("recoStack");
+  
+  if(m_fitResult) {
+    auto resultHists = GetPostfitTruthHistograms();
+    for(auto h : resultHists) {
+      h->Write();
+      delete h;
+    }
+  }
+  
+  //m_result->GetHistogram(m_fitResult,true)->Write("unfolded");
+  
+  f.Close();
+  
 }
 
 Bool_t TRooUnfold::ClearSignalMCUncert() {
@@ -447,7 +541,7 @@ Double_t TRooUnfold::GetNLLMax() {
   std::vector<double> tmp;
   
   for(int i=1;i<=m_truthVar->numBins();i++) {
-    RooRealVar* poi = m_normFactor[Form("signalNorm_bin%d",i)];
+    RooRealVar* poi = GetSigNormVar(i);
     tmp.push_back(poi->getVal());
     poi->setVal( m_regularizationHist->GetBinContent(i) );
     poi->setConstant(true);
@@ -474,7 +568,7 @@ Double_t TRooUnfold::GetNLLMax() {
   
   //and refloat the poi
   for(int i=1;i<=m_truthVar->numBins();i++) {
-    RooRealVar* poi = m_normFactor[Form("signalNorm_bin%d",i)];
+    RooRealVar* poi = GetSigNormVar(i);
     poi->setVal( tmp[i-1] );
     poi->setConstant(false);
   }
@@ -545,7 +639,7 @@ Double_t TRooUnfold::ScanRegularizationStrength(TGraph** g) {
 }
 
 
-TRooFitResult* TRooUnfold::Fit(TH1* data) {
+RooFitResult* TRooUnfold::Fit(TH1* data, bool doMinos) {
   
   if(!m_data) AddData(data);
   if(!m_builtModel) BuildModel();
@@ -557,36 +651,30 @@ TRooFitResult* TRooUnfold::Fit(TH1* data) {
     //rebuild the dataset
     if(m_dataSet) delete m_dataSet;
     m_dataSet = new RooDataHist("obsData","obsData",*m_recoVar,m_data);
+    if(m_nll) delete m_nll;
+    m_nll = TRooFit::createNLL(m_fullModel,m_dataSet,0);
+  }
+
+  
+  Info("Fit","Running unconditional global fit ... ");
+  auto fitResult = TRooFit::minimize(m_nll); //run unconditional fit 
+  
+  //now run minos errors for poi
+  if(doMinos && fitResult->status()%1000 == 0) {
+    Info("Fit","Computing Minos errors for parameters of interest ... ");
+    TRooFit::minos(m_nll,m_poi,fitResult);
   }
   
-  auto fitResult = runFit( m_fullModel, m_dataSet);
   
-  m_fitResult = new TRooFitResult( fitResult ); //extends functionality of RooFitResult
   
-  delete fitResult; //no longer needed because TRooFitResult should copy all it needs
+  //m_fitResult = new TRooFitResult( fitResult ); //extends functionality of RooFitResult
+  //delete fitResult; //no longer needed because TRooFitResult should copy all it needs
+  m_fitResult = fitResult;
 
   return m_fitResult;
 
 }
 
-RooFitResult* TRooUnfold::runFit(RooAbsPdf* pdf, RooAbsData* data) {
-
-  auto nll = pdf->createNLL( *data, RooFit::Offset(1) );
-
-  Info("Fit","Running unconditional global fit ... ");
-  auto uFit = TRooFit::minimize(nll); //run unconditional fit 
-  
-  //now run minos errors for poi
-  if(uFit->status()%1000 == 0) {
-    Info("Fit","Computing Minos errors for parameters of interest ... ");
-    //TRooFit::minos(nll,m_poi,uFit);
-  }
-  
-  delete nll;
-  
-  return uFit;
-
-}
 
 TH1* TRooUnfold::GetExpectedRecoHistogram(RooFitResult* fr) {
   return (TH1*)m_stack->GetHistogram((fr==0)?m_fitResult:fr,true,0)->Clone("expected");
@@ -637,10 +725,9 @@ TH1* TRooUnfold::GetPrefitTruthHistogram() {
 
 std::vector<TH1*> TRooUnfold::GetPostfitTruthHistograms(const std::vector<TString>&& systGroups) {
 
-  auto nll = m_fullModel->createNLL( *m_dataSet, RooFit::Offset(1) );
-
-  std::map<TString,RooArgList*> uncert_breakdown = TRooFit::breakdown(nll,m_poi,systGroups,m_fitResult);
   
+  std::map<TString,RooArgList*> uncert_breakdown = TRooFit::breakdown(m_nll,m_poi,systGroups,m_fitResult);
+
   std::vector<TH1*> out;
   
   std::vector<TString> allGroups;
@@ -651,9 +738,13 @@ std::vector<TH1*> TRooUnfold::GetPostfitTruthHistograms(const std::vector<TStrin
   for(auto group : allGroups) {
     out.push_back(new TH1D(Form("unfold_%s",group.Data()),Form("truth (%s)",group.Data()),m_truthVar->numBins(),m_truthVar->getBinning().array()));
     out.back()->Sumw2();out.back()->SetDirectory(0);
+    if(group!="nominal"&&group!="STAT") {
+      out.back()->SetFillColor(out.back()->GetLineColor());out.back()->SetFillStyle(3004);
+    }
+    
     
     for(int i=1;i<=out.back()->GetNbinsX();i++) {
-      RooRealVar* v = static_cast<RooRealVar*>(uncert_breakdown[(group=="nominal")?"STAT":group]->find(Form("signalNorm_bin%d",i)));
+      RooRealVar* v = static_cast<RooRealVar*>(uncert_breakdown[(group=="nominal")?"STAT":group]->find(GetSigNormVar(i)->GetName()));
       if(group=="nominal") {
         out.back()->SetBinContent(i,v->getVal());
       } else {
@@ -662,10 +753,7 @@ std::vector<TH1*> TRooUnfold::GetPostfitTruthHistograms(const std::vector<TStrin
       }
     }
   }
-  
-
-  
-  delete nll;
+ 
   
   return out;
 }

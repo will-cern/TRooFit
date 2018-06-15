@@ -1009,14 +1009,14 @@ void TRooAbsH1::fillGraph(TGraph2D* graphToFill, const RooArgList& plotVars, int
   }
   
   double n=0;
-  for(int j=0;j<nPointsY;j++) {
-    double y = low[1] + j*(high[1]-low[1])/(nPointsY-1);
-    obs[1]->setVal( y );
-    for(int i=0;i<nPointsX;i++) {
-      double x = low[0] + i*(high[0]-low[0])/(nPointsX-1);
-      obs[0]->setVal( x );
+  for(int j=0;j<((nPointsY<0)?obs[1]->numBins():nPointsY);j++) {
+    if(nPointsY<0) obs[1]->setBin(j);
+    else obs[1]->setVal( low[1] + j*(high[1]-low[1])/(nPointsY-1) );
+    for(int i=0;i<((nPointsX<0)?obs[0]->numBins():nPointsX);i++) {
+      if(nPointsX<0) obs[0]->setBin(i);
+      else obs[0]->setVal(  low[0] + i*(high[0]-low[0])/(nPointsX-1) );
       double expec = expectedEvents(fObservables); //expectation can be a function of xVar, so need to update
-      graphToFill->SetPoint(n, x, y, getVal(fObservables)*expec );
+      graphToFill->SetPoint(n, obs[0]->getVal(), obs[1]->getVal(), getVal(fObservables)*expec );
       n++;
     }
   }

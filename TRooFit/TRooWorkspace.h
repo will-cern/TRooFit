@@ -14,26 +14,34 @@
 #include "TRooFit/TRooH1.h"
 
 #include "TTree.h"
+#include "TLegend.h"
 
 #include "RooSimultaneous.h"
  
 class TRooWorkspace : public RooWorkspace {
 public:
-  using RooWorkspace::RooWorkspace; 
+  //using RooWorkspace::RooWorkspace; 
   
+  TRooWorkspace() : RooWorkspace() { }
+  TRooWorkspace(const char* name, const char* title = 0) : RooWorkspace(name,title) { }
+  TRooWorkspace(const RooWorkspace& other);
+  
+
   bool definePoi(const char* poi) { return defineSet("poi",poi); }
   bool addArgument(const char* name, const char* title, double val);
-  bool addParameter(const char* name, const char* title, double min, double max, const char* constraintType=0);
-  bool addObservable(const char* name, const char* title, double min, double max);
-  bool addChannel(const char* name, const char* title, const char* observable, int nBins, double min, double max);
-  bool addChannel(const char* name, const char* title, const char* observable, int nBins, const double* bins);
-  bool addChannel(const char* name, const char* title, const char* observable);
+  RooRealVar* addParameter(const char* name, const char* title, double val, double min, double max, const char* constraintType=0);
+  RooRealVar* addParameter(const char* name, const char* title, double min, double max, const char* constraintType=0);
+  RooRealVar* addObservable(const char* name, const char* title, double min, double max);
+  TRooHStack* addChannel(const char* name, const char* title, const char* observable, int nBins, double min, double max);
+  TRooHStack* addChannel(const char* name, const char* title, const char* observable, int nBins, const double* bins);
+  TRooHStack* addChannel(const char* name, const char* title, const char* observable);
   bool addSample(const char* name, const char* title, const char* channels="*");
   
   bool dataFill(const char* channel, double x, double w=1.);
   Int_t sampleFill(const char* sample, const char* channel, double x, double w=1.);
   bool sampleAdd(const char* sample, const char* channel,  TH1* h1);
   bool sampleAdd(const char* sample, const char* channel, RooAbsReal& arg);
+  bool sampleAddVariation(const char* sample, const char* channel, const char* parName, double parVal, TH1* h1);
   
   bool sampleFill(const char* sample, TTree* tree, const char* weight); //fills given sample in all channels where formula have been defined
   
@@ -47,24 +55,57 @@ public:
   TRooH1* sample(const char* sampleName, const char* channelName);
   TRooHStack* channel(const char* name);
   
+  void setData(const char* dataName) { 
+    if(!data(dataName)) return;
+    fCurrentData = dataName; 
+  }
+  
+  RooFitResult* fitTo(const char* dataName=0);
+  RooFitResult* loadFit(const char* fitName,bool prefit=false);
+  RooFitResult* getFit(const char* fitName) { return dynamic_cast<RooFitResult*>(obj(fitName)); }
+  
+  void addLabel(const char* label) { fLabels.push_back(label); }
+  
+  TLegend* GetLegend();
   
   RooSimultaneous* model(const char* channels="*");
+  
+  bool generateAsimov(const char* name, const char* title, bool fitToObsData=true);
   
   //draw a channel's stack and overlay the data too
   void channelDraw(const char* channel, Option_t* option="e3005", const TRooFitResult& res = "");
   //draws all channels
   
   virtual void Draw(Option_t* option, const TRooFitResult& res = "");
-  virtual void Draw(Option_t* option="e3005") { Draw(option,""); }
+  virtual void Draw(Option_t* option="e3005") { 
+    if(fCurrentFit!="") Draw(option,getFit(fCurrentFit));
+    else Draw(option,""); 
+  }
+  
+  //draws all channels, showing how values of channels depend on var
+  void DrawDependence(const char* var, Option_t* option="TRI1");
   
   Bool_t writeToFile(const char* fileName, Bool_t recreate=kTRUE);
   
+  static void setDefaultStyle();
+  
 private:
+
 
   std::map<TString,TH1*> fDummyHists;
   
+  TString fCurrentData = "obsData";
+  
+  TString fCurrentFit = "";
+  Bool_t fCurrentFitIsPrefit = false; 
+  
   RooArgList fStagedChannels; //channels cannot be added until they are frozen (all content filled)
   
+  TLegend* fLegend = 0;
+
+  std::vector<TString> fLabels; //plot labels
+
+  Bool_t fIsHFWorkspace = false; //if true, this is a histfactory workspace
 
   ClassDef(TRooWorkspace,1) // An extended form of a RooWorkspace
 };

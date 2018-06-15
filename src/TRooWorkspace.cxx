@@ -6,24 +6,78 @@
 #include "RooCategory.h"
 #include "RooDataSet.h"
 
-bool TRooWorkspace::addParameter(const char* name, const char* title, double min, double max, const char* constraintType) {
+
+TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
+  //dataset names do not get correctly imported by copy constructor!!
+  auto otherData = other.allData();
+  auto myData = allData();
+  
+  auto otherItr = otherData.begin();
+  auto myItr = myData.begin();
+  
+  while( otherItr != otherData.end() ) {
+    (*myItr)->SetName((*otherItr)->GetName());
+    (*myItr)->SetTitle(strlen((*otherItr)->GetTitle())==0 ? (*otherItr)->GetName() : (*otherItr)->GetTitle());
+    otherItr++;
+    myItr++;
+  }
+  
+  //now see if we are a histfactory workspace (i.e. we don't have TRooHStacks defined for all channels ...
+  
+  //create TRooHStack for each channel ...
+  TIterator* catIter = cat("channelCat")->typeIterator();
+  TObject* c;
+  while( (c = catIter->Next()) ) {
+    TString cName(c->GetName());
+    if(channel(cName)==0) {
+      fIsHFWorkspace = true; //is a histfactory model!
+    } else {
+      continue; //no need to make a TRooHStack
+    }
+    RooRealSumPdf* channelPdf = dynamic_cast<RooRealSumPdf*>(pdf(cName+"_model"));
+    TRooHStack* channelStack = 0;
+    if(!channelPdf) {
+      Error("setHF","Could not find model for channel %s",c->GetName());
+      channelStack = new TRooHStack(c->GetName(),c->GetName());
+    } else {
+      channelStack = new TRooHStack(*channelPdf,*set("ModelConfig_Observables"));
+      channelStack->SetName(c->GetName());channelStack->SetTitle(c->GetName());
+      channelStack->SetMinimum(0);
+    }
+    import(*channelStack,RooFit::Silence());
+    //create a dummy hist for each channel too
+    fDummyHists[c->GetName()] = (channelStack->fDummyHist) ? (TH1*)channelStack->fDummyHist->Clone(c->GetName()) : new TH1D(c->GetName(),c->GetName(),1,0,1);
+    fDummyHists[c->GetName()]->SetDirectory(0);
+  }
+  
+  
+}
+
+
+RooRealVar* TRooWorkspace::addParameter(const char* name, const char* title, double val, double min, double max, const char* constraintType) {
   factory(Form("%s[%f,%f]",name,min,max));
   RooRealVar* v = var(name);
-  if(!v) return false;
+  if(!v) return 0;
+  v->setVal(val);
   v->SetTitle(title);
   
   if(constraintType) v->setStringAttribute("constraintType",constraintType);
   
-  return true;
+  return v;
 }
 
-bool TRooWorkspace::addObservable(const char* name, const char* title, double min, double max) {
-  if(!addParameter(name,title,min,max)) return false;
+RooRealVar* TRooWorkspace::addParameter(const char* name, const char* title, double min, double max, const char* constraintType) {
+  return addParameter(name,title,(max+min)/2.,min,max,constraintType);
+}
+
+RooRealVar* TRooWorkspace::addObservable(const char* name, const char* title, double min, double max) {
+  RooRealVar* out = addParameter(name,title,min,max);
+  if(!out) return 0;
   
   if(!set("obs")) defineSet("obs",name);
   else extendSet("obs",name);
   
-  return true;
+  return out;
 }
 
 bool TRooWorkspace::addArgument(const char* name, const char* title, double val) {
@@ -35,7 +89,7 @@ bool TRooWorkspace::addArgument(const char* name, const char* title, double val)
   return true;
 }
 
-bool TRooWorkspace::addChannel(const char* name, const char* title, const char* observable, int nBins, double min, double max) {
+TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const char* observable, int nBins, double min, double max) {
   RooCategory* c = cat("channelCat");
   if(!c) {
     factory(Form("channelCat[%s=0]",name));
@@ -43,7 +97,7 @@ bool TRooWorkspace::addChannel(const char* name, const char* title, const char* 
     if(!set("obs")) defineSet("obs","channelCat");
     else extendSet("obs","channelCat");
     
-    if(!c) return false;
+    if(!c) return 0;
   }
   else {
     c->defineType(name);
@@ -52,7 +106,7 @@ bool TRooWorkspace::addChannel(const char* name, const char* title, const char* 
   
   
   RooRealVar* v = var(observable);
-  if(!v) return false;
+  if(!v) return 0;
   
   //create a TRooHStack and import it ..
   TRooHStack* hs = new TRooHStack(name,title);
@@ -64,10 +118,10 @@ bool TRooWorkspace::addChannel(const char* name, const char* title, const char* 
   fDummyHists[name] = new TH1D(observable,"Data",nBins,min,max);
   fDummyHists[name]->SetDirectory(0);
   
-  return true;
+  return hs;
 }
 
-bool TRooWorkspace::addChannel(const char* name, const char* title, const char* observable, int nBins, const double* bins) {
+TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const char* observable, int nBins, const double* bins) {
   RooCategory* c = cat("channelCat");
   if(!c) {
     factory(Form("channelCat[%s=0]",name));
@@ -75,7 +129,7 @@ bool TRooWorkspace::addChannel(const char* name, const char* title, const char* 
     if(!set("obs")) defineSet("obs","channelCat");
     else extendSet("obs","channelCat");
     
-    if(!c) return false;
+    if(!c) return 0;
   }
   else {
     c->defineType(name);
@@ -84,7 +138,7 @@ bool TRooWorkspace::addChannel(const char* name, const char* title, const char* 
   
   
   RooRealVar* v = var(observable);
-  if(!v) return false;
+  if(!v) return 0;
   
   //create a TRooHStack and import it ..
   TRooHStack* hs = new TRooHStack(name,title);
@@ -96,12 +150,12 @@ bool TRooWorkspace::addChannel(const char* name, const char* title, const char* 
   fDummyHists[name] = new TH1D(observable,"Data",nBins,bins);
   fDummyHists[name]->SetDirectory(0);
   
-  return true;
+  return hs;
 }
 
-bool TRooWorkspace::addChannel(const char* name, const char* title, const char* observable) {
+TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const char* observable) {
   RooRealVar* v = var(observable);
-  if(!v) return false;
+  if(!v) return 0;
   if(v->getBinning(name).isUniform()) {
     return addChannel(name,title,observable,v->getBins(name),v->getMin(name),v->getMax(name));
   } else {
@@ -186,6 +240,15 @@ bool TRooWorkspace::sampleAdd(const char* sampleName, const char* channelName,  
   return sample(sampleName,channelName)->Add(arg);
 }
 
+bool TRooWorkspace::sampleAddVariation(const char* sampleName, const char* channelName, const char* parName, double parVal, TH1* h1) {
+  //get the parameter 
+  if(!var(parName)) {
+    Error("sampleAddVariation","%s is not defined. Please call addParameter method first to define the parameter",parName);
+    return kFALSE;
+  }
+  return sample(sampleName,channelName)->AddVariation(*var(parName), parVal, h1);
+}
+
 TRooH1* TRooWorkspace::sample(const char* sampleName, const char* channelName) {
   RooAbsReal* chan = dynamic_cast<RooAbsReal*>(channel(channelName));
   TRooH1* out = dynamic_cast<TRooH1*>(chan->findServer(Form("%s_%s",sampleName,channelName)));
@@ -250,10 +313,12 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
     bool pass=false;
     for(auto& pattern : patterns) if(TString(c->GetName()).Contains(pattern)) pass=true;
     if(pass==false) continue;
-    if( !pdf(Form("%s_with_Constraints",c->GetName())) ) {
-      import(*TRooFit::BuildModel( *channel(c->GetName()), *data("obsData") ));
-    }
     nComps++;
+    if(channel(c->GetName())->getAttribute("isValidation")) continue; //don't include validation regions when constructing models
+    if( !pdf(Form("%s_with_Constraints",c->GetName())) ) {
+      import( *channel(c->GetName())->buildConstraints(*set("obs"),"",true), RooFit::RecycleConflictNodes(), RooFit::Silence() );
+    }
+    
     factoryString += Form(",%s=%s_with_Constraints",c->GetName(),c->GetName());
     simPdfName += Form("_%s",c->GetName());
     
@@ -262,7 +327,7 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
     
   }
   if(nComps>0) {
-    //if(nComps==cat("channelCat")->numTypes()) { simPdfName="simPdf"; } //all channels available
+    if(nComps==cat("channelCat")->numTypes()) { simPdfName="simPdf"; } //all channels available
     if(pdf(simPdfName)) return static_cast<RooSimultaneous*>(pdf(simPdfName));
     factory(Form("SIMUL::%s(channelCat%s)",simPdfName.Data(),factoryString.Data()));
     
@@ -290,7 +355,9 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
      //ensure all global observables are held constant now - important for pll evaluation
      gobs.setAttribAll("Constant",kTRUE);
      
-     saveSnapshot(Form("gobs%s",simPdfName(6,simPdfName.Length()).Data()),gobs);
+     defineSet(Form("globalObservables%s",TString(simPdfName(6,simPdfName.Length()-6)).Data()),gobs);
+     
+     saveSnapshot(Form("obsData_globalObservables%s",TString(simPdfName(6,simPdfName.Length()-6)).Data()),gobs);
      
      //save the list of parameters as a set (poi+np)
      RooArgSet np;RooArgSet args;
@@ -300,8 +367,8 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
           if(arg->isConstant()) args.add(*arg);
           else np.add(*arg);
       }
-      defineSet(Form("params%s",simPdfName(6,simPdfName.Length()).Data()),np);
-      defineSet(Form("args%s",simPdfName(6,simPdfName.Length()).Data()),args);
+      defineSet(Form("params%s",TString(simPdfName(6,simPdfName.Length()-6)).Data()),np);
+      defineSet(Form("args%s",TString(simPdfName(6,simPdfName.Length()-6)).Data()),args);
      
      delete gobs_and_np;
      
@@ -310,19 +377,195 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
   return static_cast<RooSimultaneous*>(pdf(simPdfName));
 }
 
+bool TRooWorkspace::generateAsimov(const char* name, const char* title, bool fitToObsData) {
+  RooAbsPdf* thePdf = model();
+
+  if(fitToObsData && data("obsData")) {
+    //fit to data first, holding parameters of interest constant at their current values ...
+    RooArgSet* snap = 0;
+    if(set("poi")) {
+      snap = (RooArgSet*)set("poi")->snapshot();
+      const_cast<RooArgSet*>(set("poi"))->setAttribAll("Constant",kTRUE);
+    }
+    auto nll = TRooFit::createNLL(thePdf,data("obsData"),set("globalObservables"));
+    loadSnapshot("obsData_globalObservables");
+    auto fitResult = TRooFit::minimize(nll,true,false); //hesse not needed, just need best fit values 
+    import(*fitResult,Form("conditionalFit_obsData_for%s",name));
+    delete fitResult;
+    if(snap) {
+       *const_cast<RooArgSet*>(set("poi")) = *snap; //restores constant statuses 
+       delete snap;
+    }
+  }
+  
+  auto asimov = TRooFit::generateAsimovDataset(thePdf,set("obs"),set("globalObservables"));
+  
+  saveSnapshot(Form("%s_globalObservables",name),*asimov.second,true);
+  asimov.first->SetName(name);asimov.first->SetTitle(title);
+  
+  import(*asimov.first);
+  
+  delete asimov.first;
+  delete asimov.second;
+  
+  return kTRUE;
+  
+}
+
+RooFitResult* TRooWorkspace::fitTo(const char* dataName) {
+  RooAbsData* theData = data((dataName)?dataName:fCurrentData.Data());
+  
+  if(!theData) {
+    Error("fitTo","Data %s is not in the workspace",dataName);
+    return 0;
+  }
+  
+  fCurrentData = dataName; //switch to this data
+  
+  
+  RooAbsPdf* thePdf = model();
+  auto nll = TRooFit::createNLL(thePdf,theData,set("globalObservables"));
+  
+  //load the globalObservables that go with the data ...
+  loadSnapshot(Form("%s_globalObservables",theData->GetName()));
+  
+  
+  RooFitResult* result = TRooFit::minimize(nll);
+  import(*result,Form("fitTo_%s",theData->GetName()));
+  delete result;
+  delete nll;
+  
+  result = loadFit(Form("fitTo_%s",theData->GetName()));
+  
+  if(result->status()%1000!=0) {
+    Error("fitTo","Fit status is %d",result->status());
+    loadFit(Form("fitTo_%s",theData->GetName()),true);
+  }
+   
+  return result;
+}
+
+RooFitResult* TRooWorkspace::loadFit(const char* fitName, bool prefit) {
+  RooFitResult* result = dynamic_cast<RooFitResult*>(obj(fitName));
+  if(!result) {
+    Error("loadFit","Could not find fit %s",fitName);
+    return 0;
+  }
+  
+  allVars() = result->constPars();
+  if(prefit) {
+    allVars() = result->floatParsInit();
+    fCurrentFitIsPrefit = true;
+  } else {
+    allVars() = result->floatParsFinal();
+    fCurrentFitIsPrefit = false;
+  }
+  
+  fCurrentFit = fitName;
+  
+  return result;
+  
+  
+}
+
+
+#include "TCanvas.h"
+#include "TROOT.h"
+#include "TLatex.h"
+#include "TStyle.h"
+
+TLegend* TRooWorkspace::GetLegend() {
+  if(!fLegend) { 
+    fLegend = new TLegend(0.5,1.-gStyle->GetPadTopMargin()-0.2,1.-gStyle->GetPadRightMargin(),1.-gStyle->GetPadTopMargin()); 
+    fLegend->SetLineWidth(0);
+    fLegend->SetFillStyle(0);
+    fLegend->SetTextSize(gStyle->GetTextSize()*0.75);
+  }
+  return fLegend;
+}
+
 //draw a channel's stack and overlay the data too
 void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const TRooFitResult& res) {
 
+  TVirtualPad* pad = gPad;
+  if(!pad) {
+    gROOT->MakeDefCanvas();
+    pad = gPad;
+  }
+
+  
+
+  TLegend* myLegend = (TLegend*)GetLegend()->Clone("legend");
+  myLegend->SetBit(kCanDelete); //so that it is deleted when pad cleared
+
   channel(channelName)->Draw(opt,res);
+  
+  
+  
+  if(channel(channelName)->getAttribute("isValidation")) gPad->SetFillColor(kGray);
   fDummyHists[channelName]->Reset();
-  if(data("obsData")) {
-    data("obsData")->fillHistogram(fDummyHists[channelName], *var(fDummyHists[channelName]->GetName()), Form("channelCat==channelCat::%s",channelName));
+  if(data(fCurrentData)) {
+    //determine observables for this channel ...
+    RooArgSet* chanObs = channel(channelName)->getObservables(data(fCurrentData));
+    RooArgList l(*chanObs); delete chanObs;
+    data(fCurrentData)->fillHistogram(fDummyHists[channelName], l, Form("channelCat==channelCat::%s",channelName));
     //update all errors to usual poisson
     for(int i=1;i<=fDummyHists[channelName]->GetNbinsX();i++) fDummyHists[channelName]->SetBinError(i,sqrt(fDummyHists[channelName]->GetBinContent(i)));
     fDummyHists[channelName]->SetMarkerStyle(20);
     fDummyHists[channelName]->Draw("same");
+    myLegend->AddEntry(fDummyHists[channelName],data(fCurrentData)->GetTitle(),"lpe");
+  }
+  
+  THStack* myStack = (THStack*)gPad->GetListOfPrimitives()->FindObject(Form("%s_stack",channel(channelName)->GetName()));
+  if(myStack) {
+    //add stack entries to legend
+    TList* l = myStack->GetHists();
+    for(int i=l->GetEntries()-1;i>=0;i--) { //go in reverse order
+      myLegend->AddEntry(l->At(i),l->At(i)->GetTitle(),"f");
+    }
+  }
+  
+  //adjust legend size based on # of rows 
+  
+  myLegend->SetY1( myLegend->GetY2() - myLegend->GetNRows()*myLegend->GetTextSize() );
+  myLegend->ConvertNDCtoPad();
+  myLegend->Draw();
+
+  TString sOpt(opt);
+  sOpt.ToLower();
+  if(!sOpt.Contains("same")) {
+    TLatex latex;latex.SetNDC();latex.SetTextSize(gStyle->GetTextSize()*0.75);
+    Double_t xPos = gPad->GetLeftMargin()+12./gPad->GetCanvas()->GetWw();
+    Double_t yPos = 1. - gPad->GetTopMargin() -12./gPad->GetCanvas()->GetWh() - latex.GetTextSize();
+    for(auto label : fLabels) {
+      latex.DrawLatex(xPos,yPos,label);
+      yPos -= latex.GetTextSize();
+    }
+    latex.DrawLatex(xPos,yPos,channel(channelName)->GetTitle());
+    yPos -= latex.GetTextSize();
+    if(fCurrentFit!="" && !fCurrentFitIsPrefit) latex.DrawLatex(xPos,yPos,"Post-Fit");
+    else latex.DrawLatex(xPos,yPos,"Pre-Fit");
   }
 
+  gPad->Update();
+
+  //create space for the legend by adjusting the range on the stack ...
+  double currMax = gPad->GetUymax();
+  double currMin = gPad->GetUymin();
+  
+  //double yScale = (currMax-currMin)/(1.-gPad->GetTopMargin()-gPad->GetBottomMargin());
+  
+  //want new max to give a newYscale where currMax is at shifted location 
+  double newYscale = (currMax-currMin)/(myLegend->GetY1NDC()-gPad->GetBottomMargin());
+  
+  currMax = currMin + newYscale*(1.-gPad->GetTopMargin()-gPad->GetBottomMargin());
+  
+  //currMax += yScale*(myLegend->GetY2NDC()-myLegend->GetY1NDC());
+  
+  channel(channelName)->GetYaxis()->SetRangeUser(currMin,currMax);
+  gPad->Modified(1);
+  gPad->Update();
+  
 }
 
 Bool_t TRooWorkspace::writeToFile(const char* fileName, Bool_t recreate) {
@@ -338,8 +581,6 @@ Bool_t TRooWorkspace::writeToFile(const char* fileName, Bool_t recreate) {
   
 }
 
-#include "TCanvas.h"
-#include "TROOT.h"
 
 void TRooWorkspace::Draw(Option_t* option, const TRooFitResult& res) {
   //draws each channel
@@ -375,6 +616,95 @@ void TRooWorkspace::Draw(Option_t* option, const TRooFitResult& res) {
 
   delete catIter;
 
+}
+
+//draws all channels, showing how values of channels depend on var
+void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
+  RooRealVar* theVar = var(_var);
+  if(!theVar) {
+    Error("DrawDependence","%s not found",_var);
+    return;
+  }
+
+  //draws each channel
+  TVirtualPad* pad = gPad;
+  if(!pad) {
+    gROOT->MakeDefCanvas();
+    pad = gPad;
+  }
+  
+  //always draw to the whole canvas ...
+  pad->GetCanvas()->cd();
+  pad = gPad;
+  
+  TString sOpt(option);
+  sOpt.ToLower();
+  if(!sOpt.Contains("same")) {
+    pad->Clear();
+  
+    int nCat = cat("channelCat")->numTypes();
+    if(nCat>1) {
+      int nRows = nCat/sqrt(nCat);
+      int nCols = nCat/nRows;
+      if(nRows*nCols < nCat) nCols++;
+      pad->Divide(nCols,nRows);
+    }
+  }
+
+  bool doSlice = sOpt.Contains("slice");
+  sOpt.ReplaceAll("slice","");
+  
+  TIterator* catIter = cat("channelCat")->typeIterator();
+  TObject* c;
+  int i=1;
+  while( (c = catIter->Next()) ) {
+    pad->cd(i++);
+    TRooHStack* chan = channel(c->GetName());
+    if(!chan->dependsOn(*theVar)) continue; //no dependence
+    
+    if(doSlice) {
+      //perform 5 slices, around current value of parameter, based on range ...
+      double curVal = theVar->getVal();
+      double maxVal = theVar->getMax();
+      double minVal = theVar->getMin();
+      
+      double minDiff = std::min(maxVal-curVal,curVal-minVal);
+      double step = minDiff/2.;
+      
+      int cols[5] = {kOrange,kRed,kBlack,kBlue,kCyan};
+      std::vector<TH1*> hists;
+      for(int j=-2;j<3;j++) {
+        double val = curVal + j*step;
+        TRooFitResult r(TString::Format("%s=%f",_var,val));
+        TH1* hist = (TH1*)chan->GetHistogram(&r,false)->Clone(chan->GetName());
+        hist->SetTitle(Form("%s = %g",_var,val));
+        hist->SetLineWidth(1);
+        hist->SetLineColor(cols[j+2]);
+        hist->SetBit(kCanDelete);
+        hists.push_back(hist);
+      }
+      hists[0]->Divide(hists[2]);hists[1]->Divide(hists[2]);hists[3]->Divide(hists[2]);hists[4]->Divide(hists[2]);
+      hists[2]->Divide(hists[2]);
+      for(int j=0;j<5;j++) {
+        hists[j]->Draw((j==0)?"":"same");
+      }
+      
+    } else {
+    
+      TGraph2D* myGraph = new TGraph2D;
+      //graph needs at least 2 points in x-axis to render correctly delauny triangles
+      chan->fillGraph(myGraph,RooArgList(*var(chan->GetObservableName(0)),*theVar),(var(chan->GetObservableName(0))->numBins()==1)?2:-1,10);
+      myGraph->SetName(chan->GetName());
+      myGraph->SetTitle(chan->GetTitle());
+      myGraph->SetBit(kCanDelete);
+      myGraph->Draw(option);
+    }
+    gPad->Update();
+    
+  }
+  pad->cd(0);
+
+  delete catIter;
 }
 
 
@@ -490,3 +820,66 @@ void RooHypoModel::buildDataset(RooAbsPdf* thePdf, RooDataSet& out, RooArgSet& g
 }
 
 */
+
+
+
+void TRooWorkspace::setDefaultStyle() {
+  
+  gStyle->SetOptStat(0);
+
+  Int_t icol=0;
+  gStyle->SetFrameBorderMode(icol);
+  gStyle->SetFrameFillColor(icol);
+  gStyle->SetCanvasBorderMode(icol);
+  gStyle->SetCanvasColor(icol);
+  gStyle->SetPadBorderMode(icol);
+  gStyle->SetPadColor(icol);
+  gStyle->SetStatColor(icol);
+  gStyle->SetPaperSize(20,26);
+  gStyle->SetPadTopMargin(0.05);
+  gStyle->SetPadRightMargin(0.15);
+  gStyle->SetPadBottomMargin(0.15);
+  gStyle->SetPadLeftMargin(0.15);
+  gStyle->SetTitleXOffset(1.0);
+  gStyle->SetTitleYOffset(1.0);
+  Int_t font=42;//43; changed to relative because on multiplots with panels in vertical direction, the offset wasn't right for absolute font sizes
+  Double_t tsize=0.045;//18;
+   Double_t lsize = 0.04;//15;
+  gStyle->SetTextFont(font);
+  gStyle->SetTextSize(tsize);
+  gStyle->SetLabelFont(font,"x");
+  gStyle->SetTitleFont(font,"x");
+  gStyle->SetLabelFont(font,"y");
+  gStyle->SetTitleFont(font,"y");
+  gStyle->SetLabelFont(font,"z");
+  gStyle->SetTitleFont(font,"z");
+  gStyle->SetLabelSize(lsize,"x");
+  gStyle->SetTitleSize(tsize,"x");
+  gStyle->SetLabelSize(lsize,"y");
+  gStyle->SetTitleSize(tsize,"y");
+  gStyle->SetLabelSize(lsize,"z");
+  gStyle->SetTitleSize(tsize,"z");
+  gStyle->SetMarkerStyle(20);
+  gStyle->SetMarkerSize(0.7);
+  gStyle->SetHistLineWidth(2);
+  gStyle->SetLineStyleString(2,"[12 12]");
+  gStyle->SetEndErrorSize(0.);
+  gStyle->SetOptTitle(0);
+  gStyle->SetOptStat(1111111);
+  gStyle->SetOptFit(0);
+  gStyle->SetPadTickX(1);
+  gStyle->SetPadTickY(1);
+  gStyle->SetOptStat(0);
+
+  gStyle->SetLegendFont(font);
+
+   const Int_t NRGBs = 5;
+   const Int_t NCont = 255;
+
+   Double_t stops[NRGBs] = { 0.00, 0.34, 0.61, 0.84, 1.00 };
+   Double_t red[NRGBs]   = { 0.00, 0.00, 0.87, 1.00, 0.51 };
+   Double_t green[NRGBs] = { 0.00, 0.81, 1.00, 0.20, 0.00 };
+   Double_t blue[NRGBs]  = { 0.51, 1.00, 0.12, 0.00, 0.00 };
+   TColor::CreateGradientColorTable(NRGBs, stops, red, green, blue, NCont);
+   gStyle->SetNumberContours(NCont);
+}

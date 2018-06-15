@@ -55,6 +55,7 @@ protected:
   ///Methods required by TRooAbsHStack
   virtual TIterator*& compIter() { return _pdfIter; }
   virtual RooListProxy& compList() { return _pdfList; }
+  virtual const RooListProxy& coeffList() const { return _coefList; }
   virtual const RooListProxy& compList() const { return _pdfList; }
   virtual void reinit();
   virtual double evaluate() const;
