@@ -526,12 +526,23 @@ RooFitResult* TRooWorkspace::fitTo(const char* dataName, bool doHesse, const Roo
   if(!nll) {
     nll = TRooFit::createNLL(thePdf,theData,set(Form("globalObservables%s",TString(simPdfName(6,simPdfName.Length()-6)).Data())));
     nll->SetName(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
-    import(*nll);
+    import(*nll,RooFit::Silence());
     delete nll;
     nll = function(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
   }
   
-  
+  //any floating parameter that does not feature in the pdf or dataset should be held constant ... 
+  //if this isn't done then saw getError method in TRooAbsH1 ends up putting variables like stat gamma's of validation regions into nset, which shouldn't be in the nset
+  RooArgSet* allPars = thePdf->getParameters(RooArgSet());
+  RooArgSet _allVars = allVars();
+  RooArgSet* allFloatVars = static_cast<RooArgSet*>(_allVars.selectByAttrib("Constant",kFALSE));
+  allFloatVars->remove(*allPars);allFloatVars->remove(*theData->get(),true,true);
+  if(allFloatVars->getSize()) {
+    Info("fitTo","Setting the following parameters constant:");
+    allFloatVars->Print();
+    allFloatVars->setAttribAll("Constant",kTRUE);
+  }
+  delete allPars; delete allFloatVars;
   
   if(!kDisabledForcedRecommendedOptions) TRooFit::setRecommendedDefaultOptions();
   RooFitResult* result = TRooFit::minimize(nll);
