@@ -227,6 +227,8 @@ Double_t TRooHStack::getValV(const RooArgSet* nset) const
     // Evaluate denominator
     Double_t normVal(_norm->getVal()) ;
     
+    //June2018: should we add this line to the other classes too?
+    if((kMustBePositive||getFloor()||getFloorGlobal()) && normVal < fFloorValue) normVal=fFloorValue;
     
 //     if (normVal<=0.) {
 //       error=kTRUE ;

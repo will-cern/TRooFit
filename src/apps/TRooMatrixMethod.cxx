@@ -107,9 +107,9 @@ TRooMatrixMethod::TRooMatrixMethod(const char* name, const char* title, uint nOb
     }
   } else {
     //averaging method, create a single TRooHF1D for each term of the matrix
-    for(uint i=0;i<nRegions;i++) { //the reco-level region
+    for(int i=0;i<nRegions;i++) { //the reco-level region
       
-      for(uint j=0;j<nRegions;j++) { //the truth-level region
+      for(int j=0;j<nRegions;j++) { //the truth-level region
         std::string label="eff_";
         std::string label2="<";
         for(uint k=0;k<nObjects;k++) {
@@ -144,7 +144,7 @@ TRooMatrixMethod::TRooMatrixMethod(const char* name, const char* title, uint nOb
   ///4. Construct the stacks for each region ... each stack will have a scaled version of each truth-level component
   /// e.g. the first region (ttt) will have RRR scaled by r1r2r3 and RRF scaled by r1r2f3 and so on
   
-  for(uint i=0;i<nRegions;i++) {
+  for(int i=0;i<nRegions;i++) {
     m_stacks[i] = new TRooHStack( Form("stack_%s",m_cat->lookupType(i)->GetName()),m_cat->lookupType(i)->GetName() );
     m_stacks[i]->SetMinimum(1e-9);
     for(int j=0;j<nRegions;j++) { //loop over components (RRR, etc)

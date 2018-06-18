@@ -8,6 +8,11 @@
 #ifndef TROOWORKSPACE
 #define TROOWORKSPACE
 
+//next lines to hack RooFitResult so that statusHistory can be presered when fitTo
+#define protected public
+#include "RooFitResult.h"
+#undef protected
+
 #include "RooWorkspace.h"
 
 #include "TRooFit/TRooHStack.h"
@@ -35,7 +40,7 @@ public:
   TRooHStack* addChannel(const char* name, const char* title, const char* observable, int nBins, double min, double max);
   TRooHStack* addChannel(const char* name, const char* title, const char* observable, int nBins, const double* bins);
   TRooHStack* addChannel(const char* name, const char* title, const char* observable);
-  bool addSample(const char* name, const char* title, const char* channels="*");
+  bool addSample(const char* name, const char* title, const char* channels="*", bool allowNegative=false);
   
   bool dataFill(const char* channel, double x, double w=1.);
   Int_t sampleFill(const char* sample, const char* channel, double x, double w=1.);
@@ -53,16 +58,18 @@ public:
   void sampleSetLineColor(const char* sample, Int_t in);
   
   TRooH1* sample(const char* sampleName, const char* channelName);
-  TRooHStack* channel(const char* name);
+  TRooHStack* channel(const char* name) const;
   
   void setData(const char* dataName) { 
     if(!data(dataName)) return;
     fCurrentData = dataName; 
   }
   
-  RooFitResult* fitTo(const char* dataName=0);
+  void DisableForcedRecommendedOption(bool in) { kDisabledForcedRecommendedOptions=in; } //use to override forcing of the recommended fit options when calling fitTo
+  
+  RooFitResult* fitTo(const char* dataName=0, bool doHesse=true, const RooArgSet& minosPars=RooArgSet(),const char* impactPar=0);
   RooFitResult* loadFit(const char* fitName,bool prefit=false);
-  RooFitResult* getFit(const char* fitName) { return dynamic_cast<RooFitResult*>(obj(fitName)); }
+  RooFitResult* getFit(const char* fitName=0) { return dynamic_cast<RooFitResult*>(obj((fitName==0)?fCurrentFit.Data():fitName)); }
   
   void addLabel(const char* label) { fLabels.push_back(label); }
   
@@ -72,11 +79,19 @@ public:
   
   bool generateAsimov(const char* name, const char* title, bool fitToObsData=true);
   
+  //controls which channels are visible when drawing things
+  //sets the 'hidden' attribute on non-visible channels
+  Int_t SetVisibleChannels(const char* filter) { 
+    setChannelAttribute("*","hidden",kTRUE); //hide all channels first
+    return setChannelAttribute(filter,"hidden",kFALSE); //unhide the selected ones
+  }
+  Int_t setChannelAttribute(const char* channels,const char* attribute,Bool_t val=kTRUE);
+  
   //draw a channel's stack and overlay the data too
   void channelDraw(const char* channel, Option_t* option="e3005", const TRooFitResult& res = "");
-  //draws all channels
   
-  virtual void Draw(Option_t* option, const TRooFitResult& res = "");
+  //draws all channels
+  virtual void Draw(Option_t* option, const TRooFitResult& res);
   virtual void Draw(Option_t* option="e3005") { 
     if(fCurrentFit!="") Draw(option,getFit(fCurrentFit));
     else Draw(option,""); 
@@ -86,6 +101,8 @@ public:
   void DrawDependence(const char* var, Option_t* option="TRI1");
   
   Bool_t writeToFile(const char* fileName, Bool_t recreate=kTRUE);
+  
+  virtual void Print(Option_t* opt) const;
   
   static void setDefaultStyle();
   
@@ -98,6 +115,7 @@ private:
   
   TString fCurrentFit = "";
   Bool_t fCurrentFitIsPrefit = false; 
+  TRooFitResult* fCurrentFitResult = 0;
   
   RooArgList fStagedChannels; //channels cannot be added until they are frozen (all content filled)
   
@@ -106,7 +124,7 @@ private:
   std::vector<TString> fLabels; //plot labels
 
   Bool_t fIsHFWorkspace = false; //if true, this is a histfactory workspace
-
+  Bool_t kDisabledForcedRecommendedOptions = false;
   ClassDef(TRooWorkspace,1) // An extended form of a RooWorkspace
 };
  

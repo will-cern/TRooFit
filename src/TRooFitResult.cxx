@@ -68,8 +68,9 @@ void TRooFitResult::adjustCovarianceMatrix() {
     }
   }
   
+  int covQualBackup = _covQual;
   setCovarianceMatrix( cov );
-  
+  _covQual = covQualBackup;
   
 }
 
@@ -104,7 +105,9 @@ void TRooFitResult::resetCovarianceMatrix() {
     }
     i++;
   }
+  int covQualBackup = _covQual;
   setCovarianceMatrix(cov);
+  _covQual = covQualBackup;
 }
 
 TRooFitResult::TRooFitResult(const char* name, const char* title, const RooArgList& pars) 
@@ -150,6 +153,21 @@ TRooFitResult::TRooFitResult(const char* constPars) : RooFitResult() {
   setInitParList(RooArgList());
   setFinalParList(floats);
 
+}
+
+#include "TRegexp.h"
+#include "TPRegexp.h"
+
+void TRooFitResult::Draw(Option_t* option, const char* argFilter) {
+  TRegexp pattern(argFilter,true);
+  TPRegexp pattern2(argFilter);
+  RooFIter itr = floatParsFinal().fwdIterator();
+  RooArgList args;
+  while(RooAbsArg* arg = itr.next() ) {
+    TString aName(arg->GetName());
+    if(aName.Contains(pattern) || pattern2.MatchB(aName)) args.add(*arg);
+  }
+  Draw(option,args);
 }
 
 void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {

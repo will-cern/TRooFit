@@ -50,6 +50,28 @@ TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
     fDummyHists[c->GetName()]->SetDirectory(0);
   }
   
+  if(fIsHFWorkspace) {
+    if(set("ModelConfig_Observables")) defineSet("obs",*set("ModelConfig_Observables"));
+    //go through nuisance parameters and  guess errors for any params that dont have errors ..
+    const RooArgSet* np = set("ModelConfig_NuisParams");
+    if(np) {
+      RooFIter itr = np->fwdIterator();
+      while(RooAbsArg* arg = itr.next()) {
+        RooRealVar* v = dynamic_cast<RooRealVar*>(arg);
+        if(!v) continue;
+        if(v->getError()) continue; //already has an error 
+        if(v->isConstant()) continue; //shouldn't be the case 
+        //HistFactory models have alpha parameters with range -5 to 5 ... error should be 1
+        if(TString(v->GetName()).BeginsWith("alpha_") && fabs(v->getMin()+5.)<1e-9 && fabs(v->getMax()-5.)<1e-9) {
+          //Info("TRooWorkspace","Guessing nominal error of %s is 1",v->GetName());
+          v->setError(1);
+        } else if(TString(v->GetName()).BeginsWith("gamma_stat_") && fabs(v->getMin())<1e-9) {
+          //stat parameters have their max value set to 5*sigma ...
+          v->setError( (v->getMax()-1.)/5. );
+        }
+      }
+    }
+  }
   
 }
 
@@ -111,7 +133,7 @@ TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const
   //create a TRooHStack and import it ..
   TRooHStack* hs = new TRooHStack(name,title);
   fStagedChannels.add(*hs);
-  hs->SetMinimum(0);
+  hs->setFloor(true,1e-9); //this also does the SetMinimim
   //import(*hs);
   
   //need to store a dummyHist for the binning ...
@@ -165,7 +187,23 @@ TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const
 
 #include "TRegexp.h"
 
-bool TRooWorkspace::addSample(const char* name, const char* title, const char* channels) {
+Int_t TRooWorkspace::setChannelAttribute(const char* channels,const char* attribute,Bool_t val) {
+  TRegexp pattern(channels,true);
+  TIterator* catIter = cat("channelCat")->typeIterator();
+  int nCat(0);
+  TObject* c;
+  while( (c = catIter->Next()) ) {
+    TString cName(c->GetName());
+    if(cName.Contains(pattern)) {
+      channel(c->GetName())->setAttribute(attribute,val);
+      nCat++;
+    } 
+  }
+  delete catIter;
+  return nCat;
+}
+
+bool TRooWorkspace::addSample(const char* name, const char* title, const char* channels, bool allowNegative) {
   
   TRegexp pattern(channels,true);
   
@@ -178,6 +216,7 @@ bool TRooWorkspace::addSample(const char* name, const char* title, const char* c
       fDummyHists[c->GetName()]->Reset(); //ensures it is empty
       TString hName(Form("%s_%s",name,c->GetName()));
       TRooH1D* h = new TRooH1D(hName,title,*var(fDummyHists[c->GetName()]->GetName()),fDummyHists[c->GetName()]);
+      if(!allowNegative) h->setFloor(true,0); //by default, samples cannot go negative
       //import(*h);
       channel(c->GetName())->Add(h);
     }
@@ -255,7 +294,7 @@ TRooH1* TRooWorkspace::sample(const char* sampleName, const char* channelName) {
   return out;
 }
 
-TRooHStack* TRooWorkspace::channel(const char* name) {
+TRooHStack* TRooWorkspace::channel(const char* name) const {
   TRooHStack* out =  dynamic_cast<TRooHStack*>(pdf(name));
   if(!out) {
     out = dynamic_cast<TRooHStack*>(fStagedChannels.find(name));
@@ -306,26 +345,32 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
   TObject* c;
   
   TString simPdfName("simPdf");
-  TString factoryString("");
   int nComps(0);
+  TString factoryString("");
+  
+  RooSimultaneous* simPdf = dynamic_cast<RooSimultaneous*>(pdf("simPdf"));
   
   while( (c = catIter->Next()) ) {
     bool pass=false;
     for(auto& pattern : patterns) if(TString(c->GetName()).Contains(pattern)) pass=true;
     if(pass==false) continue;
-    nComps++;
     if(channel(c->GetName())->getAttribute("isValidation")) continue; //don't include validation regions when constructing models
-    if( !pdf(Form("%s_with_Constraints",c->GetName())) ) {
-      import( *channel(c->GetName())->buildConstraints(*set("obs"),"",true), RooFit::RecycleConflictNodes(), RooFit::Silence() );
+    nComps++;
+    
+    if(simPdf) {
+      //take the channel models from the existing simPdf, to handle case where looking at histfactory model
+      factoryString += Form(",%s=%s",c->GetName(),simPdf->getPdf(c->GetName())->GetName());
+    } else {
+      if( !pdf(Form("%s_with_Constraints",c->GetName())) ) {
+        import( *channel(c->GetName())->buildConstraints(*set("obs"),"",true), RooFit::RecycleConflictNodes(), RooFit::Silence() );
+      }
+      factoryString += Form(",%s=%s_with_Constraints",c->GetName(),c->GetName());
+      //remove from the stagedChannels list if its there (FIXME: is this a memory leak?)
+      fStagedChannels.remove(*channel(c->GetName()),true/*silent*/,true/*match by name*/);
     }
-    
-    factoryString += Form(",%s=%s_with_Constraints",c->GetName(),c->GetName());
     simPdfName += Form("_%s",c->GetName());
-    
-    //remove from the stagedChannels list if its there (FIXME: is this a memory leak?)
-    fStagedChannels.remove(*channel(c->GetName()),true/*silent*/,true/*match by name*/);
-    
   }
+  
   if(nComps>0) {
     if(nComps==cat("channelCat")->numTypes()) { simPdfName="simPdf"; } //all channels available
     if(pdf(simPdfName)) return static_cast<RooSimultaneous*>(pdf(simPdfName));
@@ -357,7 +402,7 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
      
      defineSet(Form("globalObservables%s",TString(simPdfName(6,simPdfName.Length()-6)).Data()),gobs);
      
-     saveSnapshot(Form("obsData_globalObservables%s",TString(simPdfName(6,simPdfName.Length()-6)).Data()),gobs);
+     saveSnapshot(Form("%s_globalObservables%s",fCurrentData.Data(),TString(simPdfName(6,simPdfName.Length()-6)).Data()),gobs);
      
      //save the list of parameters as a set (poi+np)
      RooArgSet np;RooArgSet args;
@@ -412,7 +457,13 @@ bool TRooWorkspace::generateAsimov(const char* name, const char* title, bool fit
   
 }
 
-RooFitResult* TRooWorkspace::fitTo(const char* dataName) {
+#include "TMultiGraph.h"
+
+template <class T> struct greater_abs {
+        bool operator() (const T& x, const T& y) const {return fabs(x)>fabs(y);}
+      };
+
+RooFitResult* TRooWorkspace::fitTo(const char* dataName, bool doHesse, const RooArgSet& minosPars, const char* impactPar) {
   RooAbsData* theData = data((dataName)?dataName:fCurrentData.Data());
   
   if(!theData) {
@@ -420,29 +471,150 @@ RooFitResult* TRooWorkspace::fitTo(const char* dataName) {
     return 0;
   }
   
-  fCurrentData = dataName; //switch to this data
+  fCurrentData = theData->GetName(); //switch to this data
   
   
-  RooAbsPdf* thePdf = model();
-  auto nll = TRooFit::createNLL(thePdf,theData,set("globalObservables"));
+  RooSimultaneous* thePdf = model();
+  TString simPdfName(thePdf->GetName());
   
   //load the globalObservables that go with the data ...
   loadSnapshot(Form("%s_globalObservables",theData->GetName()));
   
-  
-  RooFitResult* result = TRooFit::minimize(nll);
-  import(*result,Form("fitTo_%s",theData->GetName()));
-  delete result;
-  delete nll;
-  
-  result = loadFit(Form("fitTo_%s",theData->GetName()));
-  
-  if(result->status()%1000!=0) {
-    Error("fitTo","Fit status is %d",result->status());
-    loadFit(Form("fitTo_%s",theData->GetName()),true);
+  //check if we need to reduce the data (remove validation regions)
+  std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+  TObject* c;
+  TString excludedChannels;
+  std::set<TString> excludedChannelsSet;
+  while( (c = catIter->Next()) ) {
+    if(!thePdf->getPdf(c->GetName())) {
+      excludedChannelsSet.insert(c->GetName());
+      if(excludedChannels!="") excludedChannels += " || ";
+      excludedChannels += Form("channelCat == %d",((RooCatType*)c)->getVal());
+    }
   }
+  RooAbsData* reducedData=0;
+  if(excludedChannels!="" && theData->sumEntries(excludedChannels)>0) {
+    TString dataName = TString::Format("reduced_%s_for_%s",theData->GetName(),thePdf->GetName());
+    if(!embeddedData(dataName)) {
+      Info("fitTo","reducing %s to exclude validation channels",theData->GetName());
+      TString cutString="!(";cutString+=excludedChannels;cutString+=")";
+      
+      //discovered that asimov datasets aren't properly reduced, they have been losing their weights ... so will do a manual reduction ..
+      //if dataset is weighted
+      if(theData->isWeighted()) {
+        RooArgSet obs(*theData->get());RooRealVar weightVar("weightVar","weightVar",1);
+        obs.add(weightVar);
+        reducedData = new RooDataSet(theData->GetName(),theData->GetTitle(),obs,"weightVar");
+        for(int i=0;i<theData->numEntries();i++) {
+          if(excludedChannelsSet.find(theData->get(i)->getCatLabel("channelCat"))!=excludedChannelsSet.end()) continue; //skip excluded channels
+          
+          reducedData->add(*theData->get(),theData->weight());
+        }
+      } else {
+        reducedData = theData->reduce(cutString);
+      }
+      
+      reducedData->SetName(dataName);
+      import(*reducedData,RooFit::Embedded());
+      delete reducedData;
+    }
+    theData = embeddedData(dataName);
+  }
+  
+  //load or otherwise create the nll
+  RooAbsReal* nll = function(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
+  if(!nll) {
+    nll = TRooFit::createNLL(thePdf,theData,set(Form("globalObservables%s",TString(simPdfName(6,simPdfName.Length()-6)).Data())));
+    nll->SetName(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
+    import(*nll);
+    delete nll;
+    nll = function(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
+  }
+  
+  
+  
+  if(!kDisabledForcedRecommendedOptions) TRooFit::setRecommendedDefaultOptions();
+  RooFitResult* result = TRooFit::minimize(nll);
+  result->Print();
+  result->SetName(Form("fitTo_%s",theData->GetName()));
+  result->SetTitle(result->GetTitle());
+  import(*result); //FIXME: the statusHistory is not imported because RooFitResult Clone doesnt copy
+
+  
+  RooFitResult* out = loadFit(Form("fitTo_%s",theData->GetName()));
+  out->_statusHistory = result->_statusHistory; //HACK!!
    
-  return result;
+  delete result;
+  
+  
+  if(impactPar && out->floatParsInit().find(impactPar)) {
+     RooArgSet* globalFloatPars = nll->getObservables(out->floatParsInit()); 
+     
+     TGraph posImpact; posImpact.SetFillColor(kCyan); //will hold impacts from positive errors
+     TGraph negImpact; negImpact.SetFillColor(38); //hold impacts from negative errrors
+     std::vector<TString> argNames;
+     std::map<TString,std::pair<RooFitResult*,RooFitResult*>> impactResults;//save the fit restults in a map
+    TMultiGraph impactGraph;
+    
+      
+    
+      //get impact for top X (most correlated) variables
+      int myIdx = out->floatParsFinal().index(impactPar);
+      std::vector<float> cors;
+      for(int i=0;i<out->floatParsFinal().getSize();i++) {
+        if(myIdx==i) continue;
+        cors.push_back(out->correlation(myIdx,i));
+      }
+      std::sort(cors.begin(),cors.end(),greater_abs<float>());
+    
+      RooFIter parItr = out->floatParsInit().fwdIterator();
+    Info("fitTo","%d variables to compute impact of ...",out->floatParsInit().getSize()-1);
+    while( RooAbsArg* arg = parItr.next() ) {
+      if(strcmp(arg->GetName(),impactPar)==0) continue; //dont compute self-impact!
+      if(cors.size()>10 && fabs(out->correlation(myIdx,out->floatParsFinal().index(arg->GetName()))) < fabs(cors[10])) continue;
+      //to compute e.g. post-fit impact due to lumi uncert, shift and fix par before redoing global fit ...
+    std::cout << "correlation = " << out->correlation(myIdx,out->floatParsFinal().index(arg->GetName())) << std::endl;
+      for(int j=-1;j<2;j+=2) { //j=0 is positive error, j=1 is negative errr
+    
+        *globalFloatPars = out->floatParsInit(); //restore initial state for global fit (includes restoring non-constant state)
+        RooRealVar* parInNLL = ((RooRealVar*)nll->getParameters(RooArgSet())->find(arg->GetName()));
+        RooRealVar* parInGlobalFit = ((RooRealVar*)out->floatParsFinal().find(arg->GetName()));
+        parInNLL->setConstant(1);
+        parInNLL->setVal( parInGlobalFit->getVal() + ((j<0) ? parInGlobalFit->getErrorLo() : parInGlobalFit->getErrorHi()) ); //set to desired value
+        //rerun the fit ..
+        Info("fitTo","Computing impact on %s due to %s",impactPar,arg->GetName());
+        RooFitResult* impactFit = TRooFit::minimize(nll);
+        double postfitImpact = ((RooRealVar*)impactFit->floatParsFinal().find(impactPar))->getVal() - ((RooRealVar*)out->floatParsFinal().find(impactPar))->getVal();
+
+        if(j>0) {
+          posImpact.SetPoint(posImpact.GetN(),posImpact.GetN()+1,postfitImpact);
+          impactResults[arg->GetName()].second=impactFit;
+        } else {
+          negImpact.SetPoint(negImpact.GetN(),negImpact.GetN()+1,postfitImpact);
+          impactResults[arg->GetName()].first=impactFit;
+        }
+      
+      }
+      argNames.push_back(arg->GetTitle());
+   }
+  
+    impactGraph.Add(&negImpact);impactGraph.Add(&posImpact);
+    impactGraph.SetName("impact");
+    import(impactGraph);
+    /*impactGraph.Draw("AB");
+    for(int i=0;i<argNames_mu5.size();i++) {
+     impactGraph.GetHistogram()->GetXaxis()->SetBinLabel(impactGraph.GetHistogram()->GetNbinsX()*(i+0.5)/(nPars-1),argNames[i]);
+    }*/
+
+  }
+  
+  
+  
+  //delete nll;
+  
+  //if(reducedData) delete reducedData;
+   
+  return out;
 }
 
 RooFitResult* TRooWorkspace::loadFit(const char* fitName, bool prefit) {
@@ -462,6 +634,8 @@ RooFitResult* TRooWorkspace::loadFit(const char* fitName, bool prefit) {
   }
   
   fCurrentFit = fitName;
+  if(fCurrentFitResult) delete fCurrentFitResult;
+  fCurrentFitResult = new TRooFitResult( result );
   
   return result;
   
@@ -487,20 +661,26 @@ TLegend* TRooWorkspace::GetLegend() {
 //draw a channel's stack and overlay the data too
 void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const TRooFitResult& res) {
 
+  RooMsgService::instance().getStream(RooFit::INFO).removeTopic(RooFit::NumIntegration); //stop info message every time
+
+
   TVirtualPad* pad = gPad;
   if(!pad) {
     gROOT->MakeDefCanvas();
     pad = gPad;
   }
 
+  TString sOpt(opt);
+  sOpt.ToLower();
   
+  if(fCurrentFitIsPrefit && !sOpt.Contains("init")) sOpt += "init";
 
   TLegend* myLegend = (TLegend*)GetLegend()->Clone("legend");
   myLegend->SetBit(kCanDelete); //so that it is deleted when pad cleared
 
-  channel(channelName)->Draw(opt,res);
+  channel(channelName)->Draw(sOpt,res);
   
-  
+  pad->SetName(channel(channelName)->GetName());pad->SetTitle(channel(channelName)->GetTitle());
   
   if(channel(channelName)->getAttribute("isValidation")) gPad->SetFillColor(kGray);
   fDummyHists[channelName]->Reset();
@@ -531,8 +711,7 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
   myLegend->ConvertNDCtoPad();
   myLegend->Draw();
 
-  TString sOpt(opt);
-  sOpt.ToLower();
+  
   if(!sOpt.Contains("same")) {
     TLatex latex;latex.SetNDC();latex.SetTextSize(gStyle->GetTextSize()*0.75);
     Double_t xPos = gPad->GetLeftMargin()+12./gPad->GetCanvas()->GetWw();
@@ -543,28 +722,32 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
     }
     latex.DrawLatex(xPos,yPos,channel(channelName)->GetTitle());
     yPos -= latex.GetTextSize();
-    if(fCurrentFit!="" && !fCurrentFitIsPrefit) latex.DrawLatex(xPos,yPos,"Post-Fit");
+    if(fCurrentFit!="" && !fCurrentFitIsPrefit) {
+      if(getFit(fCurrentFit)->status()%1000!=0) latex.SetTextColor(kRed);
+      latex.DrawLatex(xPos,yPos,"Post-Fit");
+      latex.SetTextColor(kBlack);
+    }
     else latex.DrawLatex(xPos,yPos,"Pre-Fit");
   }
 
-  gPad->Update();
+  pad->Update();
 
   //create space for the legend by adjusting the range on the stack ...
-  double currMax = gPad->GetUymax();
-  double currMin = gPad->GetUymin();
+  double currMax = pad->GetUymax();
+  double currMin = pad->GetUymin();
   
   //double yScale = (currMax-currMin)/(1.-gPad->GetTopMargin()-gPad->GetBottomMargin());
   
   //want new max to give a newYscale where currMax is at shifted location 
-  double newYscale = (currMax-currMin)/(myLegend->GetY1NDC()-gPad->GetBottomMargin());
+  double newYscale = (currMax-currMin)/(myLegend->GetY1NDC()-pad->GetBottomMargin());
   
-  currMax = currMin + newYscale*(1.-gPad->GetTopMargin()-gPad->GetBottomMargin());
+  currMax = currMin + newYscale*(1.-pad->GetTopMargin()-pad->GetBottomMargin());
   
   //currMax += yScale*(myLegend->GetY2NDC()-myLegend->GetY1NDC());
   
   channel(channelName)->GetYaxis()->SetRangeUser(currMin,currMax);
-  gPad->Modified(1);
-  gPad->Update();
+  pad->Modified(1);
+  pad->Update();
   
 }
 
@@ -592,10 +775,22 @@ void TRooWorkspace::Draw(Option_t* option, const TRooFitResult& res) {
   
   TString sOpt(option);
   sOpt.ToLower();
+  
+  if(sOpt.Contains("pull")) {
+    //just draw the pull plot of the fit result ..
+    if(fCurrentFitResult) fCurrentFitResult->Draw("pull");
+    return;
+  }
+  
   if(!sOpt.Contains("same")) {
     pad->Clear();
   
-    int nCat = cat("channelCat")->numTypes();
+    int nCat=0;
+    TIterator* catIter = cat("channelCat")->typeIterator();
+    TObject* c;
+    while( (c = catIter->Next()) ) if(!channel(c->GetName())->getAttribute("hidden")) nCat++;
+    delete catIter;
+    
     if(nCat>1) {
       int nRows = nCat/sqrt(nCat);
       int nCols = nCat/nRows;
@@ -609,6 +804,7 @@ void TRooWorkspace::Draw(Option_t* option, const TRooFitResult& res) {
   TObject* c;
   int i=1;
   while( (c = catIter->Next()) ) {
+    if(channel(c->GetName())->getAttribute("hidden")) continue;
     pad->cd(i++);
     channelDraw(c->GetName(),option,res);
   }
@@ -641,8 +837,13 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
   sOpt.ToLower();
   if(!sOpt.Contains("same")) {
     pad->Clear();
-  
-    int nCat = cat("channelCat")->numTypes();
+    
+    int nCat=0;
+    TIterator* catIter = cat("channelCat")->typeIterator();
+    TObject* c;
+    while( (c = catIter->Next()) ) if(!channel(c->GetName())->getAttribute("hidden")) nCat++;
+    delete catIter;
+    
     if(nCat>1) {
       int nRows = nCat/sqrt(nCat);
       int nCols = nCat/nRows;
@@ -653,13 +854,16 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
 
   bool doSlice = sOpt.Contains("slice");
   sOpt.ReplaceAll("slice","");
+  bool doPull = sOpt.Contains("pull");
+  sOpt.ReplaceAll("pull","");
   
   TIterator* catIter = cat("channelCat")->typeIterator();
   TObject* c;
   int i=1;
   while( (c = catIter->Next()) ) {
-    pad->cd(i++);
     TRooHStack* chan = channel(c->GetName());
+    if(chan->getAttribute("hidden")) continue;
+    pad->cd(i++);
     if(!chan->dependsOn(*theVar)) continue; //no dependence
     
     if(doSlice) {
@@ -677,6 +881,7 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
         double val = curVal + j*step;
         TRooFitResult r(TString::Format("%s=%f",_var,val));
         TH1* hist = (TH1*)chan->GetHistogram(&r,false)->Clone(chan->GetName());
+        hist->SetDirectory(0);
         hist->SetTitle(Form("%s = %g",_var,val));
         hist->SetLineWidth(1);
         hist->SetLineColor(cols[j+2]);
@@ -689,6 +894,49 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
         hists[j]->Draw((j==0)?"":"same");
       }
       
+    } else if(doPull) {
+     
+     //draw the current and (if a fit is loaded, the prefit) pulls for the given variable ... defined here as (prediction-data)/sigma_data
+     TH1* dataHist = (TH1*)fDummyHists[c->GetName()]->Clone("dataHist");
+     RooArgSet* chanObs = chan->getObservables(data(fCurrentData));
+     RooArgList l(*chanObs); delete chanObs;
+     data(fCurrentData)->fillHistogram(dataHist, l, Form("channelCat==channelCat::%s",c->GetName()));
+     
+     double varVals[6] = {theVar->getVal(),theVar->getVal()+theVar->getErrorHi(),theVar->getVal()+theVar->getErrorLo(),0,0,0};
+     RooRealVar* varInit = 0;
+     if(getFit()) {
+      varInit = dynamic_cast<RooRealVar*>(getFit()->floatParsInit().find(theVar->GetName()));
+      if(varInit) {
+        varVals[3] = varInit->getVal(); varVals[4] = varInit->getVal()+varInit->getErrorHi(); varVals[5] = varInit->getVal()+varInit->getErrorLo();
+      }
+     }
+     int cols[6] = {kBlack,kBlue,kRed,kBlack,kBlue,kRed};
+     for(int j=0;j<6;j++) {
+      if(j>2 && !varInit) continue; //no prefit values available, so do not draw ..
+      
+      TRooFitResult r(TString::Format("%s=%f",_var,varVals[j]));
+      TH1* myHist = (TH1*)chan->GetHistogram(&r,false)->Clone(chan->GetName());
+      myHist->SetDirectory(0);
+      myHist->SetTitle(Form("%s = %g",_var,varVals[j]));
+      myHist->SetLineWidth(1);
+      myHist->SetLineColor(cols[j]);
+      myHist->SetLineStyle(1+(j>2)); //dashed lines for prefit
+      myHist->SetBit(kCanDelete);
+      myHist->Add( dataHist , -1. ); //subtract the data
+      
+      //scale each bin based on dataHist error
+      for(int k=1;k<=myHist->GetNbinsX();k++) {
+        double dataError = (myHist->GetBinContent(k)<0) ? 0.5*TMath::ChisquareQuantile(TMath::Prob(1,1)/2.,2.*(dataHist->GetBinContent(k))) : (0.5*TMath::ChisquareQuantile(1.-TMath::Prob(1,1)/2.,2.*(dataHist->GetBinContent(k)+1)));
+        myHist->SetBinContent(k,myHist->GetBinContent(k)/dataError);
+        myHist->SetBinError(k,0);
+      }
+      
+      myHist->Draw((j==0)?"":"same");
+      
+      
+     }
+     
+     
     } else {
     
       TGraph2D* myGraph = new TGraph2D;
@@ -708,118 +956,111 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
 }
 
 
-
-/*
-std::pair<RooDataSet*,RooArgSet*> RooHypoModel::createToyDataSet(bool doBinned,const char* channels) {
-
-   RooAbsPdf* thePdf = model(channels);
-
-   //determine global observables for this model ...
-   RooArgSet* gobs_and_np = model->getParameters(*set("obs"));
-
-   //remove the poi ...
-   gobs_and_np->remove(*set("poi"));
-
-   RooArgSet gobs;
-   gobs.add(*gobs_and_np); //will remove the np in a moment
-
-
-   //now pass this to the getAllConstraints method ... it will modify it to contain only the np!
-   RooArgSet* s = model->getAllConstraints(*set("obs"),*gobs_and_np);
-   delete s; //don't ever need this 
-
-   //gobs_and_np now only contains the np
-   gobs.remove(*gobs_and_np);
-
-   RooArgSet* toy_gobs = new RooArgSet;gobs.snapshot(*toy_gobs);
-   //and then generate global and non-global observables 
-
-   RooDataSet* globals = thePdf->generateSimGlobal(gobs,1);
-   *toy_gobs = *globals->get(0);
-   delete globals;
-
-   RooDataSet* ddata;
-   if(!thePdf->canBeExtended()) {
-      //must be a counting experiment ... generate 1 dataset entry per category ... so must recurse through simultaneous pdf
-      //usually only one simpdf though ... because user can use a RooSuperCategory to combine several categories!
-      ddata = new RooDataSet("toyData","toyData",*set("obs"));
-      buildDataset(thePdf,*ddata, false);
-   } else {
-      //just generate as normal 
-      //have to first check if expected events are zero ... if it is, then the dataset is just empty ('generate' method fails when expectedEvents = 0)
-      if(thePdf->expectedEvents(*set("obs"))==0) {
-         ddata = new RooDataSet("toyData","toyData",*set("obs"));
+void TRooWorkspace::Print(Option_t* opt) const {
+  TString sOpt(opt);
+  sOpt.ToLower();
+  
+  if(sOpt.Contains("channels")) {
+    //list the channels of this workspace ...
+    std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+    TObject* c;
+    while( (c = catIter->Next()) ) {
+      TRooHStack* chan = channel(c->GetName());
+      std::cout << c->GetName();
+      if(!chan) {
+        std::cout << " - INVALID CHANNEL!!!" << std::endl;
+        continue;
+      }
+      if(chan->getAttribute("hidden")) std::cout << " [HIDDEN]";
+      if(chan->getAttribute("isValidation")) std::cout << " [BLINDED]";
+      std::cout << std::endl;
+    }
+  } else if(sOpt.Contains("fits")) {
+    //print RooFitResult's saved in the genericObjects list 
+    auto genObjs = allGenericObjects();
+    for(TObject* obj : genObjs) {
+      if(!obj->InheritsFrom(RooFitResult::Class())) continue;
+      std::cout << obj->GetName() << std::endl;
+    }
+  } else if(sOpt.Contains("params")) {
+    std::map<TString,std::vector<TString>> paramStrings;
+    //go through float parameters that are not observables (not in the 'obs' set)
+    RooArgSet* _allVars = static_cast<RooArgSet*>(allVars().selectByAttrib("Constant",kFALSE));
+    _allVars->remove(*(const_cast<TRooWorkspace*>(this)->set("obs")));
+    RooArgSet _allPdfs = allPdfs();
+    RooFIter itr = _allVars->fwdIterator();
+    RooRealVar* _var = 0;
+    while( (_var = dynamic_cast<RooRealVar*>(itr.next())) ) {
+      //if(var->isConstant()) continue;if(set("obs")->find(*var)) continue;
+      
+      //check for constraint term .. which is a pdf featuring just this parameter 
+      RooArgSet otherPars(*_allVars); otherPars.remove(*_var);
+      RooFIter pitr = _allPdfs.fwdIterator();
+      RooAbsPdf* constraintPdf = 0;
+      while( RooAbsPdf* _pdf = dynamic_cast<RooAbsPdf*>(pitr.next()) ) {
+        if(!_pdf->dependsOn(*_var)) continue;
+        if(_pdf->dependsOn(otherPars)) continue;
+        constraintPdf = _pdf; break;
+      }
+      if(constraintPdf) {
+        if(constraintPdf->InheritsFrom("RooGaussian")) {
+          paramStrings["gaussian"].push_back(_var->GetName());
+        } else if(constraintPdf->InheritsFrom("RooPoisson")) {
+          paramStrings["poisson"].push_back(_var->GetName());
+        } else {
+          paramStrings["other"].push_back(_var->GetName());
+        }
       } else {
-         //std::cout << " expected = " << thePdf->expectedEvents(*data()->dataset()->get()) << std::endl;
-         ddata = (doBinned) ? thePdf->generate(*set("obs"),RooFit::Extended(),RooFit::AllBinned()) : thePdf->generate(*set("obs"),RooFit::Extended());
+        paramStrings["unconstrained"].push_back(_var->GetName());
       }
-   }
-
-  std::pair<RooDataSet*,RooArgSet*> out = std::make_pair(ddata,toy_gobs);
-
-   return out;
-
+      
+    }
+    delete _allVars;
+    std::cout << std::endl;
+    std::cout << "Unconstrained parameters (usually floating normalizations and parameters of interest)" << std::endl;
+    std::cout << "------------------------" << std::endl;
+    for(auto& s : paramStrings["unconstrained"]) {
+      std::cout << s << std::endl;
+    }
+    if(paramStrings["gaussian"].size()) {
+      std::cout << std::endl;
+      std::cout << "Gaussian-constrained parameters (usually systematics)" << std::endl;
+      std::cout << "------------------------" << std::endl;
+      for(auto& s : paramStrings["gaussian"]) {
+        std::cout << s << std::endl;
+      }
+    }
+    if(paramStrings["poisson"].size()) {
+      std::cout << std::endl;
+      std::cout << "Poisson-constrained parameters (usually statistical uncertainties)" << std::endl;
+      std::cout << "------------------------" << std::endl;
+      for(auto& s : paramStrings["poisson"]) {
+        std::cout << s << std::endl;
+      }
+    }
+    if(paramStrings["other"].size()) {
+      std::cout << std::endl;
+      std::cout << "Unknown-constrained parameters" << std::endl;
+      std::cout << "------------------------" << std::endl;
+      for(auto& s : paramStrings["unconstrained"]) {
+        std::cout << s << std::endl;
+      }
+    }
+  } else if(sOpt.Contains("data")) {
+    auto _allData = allData();
+    for(auto d : _allData) {
+      std::cout << d->GetName() << " (" << d->numEntries() << " entries)";
+      if(d->isWeighted()) std::cout << " (" << d->sumEntries() << " weighted)";
+      if(fCurrentData==d->GetName()) std::cout << " <-- CURRENT DATA";
+      std::cout << std::endl;
+      
+    }
+  
+  } else {
+    RooWorkspace::Print(opt);
+  }
+  
 }
-
-
-void RooHypoModel::buildDataset(RooAbsPdf* thePdf, RooDataSet& out, RooArgSet& gobs, bool doAsimov ) {
-   //check if this pdf is a simultaneous 
-   if(thePdf->IsA()==RooSimultaneous::Class()) {
-      //need to get the observable set for each category 
-      RooSimultaneous* simPdf = static_cast<RooSimultaneous*>(thePdf);
-      //loop over index category 
-      std::unique_ptr<TIterator> itr(simPdf->indexCat().typeIterator());
-      RooCatType* tt = NULL;
-      while((tt=(RooCatType*) itr->Next())) {
-         std::cout << " in category " << tt->GetName() << " of " << thePdf->GetName() << std::endl;
-         const_cast<RooArgSet*>(out.get())->setCatIndex(simPdf->indexCat().GetName(),tt->getVal());
-         if(simPdf->getPdf(tt->GetName())) buildDataset(simPdf->getPdf(tt->GetName()), out, doAsimov);
-      }
-      return;
-   }
-
-   //got here, so not in a simultaneous 
-
-
-   if(doAsimov) {
-      //... so get the terms of the pdf that constrain the observables:
-      RooArgSet params(poi()); params.add(np()); //the poi and np
-      RooArgSet* constraints = thePdf->getAllConstraints(gobs,params);
-      //constraints are now all the parts of the pdf that do not feature global observables ... so they must feature the observables!
-      //loop over constraint pdfs, recognise gaussian, poisson, lognormal
-      TIterator* citer = constraints->createIterator();
-      RooAbsPdf* pdf = 0;
-      while((pdf=(RooAbsPdf*)citer->Next())) { 
-         //determine which obs this pdf constrains. There should only be one!
-         std::unique_ptr<RooArgSet> cgobs(pdf->getObservables(*out.get()));
-         if(cgobs->getSize()!=1) { std::cout << "constraint " << pdf->GetName() << " constrains " << cgobs->getSize() << " observables. skipping..." << std::endl; continue; }
-         RooAbsArg* gobs_arg = cgobs->first();
-   
-         //now iterate over the servers ... the first server to depend on a nuisance parameter or the poi we assume is the correct server to evaluate ..
-         std::unique_ptr<TIterator> itr(pdf->serverIterator());
-         for(RooAbsArg* arg = static_cast<RooAbsArg*>(itr->Next()); arg != 0; arg = static_cast<RooAbsArg*>(itr->Next())) {
-            RooAbsReal * rar = dynamic_cast<RooAbsReal *>(arg); 
-            if( rar && ( rar->dependsOn(np()) || rar->dependsOn(poi()) ) ) {
-//               std::cout << " setting " << gobs_arg->GetName() << " equal to value of " << arg->GetName() << " (" << rar->getVal() << ")" << std::endl;
-               const_cast<RooArgSet*>(out.get())->setRealValue(gobs_arg->GetName(),rar->getVal());
-            }
-         }
-      }
-      delete citer;
-      //now add the current values to the dataset 
-      out.add(*out.get());
-   } else {
-      //just generate a single toy with the list of observables for all the things are actually depend on
-      RooArgSet* obs = thePdf->getObservables(*out.get());
-      RooDataSet* toy = thePdf->generate(*obs,1);
-      const_cast<RooArgSet*>(out.get())->assignValueOnly(*toy->get(0));
-      out.add(*out.get());
-      delete toy;delete obs;
-   }
-
-}
-
-*/
 
 
 

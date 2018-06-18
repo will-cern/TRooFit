@@ -52,7 +52,7 @@ class TRooFit : public TObject  {
    
     static TObject& msg() { if(m_msgObj==0) m_msgObj=new TObject; return *m_msgObj; }
    
-   
+    static void SetColorByName(const char* name, Int_t color) { m_colorsByName[name]=color;}
     static Int_t GetColorByName(const char* name, bool generateColor=false);
     static void PrintColorsByName() { for(auto c : m_colorsByName) { std::cout << c.first << " : " << c.second << std::endl; } }
     

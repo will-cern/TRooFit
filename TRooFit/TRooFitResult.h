@@ -92,6 +92,7 @@ public:
   
   virtual void Draw(Option_t* option = "pull") { Draw(option,RooArgList()); }
   virtual void Draw(Option_t* option,const RooArgList& args);
+  virtual void Draw(Option_t* option,const char* argFilter);
   
   TGraphAsymmErrors* GetPullGraph() { return fPullGraph; }
   

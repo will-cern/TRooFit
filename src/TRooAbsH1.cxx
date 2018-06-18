@@ -1131,19 +1131,17 @@ std::pair<double,double> TRooAbsH1::getError(const RooFitResult& fr, const RooAb
       
       
       // Make Plus variation
-      ((RooRealVar*)paramList.at(ivar))->setVal(cenVal+errVal) ;
+      ((RooRealVar*)paramList.at(ivar))->setVal(cenVal+rrv.getErrorHi()/*+errVal*/) ;
       plusVar.push_back(cloneFunc->getVal(nset)*( (cloneFuncPdf) ? cloneFuncPdf->expectedEvents(nset) : 1.)) ;
       // Make Minus variation
-      ((RooRealVar*)paramList.at(ivar))->setVal(cenVal-errVal) ;
+      ((RooRealVar*)paramList.at(ivar))->setVal(cenVal+rrv.getErrorLo()/*-errVal*/) ;
       minusVar.push_back(cloneFunc->getVal(nset)*( (cloneFuncPdf) ? cloneFuncPdf->expectedEvents(nset) : 1.)) ;
       ((RooRealVar*)paramList.at(ivar))->setVal(cenVal) ;
       
     }
   
     TMatrixDSym C(paramList.getSize()) ;      
-    std::vector<double> errVec(paramList.getSize()) ;
     for (int i=0 ; i<paramList.getSize() ; i++) {
-      errVec[i] = sqrt(V(i,i)) ;
       for (int j=i ; j<paramList.getSize() ; j++) {
         C(i,j) = V(i,j)/sqrt(V(i,i)*V(j,j)) ;
         C(j,i) = C(i,j) ;

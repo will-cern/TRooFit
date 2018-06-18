@@ -47,16 +47,18 @@ class TRooUnfold : public TNamed  {
       return m_sfFunctions[sfName];
     }
 
+    RooRealVar* GetSigNormVar(int bin);
+
     Bool_t BuildModel(); //Finishes constructing the TRooFit model
 
-    TH1* GetPurity(const char* variation="Nominal") {
+    TH1* GetFiducialPurity(const char* variation="Nominal") {
       if(!m_builtModel) return 0;
-      return m_recoSignal[variation];
+      return m_fidPurity[variation];
     }
     
     TH1* GetEfficiency(const char* variation="Nominal") {
       if(!m_builtModel) return 0;
-      return m_truthSignal[variation];
+      return m_efficiency[variation];
     }
     
     TRooHStack* GetStack() { return m_stack; }
@@ -71,7 +73,7 @@ class TRooUnfold : public TNamed  {
     TH1* GetRegularizationHistogram() { return m_regularizationHist; }
 
     TRooH1D* GetTruth() { return m_result; }
-    TRooFitResult* GetFitResult() { return m_fitResult; }
+    RooFitResult* GetFitResult() { return m_fitResult; }
     
     TH1* GetInputHistogram(const char* comp, const char* variation="Nominal") {
       if(m_bkg.find(comp)==m_bkg.end()) return 0;
@@ -94,11 +96,7 @@ class TRooUnfold : public TNamed  {
     
     TRooGPConstraint* GetRegularizationConstraint() { return m_regularizationConstraint; }
     
-    TRooFitResult* Fit(TH1* data = 0);
-    
-    RooFitResult* runFit(RooAbsPdf* pdf, RooAbsData* data);
-    
-    
+    RooFitResult* Fit(TH1* data = 0, bool doMinos=true);
     
     virtual void Print(Option_t* opt="") const;
     
@@ -119,6 +117,9 @@ class TRooUnfold : public TNamed  {
     Double_t GetConstraintNLL();
     
     
+    void WriteModelInputs(const char* file, const char* opt="RECREATE");
+    void WriteHistograms(const char* file,const char* opt="RECREATE");
+    
   private:
     bool m_builtModel = false;
     
@@ -128,6 +129,10 @@ class TRooUnfold : public TNamed  {
     RooArgSet m_poi; //the sigNorm parameters
   
     RooFit::MsgLevel m_printLevel = RooFit::ERROR;
+    
+    std::map<TString,TH2*> m_responseMatrix; //normalized migration matrices
+    std::map<TString,TH1*> m_fidPurity; //fraction of signal at reco level (in each bin) that had a corresponding truth level value (i.e. came from fiducial volume)
+    std::map<TString,TH1*> m_efficiency; //fraction of signal at truth level (in each bin) that has a corresponding reco level value (i.e. is reconstructed)
     
     std::map<TString,TH2*> m_migrationMatrix;
     std::map<TString,TH1*> m_truthSignal;
@@ -145,13 +150,15 @@ class TRooUnfold : public TNamed  {
     std::map<TString,TRooH1D*> m_bkgPdfs;
     std::map<TString,RooRealVar*> m_systNP;
     
+    std::map<TString,TString> m_systGroup; //map from nuisance parameter name to systematic group
+    
     TRooHStack* m_stack = 0;
 
     TH1* m_regularizationHist = 0;
     
     TRooH1D* m_result = 0;
 
-    TRooFitResult* m_fitResult = 0;
+    RooFitResult* m_fitResult = 0;
     
     std::map<TString,RooFitResult*> m_fitResults;
 

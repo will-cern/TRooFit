@@ -25,7 +25,7 @@ Int_t TRooFit::GetColorByName(const char* name, bool generateColor) {
   for(auto c : m_colorsByName) allCols.insert(c.second);
   
   
-  int nextColor=1;
+  int nextColor=2; //start at 2 so that never return 1 (which is kBlack)
   if(allCols.size()) {
     auto colItr = allCols.begin();
     int lastCol = (*colItr);
