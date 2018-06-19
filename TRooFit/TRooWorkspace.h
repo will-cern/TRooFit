@@ -57,6 +57,8 @@ public:
   void sampleSetFillColor(const char* sample, Int_t in);
   void sampleSetLineColor(const char* sample, Int_t in);
   
+  double sampleIntegralAndError(double& err, const char* sampleFullName, const TRooFitResult& res="") const;
+  
   TRooH1* sample(const char* sampleName, const char* channelName);
   TRooHStack* channel(const char* name) const;
   
@@ -86,6 +88,7 @@ public:
     return setChannelAttribute(filter,"hidden",kFALSE); //unhide the selected ones
   }
   Int_t setChannelAttribute(const char* channels,const char* attribute,Bool_t val=kTRUE);
+  Int_t setVarAttribute(const char* vars,const char* attribute,Bool_t val=kTRUE);
   
   //draw a channel's stack and overlay the data too
   void channelDraw(const char* channel, Option_t* option="e3005", const TRooFitResult& res = "");

@@ -180,6 +180,7 @@ void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
     std::vector<int> indices;
     for(int i=0;i<_initPars->getSize();i++) {
       RooRealVar* rinit = static_cast<RooRealVar*>(_initPars->at(i));
+      if(args.getSize()&&!args.find(*rinit)) continue; //if args are specified, then must be in the list
       if(rinit->getError()) {indices.push_back(i);continue;}
       //check for constraintType ... can use that to get the initial error 
       if(rinit->getStringAttribute("constraintType")) {
@@ -205,7 +206,7 @@ void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
     }
     if(indices.size()) {
       if(!fPullFrame) {
-        fPullFrame = new TH1D("frame",GetTitle(),indices.size(),0,indices.size());fPullFrame->SetLineColor(0);
+        fPullFrame = new TH1D("frame",GetTitle(),indices.size(),0,indices.size());fPullFrame->SetLineColor(0);fPullFrame->SetDirectory(0);
         fPullFrame->SetStats(0);
         for(uint i=0;i<indices.size();i++) {
           fPullFrame->GetXaxis()->SetBinLabel(i+1,floatParsFinal()[indices[i]].GetTitle());

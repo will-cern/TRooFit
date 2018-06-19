@@ -96,6 +96,11 @@ public:
   
   TGraphAsymmErrors* GetPullGraph() { return fPullGraph; }
   
+  ~TRooFitResult() {
+    if(fPullGraph) delete fPullGraph;
+    if(fPullFrame) delete fPullFrame;
+  }
+  
 protected:
   void adjustCovarianceMatrix();
   void resetCovarianceMatrix();

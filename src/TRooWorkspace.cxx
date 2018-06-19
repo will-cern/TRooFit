@@ -203,6 +203,22 @@ Int_t TRooWorkspace::setChannelAttribute(const char* channels,const char* attrib
   return nCat;
 }
 
+Int_t TRooWorkspace::setVarAttribute(const char* channels,const char* attribute,Bool_t val) {
+  TRegexp pattern(channels,true);
+  RooArgSet _allVars = allVars();
+  RooFIter itr = _allVars.fwdIterator();
+  RooAbsArg* c;
+  int nCat(0);
+  while( (c = itr.next()) ) {
+    TString cName(c->GetName());
+    if(cName.Contains(pattern)) {
+      c->setAttribute(attribute,val);
+      nCat++;
+    } 
+  }
+  return nCat;
+}
+
 bool TRooWorkspace::addSample(const char* name, const char* title, const char* channels, bool allowNegative) {
   
   TRegexp pattern(channels,true);
@@ -286,6 +302,56 @@ bool TRooWorkspace::sampleAddVariation(const char* sampleName, const char* chann
     return kFALSE;
   }
   return sample(sampleName,channelName)->AddVariation(*var(parName), parVal, h1);
+}
+
+double TRooWorkspace::sampleIntegralAndError(double& err, const char* sampleFullName, const TRooFitResult& fr) const {
+  RooAbsReal* samp = function(sampleFullName);
+  if(!samp) return 0;
+  if(samp->InheritsFrom("TRooAbsH1")) {
+    return (dynamic_cast<TRooAbsH1*>(samp))->IntegralAndError(err,fr);;
+  } else {
+    //just a normal function, so we have to manually do integral and error ...
+    RooArgSet* myObs = samp->getObservables(*const_cast<TRooWorkspace*>(this)->set("obs"));
+   std::unique_ptr<RooAbsReal> inte( samp->createIntegral(*myObs) );
+  
+    RooArgSet* params = 0;
+    RooArgSet* snap = 0;
+  
+    if(fr.floatParsFinal().getSize()||fr.constPars().getSize()) {
+        params = samp->getParameters(*myObs);
+        snap = (RooArgSet*)params->snapshot();
+        *params = fr.floatParsFinal();
+        *params = fr.constPars();
+    }
+  
+    double out = inte->getVal();
+    auto res = TRooAbsH1::getError(fr,&*inte,*myObs,0);
+    
+    err = res.first;
+  
+    if(fr.floatParsFinal().getSize()||fr.constPars().getSize()) {
+      *params = *snap;
+      delete snap;
+    }
+    delete myObs;
+  
+    //need to determine which channel this sample belongs to, because coefficient on sample may not be 1 (this is case in histfactory models) 
+    std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+    TObject* c;
+    while( (c = catIter->Next()) ) {
+      if(channel(c->GetName())->dependsOn(*samp)) break;
+    }
+    int idx = channel(c->GetName())->funcList().index(samp);
+    if(idx!=-1) {
+      double coef = dynamic_cast<RooAbsReal*>(channel(c->GetName())->coefList().at(idx))->getVal();
+      err *= coef;
+      out *= coef;
+    } else {
+      Error("sampleIntegralError","Failed to find sample coefficient!");
+    }
+  
+    return out;
+  }
 }
 
 TRooH1* TRooWorkspace::sample(const char* sampleName, const char* channelName) {
@@ -549,7 +615,7 @@ RooFitResult* TRooWorkspace::fitTo(const char* dataName, bool doHesse, const Roo
   result->Print();
   result->SetName(Form("fitTo_%s",theData->GetName()));
   result->SetTitle(result->GetTitle());
-  import(*result); //FIXME: the statusHistory is not imported because RooFitResult Clone doesnt copy
+  import(*result,true/*overwrites existing*/); //FIXME: the statusHistory is not imported because RooFitResult Clone doesnt copy
 
   
   RooFitResult* out = loadFit(Form("fitTo_%s",theData->GetName()));
@@ -789,7 +855,11 @@ void TRooWorkspace::Draw(Option_t* option, const TRooFitResult& res) {
   
   if(sOpt.Contains("pull")) {
     //just draw the pull plot of the fit result ..
-    if(fCurrentFitResult) fCurrentFitResult->Draw("pull");
+    RooArgSet* visibleArgs = static_cast<RooArgSet*>(allVars().selectByAttrib("hidden",kFALSE));
+    RooArgList* l = static_cast<RooArgList*>(fCurrentFitResult->floatParsFinal().selectCommon(*visibleArgs));
+    delete visibleArgs;
+    if(fCurrentFitResult) fCurrentFitResult->Draw("pull",*l);
+    delete l;
     return;
   }
   
@@ -875,6 +945,7 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
     TRooHStack* chan = channel(c->GetName());
     if(chan->getAttribute("hidden")) continue;
     pad->cd(i++);
+    if(chan->getAttribute("isValidation")) gPad->SetFillColor(kGray);
     if(!chan->dependsOn(*theVar)) continue; //no dependence
     
     if(doSlice) {
@@ -927,6 +998,7 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
       
       TRooFitResult r(TString::Format("%s=%f",_var,varVals[j]));
       TH1* myHist = (TH1*)chan->GetHistogram(&r,false)->Clone(chan->GetName());
+      
       myHist->SetDirectory(0);
       myHist->SetTitle(Form("%s = %g",_var,varVals[j]));
       myHist->SetLineWidth(1);
@@ -937,15 +1009,19 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
       
       //scale each bin based on dataHist error
       for(int k=1;k<=myHist->GetNbinsX();k++) {
-        double dataError = (myHist->GetBinContent(k)<0) ? 0.5*TMath::ChisquareQuantile(TMath::Prob(1,1)/2.,2.*(dataHist->GetBinContent(k))) : (0.5*TMath::ChisquareQuantile(1.-TMath::Prob(1,1)/2.,2.*(dataHist->GetBinContent(k)+1)));
+        double dataError = (myHist->GetBinContent(k)<0) ? (dataHist->GetBinContent(k)-0.5*TMath::ChisquareQuantile(TMath::Prob(1,1)/2.,2.*(dataHist->GetBinContent(k)))) : ((0.5*TMath::ChisquareQuantile(1.-TMath::Prob(1,1)/2.,2.*(dataHist->GetBinContent(k)+1))) - dataHist->GetBinContent(k));
         myHist->SetBinContent(k,myHist->GetBinContent(k)/dataError);
         myHist->SetBinError(k,0);
       }
       
       myHist->Draw((j==0)?"":"same");
+      myHist->GetYaxis()->SetRangeUser(-2,2);
+      gPad->Modified();
       
       
      }
+     TLine ll;ll.SetLineStyle(2);ll.DrawLine(dataHist->GetXaxis()->GetXmin(),-1,dataHist->GetXaxis()->GetXmax(),-1);ll.DrawLine(dataHist->GetXaxis()->GetXmin(),1,dataHist->GetXaxis()->GetXmax(),1);
+     delete dataHist;
      
      
     } else {
@@ -971,6 +1047,8 @@ void TRooWorkspace::Print(Option_t* opt) const {
   TString sOpt(opt);
   sOpt.ToLower();
   
+  if(sOpt.Contains("yields")) RooMsgService::instance().getStream(RooFit::INFO).removeTopic(RooFit::NumIntegration); //stop info message every time
+  
   if(sOpt.Contains("channels")) {
     //list the channels of this workspace ...
     std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
@@ -984,7 +1062,25 @@ void TRooWorkspace::Print(Option_t* opt) const {
       }
       if(chan->getAttribute("hidden")) std::cout << " [HIDDEN]";
       if(chan->getAttribute("isValidation")) std::cout << " [BLINDED]";
+      if(sOpt.Contains("yields")) {
+        double err; 
+        double inte = chan->IntegralAndError(err);
+        std::cout << Form(" [ %g +/- %g ]",inte,err);
+      }
       std::cout << std::endl;
+      if(sOpt.Contains("samples")) {
+        RooFIter fItr = chan->funcList().fwdIterator();
+        RooAbsArg* arg;
+        while( (arg = fItr.next()) ) {
+          std::cout << "   " << arg->GetName();
+          if(sOpt.Contains("yields")) {
+            double err; 
+            double inte = sampleIntegralAndError(err,arg->GetName(),(fCurrentFitResult)?*fCurrentFitResult:"");
+            std::cout << Form(" [ %g +/- %g ]",inte,err);
+          }
+          std::cout << std::endl;
+        }
+      }
     }
   } else if(sOpt.Contains("fits")) {
     //print RooFitResult's saved in the genericObjects list 
