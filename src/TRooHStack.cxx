@@ -39,6 +39,8 @@ TRooHStack::TRooHStack(const RooRealSumPdf& other, const RooArgSet& observables)
   
   if(fObservables.getSize()) fObservables.setName("obs");
   
+  fNormFactors.setName("!normFactors");fShapeFactors.setName("!shapeFactors");fStatFactors.setName("!statFactors");
+  
   std::vector<int> bins; std::vector<const Double_t*> binEdges;
     //take binning from the observables .. 
     for(int i=0;i<fObservables.getSize();i++) {
