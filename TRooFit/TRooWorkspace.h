@@ -47,8 +47,10 @@ public:
   bool sampleAdd(const char* sample, const char* channel,  TH1* h1);
   bool sampleAdd(const char* sample, const char* channel, RooAbsReal& arg);
   bool sampleAddVariation(const char* sample, const char* channel, const char* parName, double parVal, TH1* h1);
-  
   bool sampleFill(const char* sample, TTree* tree, const char* weight); //fills given sample in all channels where formula have been defined
+  
+  void SetBinContent(const char* sampleName, const char* channelName, Int_t bin, double val) { sample(sampleName,channelName)->SetBinContent(bin,val); }
+  void SetVariationBinContent(const char* sample, const char* channel, const char* parName, double parVal, Int_t bin, double val);
   
   //add a normalization factor to a sample, across all channels
   void sampleScale(const char* sample,RooAbsReal& arg);
@@ -69,9 +71,13 @@ public:
   
   void DisableForcedRecommendedOption(bool in) { kDisabledForcedRecommendedOptions=in; } //use to override forcing of the recommended fit options when calling fitTo
   
+  RooFitResult* fitTo(RooAbsData* theData, RooArgSet* globalObserables=0, bool doHesse=true);
   RooFitResult* fitTo(const char* dataName=0, bool doHesse=true, const RooArgSet& minosPars=RooArgSet(),const char* impactPar=0);
   RooFitResult* loadFit(const char* fitName,bool prefit=false);
   RooFitResult* getFit(const char* fitName=0) { return dynamic_cast<RooFitResult*>(obj((fitName==0)?fCurrentFit.Data():fitName)); }
+  RooAbsReal* getFitNll(const char* fitName=0);
+  
+  double pll(RooAbsData* theData, RooArgSet* globalObservables=0);
   
   void addLabel(const char* label) { fLabels.push_back(label); }
   
@@ -80,6 +86,8 @@ public:
   RooSimultaneous* model(const char* channels="*");
   
   bool generateAsimov(const char* name, const char* title, bool fitToObsData=true);
+  std::pair<RooAbsData*,RooArgSet*> generateToy(const char* name, const char* title, bool fitToObsData=true);
+  
   
   //controls which channels are visible when drawing things
   //sets the 'hidden' attribute on non-visible channels

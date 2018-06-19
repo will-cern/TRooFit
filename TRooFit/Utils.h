@@ -39,6 +39,7 @@ class TRooFit : public TObject  {
     static std::pair<RooAbsData*,RooArgSet*> generateAsimovDataset(RooAbsPdf* thePdf, RooAbsData* data, const RooArgSet* gobs=0);
     static std::pair<RooAbsData*,RooArgSet*> generateAsimovDataset(RooAbsPdf* thePdf, const RooArgSet* obs, const RooArgSet* gobs=0);
     static std::pair<RooAbsData*,RooArgSet*> generateToy(RooAbsPdf* model, RooAbsData* data, const RooArgSet* gobs=0, bool doBinned=true);
+    static std::pair<RooAbsData*,RooArgSet*> generateToy(RooAbsPdf* model, const RooArgSet* obs, const RooArgSet* gobs=0, bool doBinned=true);
     
     
     //attempts to create a roostats ModelConfig from a workspace containing a model (pdf), data, and give name of parameter of interest

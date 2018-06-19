@@ -217,6 +217,13 @@ std::pair<RooAbsData*,RooArgSet*> TRooFit::generateAsimovDataset(RooAbsPdf* theP
 }
 
 std::pair<RooAbsData*,RooArgSet*> TRooFit::generateToy(RooAbsPdf* thePdf, RooAbsData* data, const RooArgSet* gobs, bool doBinned) {
+  RooArgSet* obs = thePdf->getObservables(data);
+  auto out = generateToy(thePdf, obs, gobs, doBinned);
+  delete obs;
+  return out;
+}
+
+std::pair<RooAbsData*,RooArgSet*> TRooFit::generateToy(RooAbsPdf* thePdf, const RooArgSet* obs, const RooArgSet* gobs, bool doBinned) {
    
    
    std::pair<RooAbsData*,RooArgSet*> out = std::make_pair(nullptr,nullptr);
@@ -234,16 +241,14 @@ std::pair<RooAbsData*,RooArgSet*> TRooFit::generateToy(RooAbsPdf* thePdf, RooAbs
     }
    
     //have to first check if expected events are zero ... if it is, then the dataset is just empty ('generate' method fails when expectedEvents = 0)
-    RooArgSet* obs = thePdf->getObservables(data);
     
-    if(thePdf->expectedEvents(*data->get())==0) {
+    if(thePdf->expectedEvents(*obs)==0) {
         out.first = new RooDataSet("toyData","toyData",*obs);
     } else {
       
       out.first = (doBinned) ? thePdf->generate(*obs,RooFit::Extended(),RooFit::AllBinned()) : thePdf->generate(*obs,RooFit::Extended());
     }
     
-    delete obs;
     
    return out;
 
@@ -277,7 +282,7 @@ RooFitResult* TRooFit::minimize(RooAbsReal* nll, bool save, bool hesse) {
 
     //NOTE: minuit2 seems to distort the tolerance in a weird way, so that tol becomes 100 times smaller than specified
     //Also note that if fits are failing because of edm over max, it can be a good idea to activate the Offset option when building nll
-    std::cout << Form("Fit Status=%d (edm=%f, tol=%f), Rescanning #%d...",status,_minimizer.fitter()->Result().Edm(),tol,tries) << std::endl;
+    msg().Warning("minimize","Fit Status=%d (edm=%f, tol=%f), Rescanning #%d...",status,_minimizer.fitter()->Result().Edm(),tol,tries);
     _minimizer.minimize(minim,"Scan");
     if(tries == 2) _minimizer.setStrategy(strategy+1); //up the strategy
     if(tries == 3) { minim = "Minuit"; algorithm = "migradImproved"; }
@@ -289,7 +294,7 @@ RooFitResult* TRooFit::minimize(RooAbsReal* nll, bool save, bool hesse) {
   if(save) out = _minimizer.save("fitResult","fitResult");
   
   if(status%1000 != 0) {
-    std::cout << Form("Warning: fit status %d",status) << std::endl;
+    msg().Warning("minimize"," fit status %d",status);
   }
   
   if(printLevel < 0) RooMsgService::instance().setGlobalKillBelow(msglevel); 

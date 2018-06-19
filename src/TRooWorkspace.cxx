@@ -52,6 +52,8 @@ TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
   
   if(fIsHFWorkspace) {
     if(set("ModelConfig_Observables")) defineSet("obs",*set("ModelConfig_Observables"));
+    if(set("ModelConfig_POI")) defineSet("poi",*set("ModelConfig_POI"));
+    
     //go through nuisance parameters and  guess errors for any params that dont have errors ..
     const RooArgSet* np = set("ModelConfig_NuisParams");
     if(np) {
@@ -83,7 +85,12 @@ RooRealVar* TRooWorkspace::addParameter(const char* name, const char* title, dou
   v->setVal(val);
   v->SetTitle(title);
   
-  if(constraintType) v->setStringAttribute("constraintType",constraintType);
+  if(constraintType) {
+    v->setStringAttribute("constraintType",constraintType);
+    TString cType(constraintType);
+    cType.ToUpper();
+    if(cType=="NORMAL") v->setError(1);  
+  }
   
   return v;
 }
@@ -302,6 +309,14 @@ bool TRooWorkspace::sampleAddVariation(const char* sampleName, const char* chann
     return kFALSE;
   }
   return sample(sampleName,channelName)->AddVariation(*var(parName), parVal, h1);
+}
+
+void TRooWorkspace::SetVariationBinContent(const char* sampleName, const char* channelName, const char* parName, double parVal, Int_t bin, double val) {
+  //get the parameter 
+  if(!var(parName)) {
+    Error("SetVariationBinContent","%s is not defined. Please call addParameter method first to define the parameter",parName);
+  }
+  sample(sampleName,channelName)->SetVariationBinContent(*var(parName), parVal, bin,val);
 }
 
 double TRooWorkspace::sampleIntegralAndError(double& err, const char* sampleFullName, const TRooFitResult& fr) const {
@@ -523,11 +538,192 @@ bool TRooWorkspace::generateAsimov(const char* name, const char* title, bool fit
   
 }
 
+std::pair<RooAbsData*,RooArgSet*> TRooWorkspace::generateToy(const char* name, const char* title, bool fitToObsData) {
+  RooAbsPdf* thePdf = model();
+
+  if(fitToObsData && data("obsData")) {
+    //fit to data first, holding parameters of interest constant at their current values ...
+    RooArgSet* snap = 0;
+    if(set("poi")) {
+      snap = (RooArgSet*)set("poi")->snapshot();
+      const_cast<RooArgSet*>(set("poi"))->setAttribAll("Constant",kTRUE);
+    }
+    auto nll = TRooFit::createNLL(thePdf,data("obsData"),set("globalObservables"));
+    loadSnapshot("obsData_globalObservables");
+    auto fitResult = TRooFit::minimize(nll,true,false); //hesse not needed, just need best fit values 
+    import(*fitResult,Form("conditionalFit_obsData_for%s",name));
+    delete fitResult;
+    if(snap) {
+       *const_cast<RooArgSet*>(set("poi")) = *snap; //restores constant statuses 
+       delete snap;
+    }
+  }
+  
+  auto out = TRooFit::generateToy(thePdf,set("obs"),set("globalObservables"));
+  
+  if(out.second) out.second->setName(Form("%s_globalObservables",name));
+  out.first->SetName(name);out.first->SetTitle(title);
+  
+  return out;
+  
+}
+
+double TRooWorkspace::pll(RooAbsData* theData, RooArgSet* globalObservables) {
+  
+  if(set("poi")==0) {
+    Error("pll","You must define parameters of interest");
+    return 0;
+  }
+  
+  //RooArgSet* allSnap = (RooArgSet*)allVars().snapshot();
+  RooArgSet _poi(*set("poi"));
+  
+  //do an unconditional fit ...
+  RooArgSet* snap = (RooArgSet*)allVars().snapshot();
+  _poi.setAttribAll("Constant",kFALSE);
+  
+  RooFitResult* unconditionalFit = fitTo(theData,globalObservables,false /*no need for hesse*/);
+  
+  //do a conditional fit ...
+  allVars() = *snap; //restores values
+  _poi.setAttribAll("Constant",kTRUE);
+  
+  
+  RooFitResult* conditionalFit = fitTo(theData,globalObservables,false /*no need for hesse*/);
+  
+  allVars() = *snap; //restores values
+  
+  double out = 2.0*(conditionalFit->minNll() - unconditionalFit->minNll());
+  
+  delete unconditionalFit;
+  delete conditionalFit;
+  delete snap;
+  
+  return out;
+  
+  
+}
+
+
 #include "TMultiGraph.h"
 
 template <class T> struct greater_abs {
         bool operator() (const T& x, const T& y) const {return fabs(x)>fabs(y);}
       };
+
+
+RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, RooArgSet* globalObservables, bool doHesse) {
+  RooSimultaneous* thePdf = model();
+  TString simPdfName(thePdf->GetName());
+  
+  if(globalObservables) allVars() = *globalObservables; //sets the global observables;
+  
+  //check if we need to reduce the data (remove validation regions)
+  std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+  TObject* c;
+  TString excludedChannels;
+  std::set<TString> excludedChannelsSet;
+  while( (c = catIter->Next()) ) {
+    if(!thePdf->getPdf(c->GetName())) {
+      excludedChannelsSet.insert(c->GetName());
+      if(excludedChannels!="") excludedChannels += " || ";
+      excludedChannels += Form("channelCat == %d",((RooCatType*)c)->getVal());
+    }
+  }
+  RooAbsData* reducedData=0;
+  
+  bool internalData = (data(theData->GetName())==theData); //data is already saved into workspace?
+  
+  if(excludedChannels!="" && theData->sumEntries(excludedChannels)>0) {
+    TString dataName = TString::Format("reduced_%s_for_%s",theData->GetName(),thePdf->GetName());
+    if(!internalData || !embeddedData(dataName)) {
+      Info("fitTo","reducing %s to exclude validation channels",theData->GetName());
+      TString cutString="!(";cutString+=excludedChannels;cutString+=")";
+      
+      //discovered that asimov datasets aren't properly reduced, they have been losing their weights ... so will do a manual reduction ..
+      //if dataset is weighted
+      if(theData->isWeighted()) {
+        RooArgSet obs(*theData->get());RooRealVar weightVar("weightVar","weightVar",1);
+        obs.add(weightVar);
+        reducedData = new RooDataSet(theData->GetName(),theData->GetTitle(),obs,"weightVar");
+        for(int i=0;i<theData->numEntries();i++) {
+          if(excludedChannelsSet.find(theData->get(i)->getCatLabel("channelCat"))!=excludedChannelsSet.end()) continue; //skip excluded channels
+          
+          reducedData->add(*theData->get(),theData->weight());
+        }
+      } else {
+        reducedData = theData->reduce(cutString);
+      }
+      
+      reducedData->SetName(dataName);
+      if(internalData) {
+        import(*reducedData,RooFit::Embedded());
+        delete reducedData;
+      }
+    }
+    theData = (internalData) ? embeddedData(dataName) : reducedData;
+  }
+  
+  //load or otherwise create the nll
+  RooAbsReal* nll = (!internalData) ? 0 : function(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
+  if(!nll) {
+    nll = TRooFit::createNLL(thePdf,theData,set(Form("globalObservables%s",TString(simPdfName(6,simPdfName.Length()-6)).Data())));
+    nll->SetName(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
+    if(internalData) {
+      import(*nll,RooFit::Silence());
+      delete nll;
+      nll = function(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
+    }
+  }
+  
+  //any floating parameter that does not feature in the pdf or dataset should be held constant ... 
+  //if this isn't done then saw getError method in TRooAbsH1 ends up putting variables like stat gamma's of validation regions into nset, which shouldn't be in the nset
+  RooArgSet* allPars = thePdf->getParameters(RooArgSet());
+  RooArgSet _allVars = allVars();
+  RooArgSet* allFloatVars = static_cast<RooArgSet*>(_allVars.selectByAttrib("Constant",kFALSE));
+  allFloatVars->remove(*allPars);allFloatVars->remove(*theData->get(),true,true);
+  if(allFloatVars->getSize()) {
+    Info("fitTo","Setting the following parameters constant:");
+    allFloatVars->Print();
+    allFloatVars->setAttribAll("Constant",kTRUE);
+  }
+  delete allPars; delete allFloatVars;
+  
+  if(!kDisabledForcedRecommendedOptions) TRooFit::setRecommendedDefaultOptions();
+  RooFitResult* result = TRooFit::minimize(nll, true, doHesse);
+  if(internalData) result->Print();
+  result->SetName(Form("fitTo_%s",theData->GetName()));
+  result->SetTitle(result->GetTitle());
+  
+  if(internalData) nll->setAttribute(result->GetName()); //used to track which nll corresponds to which fit
+  
+  if(reducedData && !internalData) delete reducedData;
+  
+  //before returning we will override _minLL with the actual NLL value ... offsetting could have messed up the value
+  result->_minNLL = nll->getVal();
+  
+  if(!internalData) delete nll;
+  
+  return result;
+  
+}
+
+RooAbsReal* TRooWorkspace::getFitNll(const char* fitName) {
+  TString sFitName = (fitName) ? fitName : fCurrentFit.Data();
+  
+  if(sFitName=="") return 0;
+  
+  std::unique_ptr<RooAbsCollection> possibleNll( allFunctions().selectByAttrib(sFitName,true) );
+
+  if(possibleNll->getSize()==0) return 0;
+  else if(possibleNll->getSize()==1) return static_cast<RooAbsReal*>(possibleNll->first());
+  else {
+    Error("getFitNll","Found %d possible nll functions for %s ?? ",possibleNll->getSize(),sFitName.Data());
+    return 0;
+  }
+  
+  
+}
 
 RooFitResult* TRooWorkspace::fitTo(const char* dataName, bool doHesse, const RooArgSet& minosPars, const char* impactPar) {
   RooAbsData* theData = data((dataName)?dataName:fCurrentData.Data());
@@ -538,6 +734,8 @@ RooFitResult* TRooWorkspace::fitTo(const char* dataName, bool doHesse, const Roo
   }
   
   fCurrentData = theData->GetName(); //switch to this data
+  
+  
   
   
   RooSimultaneous* thePdf = model();
@@ -611,7 +809,7 @@ RooFitResult* TRooWorkspace::fitTo(const char* dataName, bool doHesse, const Roo
   delete allPars; delete allFloatVars;
   
   if(!kDisabledForcedRecommendedOptions) TRooFit::setRecommendedDefaultOptions();
-  RooFitResult* result = TRooFit::minimize(nll);
+  RooFitResult* result = TRooFit::minimize(nll,true,doHesse);
   result->Print();
   result->SetName(Form("fitTo_%s",theData->GetName()));
   result->SetTitle(result->GetTitle());
@@ -620,7 +818,9 @@ RooFitResult* TRooWorkspace::fitTo(const char* dataName, bool doHesse, const Roo
   
   RooFitResult* out = loadFit(Form("fitTo_%s",theData->GetName()));
   out->_statusHistory = result->_statusHistory; //HACK!!
-   
+    //before returning we will override _minLL with the actual NLL value ... offsetting could have messed up the value
+  out->_minNLL = nll->getVal();
+  
   delete result;
   
   
@@ -813,6 +1013,8 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
   double currMax = pad->GetUymax();
   double currMin = pad->GetUymin();
   
+  if(currMax < fDummyHists[channelName]->GetMaximum()) currMax=fDummyHists[channelName]->GetMaximum();
+  
   //double yScale = (currMax-currMin)/(1.-gPad->GetTopMargin()-gPad->GetBottomMargin());
   
   //want new max to give a newYscale where currMax is at shifted location 
@@ -853,15 +1055,18 @@ void TRooWorkspace::Draw(Option_t* option, const TRooFitResult& res) {
   TString sOpt(option);
   sOpt.ToLower();
   
-  if(sOpt.Contains("pull")) {
+  if(sOpt.Contains("pull") || sOpt.Contains("cor")) {
     //just draw the pull plot of the fit result ..
     RooArgSet* visibleArgs = static_cast<RooArgSet*>(allVars().selectByAttrib("hidden",kFALSE));
     RooArgList* l = static_cast<RooArgList*>(fCurrentFitResult->floatParsFinal().selectCommon(*visibleArgs));
     delete visibleArgs;
-    if(fCurrentFitResult) fCurrentFitResult->Draw("pull",*l);
+    if(fCurrentFitResult) fCurrentFitResult->Draw(sOpt,*l);
     delete l;
     return;
   }
+  
+
+  
   
   if(!sOpt.Contains("same")) {
     pad->Clear();
