@@ -331,12 +331,33 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
       TString myTitle(func->GetTitle());
       //for nicer histfactory support ...
       if(myTitle.Contains(TString("_")+GetTitle())) myTitle = myTitle.ReplaceAll(TString("_")+GetTitle(),"");
-      myTitle.ReplaceAll("L_x_",""); myTitle.ReplaceAll("_overallSyst_x_StatUncert",""); myTitle.ReplaceAll("_overallSyst_x_HistSyst","");
+      myTitle.ReplaceAll("L_x_",""); 
+      myTitle.ReplaceAll("_overallSyst",""); 
+      myTitle.ReplaceAll("_x_StatUncert","");
+      myTitle.ReplaceAll("_x_HistSyst","");
+      myTitle.ReplaceAll("_x_Exp","");
       hist->SetTitle(myTitle); 
       
       hist->SetFillColor(TRooFit::GetColorByName(myTitle,true));
       
+      //before filling histogram, we need to apply parameters from the fit result, if given ...
+      RooArgSet* paramSnapshot = 0;
+      if(fr) {
+        std::unique_ptr<RooArgSet> floatParams(func->getObservables(fr->floatParsFinal()));
+        std::unique_ptr<RooArgSet> constParams(func->getObservables(fr->constPars()));
+        floatParams->add(*constParams);
+        paramSnapshot = static_cast<RooArgSet*>(floatParams->snapshot());
+        *floatParams = fr->floatParsFinal();
+        *floatParams = fr->constPars();
+      }
+      
       func->fillHistogram(hist,fObservables); //this method assumes function is flat across each bin too (like getBinContent of TRooH1)
+    
+      if(fr) {
+        std::unique_ptr<RooArgSet> floatParams(func->getObservables(*paramSnapshot));
+        *floatParams = *paramSnapshot;
+        delete paramSnapshot;
+      }
     
       //remove all error bars, since this is going in the stack ..
       for(int i=1;i<=hist->GetNbinsX();i++) hist->SetBinError(i,0);
