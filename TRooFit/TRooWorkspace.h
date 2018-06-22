@@ -71,8 +71,10 @@ public:
   
   void DisableForcedRecommendedOption(bool in) { kDisabledForcedRecommendedOptions=in; } //use to override forcing of the recommended fit options when calling fitTo
   
-  RooFitResult* fitTo(RooAbsData* theData, RooArgSet* globalObserables=0, bool doHesse=true);
-  RooFitResult* fitTo(const char* dataName=0, bool doHesse=true, const RooArgSet& minosPars=RooArgSet(),const char* impactPar=0);
+  void impact(const char* impactPar=0);
+  
+  RooFitResult* fitTo(RooAbsData* theData, const RooArgSet* globalObserables=0, bool doHesse=true);
+  RooFitResult* fitTo(const char* dataName=0, bool doHesse=true, const RooArgSet& minosPars=RooArgSet());
   RooFitResult* loadFit(const char* fitName,bool prefit=false);
   RooFitResult* getFit(const char* fitName=0) { return dynamic_cast<RooFitResult*>(obj((fitName==0)?fCurrentFit.Data():fitName)); }
   RooAbsReal* getFitNll(const char* fitName=0);
@@ -113,7 +115,7 @@ public:
   
   Bool_t writeToFile(const char* fileName, Bool_t recreate=kTRUE);
   
-  virtual void Print(Option_t* opt) const;
+  virtual void Print(Option_t* opt="") const;
   
   static void setDefaultStyle();
   
