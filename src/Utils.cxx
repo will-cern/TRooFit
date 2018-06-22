@@ -303,7 +303,7 @@ RooFitResult* TRooFit::minimize(RooAbsReal* nll, bool save, bool hesse) {
 }
 
 //The reason for this minos method is because the builtin ROOT method seems to be both inefficient and also fails to find solutions (e.g. runs out of iterations)
-RooFitResult* TRooFit::minos(RooAbsReal* nll, const RooArgSet& pars, RooFitResult* unconditionalFitResult) {
+RooFitResult* TRooFit::minos(RooAbsReal* nll, const RooArgSet& pars, RooFitResult* unconditionalFitResult, bool respectBoundaries) {
   
   int printLevel  =   ::ROOT::Math::MinimizerOptions::DefaultPrintLevel();
   
@@ -330,6 +330,8 @@ RooFitResult* TRooFit::minos(RooAbsReal* nll, const RooArgSet& pars, RooFitResul
   
   double nll_absMin = nll->getVal();//unconditionalFitResult->minNll(); -- cannot use minNll because might be offset corrected
   
+  int status(0);
+  
   while( RooAbsArg* arg = itr.next() ) {
     RooRealVar* par = dynamic_cast<RooRealVar*>(arg);
     if(!par) continue; //only do minos errors for real vars 
@@ -344,6 +346,7 @@ RooFitResult* TRooFit::minos(RooAbsReal* nll, const RooArgSet& pars, RooFitResul
     //starting guess will be existing error on parameters
     //can use par since above assignment operation should have copied over all the errors
     double bestFitVal = par->getVal();
+    double parMax = par->getMax(); double parMin = par->getMin();
     double bestFitErrHi = par->getErrorHi();
     double bestFitErrLo = par->getErrorLo();
    
@@ -352,13 +355,33 @@ RooFitResult* TRooFit::minos(RooAbsReal* nll, const RooArgSet& pars, RooFitResul
     
     if(printLevel>0) { msg().Info("TRooFit::minos","%s +/- errors are %f / %f",arg->GetName(),sigma_hi,sigma_lo); }
     
+    if(std::isnan(sigma_hi)) {
+      sigma_hi = 0;
+      unconditionalFitResult->floatParsFinal().find(*par)->setAttribute("minosErrorHi_isnan");
+      status=3;
+    }
+    if(std::isnan(sigma_lo)) {
+      sigma_lo = 0;
+      unconditionalFitResult->floatParsFinal().find(*par)->setAttribute("minosErrorLo_isnan");
+      status=3;
+    }
+    
+    if(respectBoundaries) {
+      if(sigma_hi+bestFitVal>parMax) sigma_hi=parMax-bestFitVal;
+      if(bestFitVal-sigma_lo<parMin) sigma_lo=bestFitVal-parMin;
+    }
+    
     //copy the errors into the fit result
     ((RooRealVar*)unconditionalFitResult->floatParsFinal().find(*par))->setAsymError(-sigma_lo,sigma_hi);
     
     //finish by restoring floatPars to unconditional values
     *floatPars = unconditionalFitResult->floatParsFinal();
+    
+    //and ensure range is restored 
+    par->setMin(parMin); par->setMax(parMax);
+    
   }
-  
+  unconditionalFitResult->_statusHistory.push_back( std::make_pair("TF_MINOS", status ) );
   
   delete floatPars;
   

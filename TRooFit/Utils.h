@@ -5,6 +5,10 @@
 #ifndef TROOFIT
 #define TROOFIT
 
+#define protected public
+#include "RooFitResult.h"
+#undef protected
+
 #include "RooAbsPdf.h"
 #include "TRooH1.h"
 
@@ -27,7 +31,7 @@ class TRooFit : public TObject  {
     static RooFitResult* minimize(RooAbsReal* nll, bool save=true, bool hesse=true);
     //updates the asymmetric errors of the given fitResult with the minos errors of the specified pars
     //This method improves on the built-in Minos() method of RooFit, which was found to be unstable
-    static RooFitResult* minos(RooAbsReal* nll, const RooArgSet& pars,RooFitResult* unconditionalFitResult = 0);
+    static RooFitResult* minos(RooAbsReal* nll, const RooArgSet& pars,RooFitResult* unconditionalFitResult = 0, bool respectBoundaries=false);
     //do a series of minos fits, with progressive parameters held constant as determined by the groups
     //this is used when computing a breakdown of uncertainties
     //runInitialMinos should be true if minos has not already been run on the unconditionalFitResult, if it was provided
