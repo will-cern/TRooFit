@@ -827,7 +827,7 @@ RooFitResult* TRooWorkspace::fitTo(const char* dataName, bool doHesse, const Roo
   import(*result,true/*overwrites existing*/); //FIXME: the statusHistory is not imported because RooFitResult Clone doesnt copy
 
   
-  RooFitResult* out = loadFit(Form("fitTo_%s",theData->GetName()));
+  RooFitResult* out = loadFit(result->GetName());
   out->_statusHistory = result->_statusHistory; //HACK!!
 
   
