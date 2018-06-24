@@ -40,6 +40,17 @@ Int_t TRooFit::GetColorByName(const char* name, bool generateColor) {
   
 }
 
+void TRooFit::RemoveErrors(TH1* hist, double relUncertThreshold) {
+  for(int i=1;i<=hist->GetXaxis()->GetNbins();i++) {
+    for(int j=1;j<=hist->GetYaxis()->GetNbins();j++) {
+      for(int k=1;k<=hist->GetZaxis()->GetNbins();k++) {
+        if(hist->GetBinError(i,j,k)/(hist->GetBinContent(i,j,k)+1e-15)<relUncertThreshold) hist->SetBinError(i,j,k,0.);
+      }
+    }
+  }
+
+}
+
 
 RooStats::ModelConfig* TRooFit::CreateModelConfig(RooWorkspace& w, const char* modelName, const char* dataName, const char* poiName ) {
 

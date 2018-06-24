@@ -73,7 +73,8 @@ class TRooFit : public TObject  {
    
     //TRooFit( RooWorkspace& w, const char* poiNames=0 ); 
    
-   
+   //function that removes uncertainties on a given histogram
+   static void RemoveErrors(TH1* hist, double relUncertThreshold=99999.);
    
    
     ClassDef(TRooFit,1);
