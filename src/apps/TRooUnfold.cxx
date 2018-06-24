@@ -39,12 +39,16 @@ TRooUnfold::TRooUnfold(const char* name, const char* title,TH2* nominalMigration
   
 }
 
-Bool_t TRooUnfold::AddMigrationMatrix(TH2* matrix, const char* variation) {
-  if(m_migrationMatrix[variation]==0) {
-    m_migrationMatrix[variation] = (TH2*)matrix->Clone(Form("migration_%s",variation));
-    m_migrationMatrix[variation]->SetDirectory(0);
+Bool_t TRooUnfold::AddMigrationMatrix(TH2* migrationMatrix, const char* variation) {
+  TString sVar(variation);
+  if(m_migrationMatrix[sVar]==0) {
+    migrationMatrix->Print();
+    TH2* myMatrix = (TH2*)migrationMatrix->Clone(Form("migration_%s",sVar.Data()));
+    myMatrix->Print();
+    m_migrationMatrix[sVar] = myMatrix;
+    m_migrationMatrix[sVar]->SetDirectory(0);
   } else {
-    m_migrationMatrix[variation]->Add(matrix);
+    m_migrationMatrix[sVar]->Add(migrationMatrix);
   }
   return kTRUE;
 }
@@ -178,7 +182,7 @@ Bool_t TRooUnfold::BuildModel() {
       m_fidPurity[myPair.first] = recodTruth;
       
       //check if any of the bins are > 1 ... which would indicate a problem ..
-      if(recodTruth->GetBinContent( recodTruth->GetMaximumBin() ) > 1.) {
+      if(recodTruth->GetBinContent( recodTruth->GetMaximumBin() ) > 1.000001) {
         Error("BuildModel","Fiducial Purity > 1 (%f) found in bin %d", recodTruth->GetBinContent( recodTruth->GetMaximumBin() ), recodTruth->GetMaximumBin());
         return kFALSE;
       }
@@ -286,7 +290,7 @@ Bool_t TRooUnfold::BuildModel() {
       if(m_systNP[vName]==0) {
         m_systNP[vName] = new RooRealVar(vName,vName,0,-5,5);
         m_systNP[vName]->setStringAttribute("constraintType","normal");
-        if(m_systGroup.find(vName)==m_systGroup.end()) m_systGroup[vName]="SYST";
+        if(m_systGroup.find(vName)==m_systGroup.end()) m_systGroup[vName]=vName;
         m_systNP[vName]->setAttribute(m_systGroup[vName],kTRUE);
         m_systNP[vName]->setError(1);
       }
@@ -313,7 +317,7 @@ Bool_t TRooUnfold::BuildModel() {
       if(m_systNP[vName]==0) {
         m_systNP[vName] = new RooRealVar(vName,vName,0,-5,5);
         m_systNP[vName]->setStringAttribute("constraintType","normal");
-        if(m_systGroup.find(vName)==m_systGroup.end()) m_systGroup[vName]="SYST";
+        if(m_systGroup.find(vName)==m_systGroup.end()) m_systGroup[vName]=vName;
         m_systNP[vName]->setAttribute(m_systGroup[vName],kTRUE);
         m_systNP[vName]->setError(1);
       }
@@ -364,8 +368,18 @@ Bool_t TRooUnfold::BuildModel() {
   RooArgSet* allPars = m_fullModel->getParameters(RooArgSet());
   RooFIter itrr(allPars->fwdIterator());
   while( RooAbsArg* arg = itrr.next() ) {
-    if(arg->getStringAttribute("constraintType")) arg->setAttribute("OTHER",kTRUE);
-    if(m_systGroup.find(arg->GetName())==m_systGroup.end()) m_systGroup[arg->GetName()]="OTHER";
+    if(arg->getStringAttribute("constraintType")) {
+      arg->setAttribute("OTHER",kTRUE);
+      if(m_systGroup.find(arg->GetName())==m_systGroup.end()) {
+        TString aName(arg->GetName());
+        if(aName.BeginsWith("recoStack_stat_bin")) {
+          m_systGroup[arg->GetName()]="MCSTAT";
+          arg->setAttribute("MCSTAT",kTRUE);
+        } else {
+          m_systGroup[arg->GetName()]="OTHER";
+        }
+      }
+    }
   }
   delete allPars;
   
@@ -655,6 +669,8 @@ RooFitResult* TRooUnfold::Fit(TH1* data, bool doMinos) {
     m_nll = TRooFit::createNLL(m_fullModel,m_dataSet,0);
   }
 
+
+  TRooFit::setRecommendedDefaultOptions();
   
   Info("Fit","Running unconditional global fit ... ");
   auto fitResult = TRooFit::minimize(m_nll); //run unconditional fit 
@@ -725,18 +741,40 @@ TH1* TRooUnfold::GetPrefitTruthHistogram() {
 
 std::vector<TH1*> TRooUnfold::GetPostfitTruthHistograms(const std::vector<TString>&& systGroups) {
 
+  std::vector<TString> myGroups(systGroups);
+
+  if(myGroups.size()==0) {
+    /*RooArgSet* allPars = m_nll->getObservables(m_fitResult->floatParsFinal());
+    RooFIter itr = allPars->fwdIterator();
+    RooAbsArg* arg;
+    bool hasMCSTAT=false;
+    bool hasSYST=false;
+    while( (arg = itr.next()) ) {
+      TString aName(arg->GetName());
+      if(aName.BeginsWith("recoStack_stat_bin")) {arg->setAttribute("MCSTAT"); hasMCSTAT=true;}
+      else if(!aName.BeginsWith("mu_")) {arg->setAttribute("SYST"); hasSYST=true;}
+    }
+    if(hasMCSTAT) myGroups.push_back("MCSTAT");
+    if(hasSYST) myGroups.push_back("SYST");
+    */
+    
+    for(auto& s : m_systGroup) {
+      if(std::find(myGroups.begin(),myGroups.end(),s.second)==myGroups.end()) myGroups.push_back(s.second);
+    }
+    
+  }
   
-  std::map<TString,RooArgList*> uncert_breakdown = TRooFit::breakdown(m_nll,m_poi,systGroups,m_fitResult);
+  std::map<TString,RooArgList*> uncert_breakdown = TRooFit::breakdown(m_nll,m_poi,myGroups,m_fitResult);
 
   std::vector<TH1*> out;
   
   std::vector<TString> allGroups;
   allGroups.push_back("nominal");allGroups.push_back("TOTAL");allGroups.push_back("STAT");
-  for(auto syst : systGroups) allGroups.push_back(syst);
+  for(auto syst : myGroups) allGroups.push_back(syst);
   
   
   for(auto group : allGroups) {
-    out.push_back(new TH1D(Form("unfold_%s",group.Data()),Form("truth (%s)",group.Data()),m_truthVar->numBins(),m_truthVar->getBinning().array()));
+    out.push_back(new TH1D(Form("unfold_%s",group.Data()),Form("%s",group.Data()),m_truthVar->numBins(),m_truthVar->getBinning().array()));
     out.back()->Sumw2();out.back()->SetDirectory(0);
     if(group!="nominal"&&group!="STAT") {
       out.back()->SetFillColor(out.back()->GetLineColor());out.back()->SetFillStyle(3004);
