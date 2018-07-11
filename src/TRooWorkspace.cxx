@@ -6,8 +6,12 @@
 #include "RooCategory.h"
 #include "RooDataSet.h"
 
+#include "TRooFit/Utils.h"
+
 
 TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
+  RooMsgService::instance().getStream(RooFit::INFO).removeTopic(RooFit::NumIntegration); //stop info message every time
+
   //dataset names do not get correctly imported by copy constructor!!
   auto otherData = other.allData();
   auto myData = allData();
@@ -239,6 +243,7 @@ bool TRooWorkspace::addSample(const char* name, const char* title, const char* c
       fDummyHists[c->GetName()]->Reset(); //ensures it is empty
       TString hName(Form("%s_%s",name,c->GetName()));
       TRooH1D* h = new TRooH1D(hName,title,*var(fDummyHists[c->GetName()]->GetName()),fDummyHists[c->GetName()]);
+      h->SetFillColor( TRooFit::GetColorByName(name,true) );
       if(!allowNegative) h->setFloor(true,0); //by default, samples cannot go negative
       //import(*h);
       channel(c->GetName())->Add(h);
@@ -409,7 +414,7 @@ void TRooWorkspace::sampleScale(const char* sampleName,RooAbsReal& arg) {
 }
 
 #include "TPRegexp.h"
-#include "TRooFit/Utils.h"
+
 
 RooSimultaneous* TRooWorkspace::model(const char* channels) {
   //builds the model for the given channels, putting them in a RooSimultaneous, then imports that and returns
@@ -568,7 +573,7 @@ std::pair<RooAbsData*,RooArgSet*> TRooWorkspace::generateToy(const char* name, c
   
 }
 
-double TRooWorkspace::pll(RooAbsData* theData, RooArgSet* globalObservables) {
+double TRooWorkspace::pll(RooAbsData* theData, const RooArgSet* globalObservables, bool oneSided, bool discovery) {
   
   if(set("poi")==0) {
     Error("pll","You must define parameters of interest");
@@ -584,22 +589,28 @@ double TRooWorkspace::pll(RooAbsData* theData, RooArgSet* globalObservables) {
   
   RooFitResult* unconditionalFit = fitTo(theData,globalObservables,false /*no need for hesse*/);
   
-  //do a conditional fit ...
   allVars() = *snap; //restores values
+  
+  if(oneSided) {
+    bool isGreater = ((RooAbsReal*)unconditionalFit->floatParsFinal().find(_poi.first()->GetName()))->getVal() > ((RooAbsReal*)_poi.first())->getVal();
+    if( (!discovery && isGreater) || (discovery && !isGreater) ) {
+          
+      delete unconditionalFit;
+      delete snap;
+      return 0;
+    }
+          
+  }
+  
+  
+  //do a conditional fit ...
   _poi.setAttribAll("Constant",kTRUE);
-  
-  
   RooFitResult* conditionalFit = fitTo(theData,globalObservables,false /*no need for hesse*/);
-  
   allVars() = *snap; //restores values
   
   double out = 2.0*(conditionalFit->minNll() - unconditionalFit->minNll());
   
-  /*if(((RooAbsReal*)unconditionalFit->floatParsFinal().find(_poi.first()->GetName()))->getVal() <
-        ((RooAbsReal*)_poi.first())->getVal() ) {
-          unconditionalFit->floatParsFinal().Print("v");
-          out = 0;
-  }*/
+  
   
   delete unconditionalFit;
   delete conditionalFit;

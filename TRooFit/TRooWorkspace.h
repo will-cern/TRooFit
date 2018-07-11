@@ -79,7 +79,7 @@ public:
   RooFitResult* getFit(const char* fitName=0) { return dynamic_cast<RooFitResult*>(obj((fitName==0)?fCurrentFit.Data():fitName)); }
   RooAbsReal* getFitNll(const char* fitName=0);
   
-  double pll(RooAbsData* theData, RooArgSet* globalObservables=0);
+  double pll(RooAbsData* theData, const RooArgSet* globalObservables=0, bool oneSided=false, bool discovery=false);
   
   void addLabel(const char* label) { fLabels.push_back(label); }
   
