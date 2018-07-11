@@ -8,6 +8,10 @@
 
 #include "TRooFit/Utils.h"
 
+#define protected public
+#include "RooGaussian.h"
+#undef protected
+
 
 TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
   RooMsgService::instance().getStream(RooFit::INFO).removeTopic(RooFit::NumIntegration); //stop info message every time
@@ -1279,7 +1283,13 @@ void TRooWorkspace::Print(Option_t* opt) const {
       }
       if(constraintPdf) {
         if(constraintPdf->InheritsFrom("RooGaussian")) {
-          paramStrings["gaussian"].push_back(_var->GetName());
+          //determine the "mean" (usually a global observable) and the standard deviation ...
+          RooGaussian* gPdf = static_cast<RooGaussian*>(constraintPdf);
+          double mean=0;
+          if(strcmp(gPdf->x.arg().GetName(),_var->GetName())==0) mean = gPdf->mean;
+          else mean = gPdf->x;
+          double sigma= gPdf->sigma;
+          paramStrings["gaussian"].push_back( Form("%s [%g,%g]",_var->GetName(),mean,sigma) );
         } else if(constraintPdf->InheritsFrom("RooPoisson")) {
           paramStrings["poisson"].push_back(_var->GetName());
         } else {
