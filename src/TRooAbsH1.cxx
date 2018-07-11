@@ -761,8 +761,7 @@ RooProdPdf* TRooAbsH1::buildConstraints(const RooArgSet& obs, const char* systGr
     }
   }
   if(freeParams.getSize()) {
-    Info("buildConstraints","%s - Detected %d free parameters:",GetName(),freeParams.getSize());
-    freeParams.Print();
+    Info("buildConstraints","%s - Detected %d free parameters: %s",GetName(),freeParams.getSize(),freeParams.contentsString().c_str());
   }
   
   delete nodes;

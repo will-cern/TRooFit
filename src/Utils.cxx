@@ -448,8 +448,7 @@ std::vector<RooFitResult*> TRooFit::minos_series(RooAbsReal* nll, const RooArgSe
       const_cast<RooArgList&>(nextResult->constPars()).addClone(floatCopy);
       
       //now run the minos 
-      std::cout << Form("minos_series: running minos for group %s. Parameters in group:",group.Data());
-      floatCopy.Print();
+      std::cout << Form("minos_series: running minos for group %s. Parameters in group: %s",group.Data(),floatCopy.contentsString().c_str()) << std::endl;
       
       TRooFit::minos(nll,pars,nextResult);
       

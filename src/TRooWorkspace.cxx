@@ -704,8 +704,7 @@ RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalO
   RooArgSet* allFloatVars = static_cast<RooArgSet*>(_allVars.selectByAttrib("Constant",kFALSE));
   allFloatVars->remove(*allPars);allFloatVars->remove(*theData->get(),true,true);
   if(allFloatVars->getSize()) {
-    Info("fitTo","Setting the following parameters constant:");
-    allFloatVars->Print();
+    Info("fitTo","Setting the following parameters constant: %s", allFloatVars->contentsString().c_str());
     allFloatVars->setAttribAll("Constant",kTRUE);
   }
   delete allPars; delete allFloatVars;
