@@ -1131,18 +1131,19 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
     if(!chan->dependsOn(*theVar)) continue; //no dependence
     
     if(doSlice) {
-      //perform 5 slices, around current value of parameter, based on range ...
+      //perform 3 slices, around current value of parameter, based on range ...
       double curVal = theVar->getVal();
-      double maxVal = theVar->getMax();
-      double minVal = theVar->getMin();
       
-      double minDiff = std::min(maxVal-curVal,curVal-minVal);
-      double step = minDiff/2.;
+      //double maxVal = theVar->getMax();
+      //double minVal = theVar->getMin();
+      //double minDiff = std::min(maxVal-curVal,curVal-minVal);
+      //double step = minDiff/2.;
       
       int cols[5] = {kOrange,kRed,kBlack,kBlue,kCyan};
       std::vector<TH1*> hists;
-      for(int j=-2;j<3;j++) {
-        double val = curVal + j*step;
+      for(int j=-1;j<2;j++) {
+        //double val = curVal + j*step;
+        double val = curVal; if(j<0) val += theVar->getErrorLo(); else if(j>0) val += theVar->getErrorHi();
         TRooFitResult r(TString::Format("%s=%f",_var,val));
         TH1* hist = (TH1*)chan->GetHistogram(&r,false)->Clone(chan->GetName());
         hist->SetDirectory(0);
@@ -1152,9 +1153,9 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
         hist->SetBit(kCanDelete);
         hists.push_back(hist);
       }
-      hists[0]->Divide(hists[2]);hists[1]->Divide(hists[2]);hists[3]->Divide(hists[2]);hists[4]->Divide(hists[2]);
-      hists[2]->Divide(hists[2]);
-      for(int j=0;j<5;j++) {
+      //hists[0]->Divide(hists[2]);hists[1]->Divide(hists[2]);hists[3]->Divide(hists[2]);hists[4]->Divide(hists[2]);
+      //hists[2]->Divide(hists[2]);
+      for(unsigned int j=0;j<hists.size();j++) {
         hists[j]->Draw((j==0)?"":"same");
       }
       
@@ -1279,7 +1280,7 @@ void TRooWorkspace::Print(Option_t* opt) const {
       if(chan->getAttribute("isValidation")) std::cout << " [BLINDED]";
       if(sOpt.Contains("yields")) {
         double err; 
-        double inte = chan->IntegralAndError(err);
+        double inte = chan->IntegralAndError(err,(fCurrentFitResult)?*fCurrentFitResult:"");
         std::cout << Form(" [ %g +/- %g ]",inte,err);
       }
       std::cout << std::endl;
