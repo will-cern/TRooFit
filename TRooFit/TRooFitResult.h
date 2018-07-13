@@ -49,7 +49,12 @@ public:
     
    };
    
-   
+  TRooFitResult(const TRooFitResult& fr) : RooFitResult(fr) {
+    //don't copy the draw objects though (anything that would get deleted in the destructor ... don't want a double delete)
+    fPullFrame = 0;
+    fPullGraph = 0;
+    fCovHist = 0;
+  }
 
   TRooFitResult(const char* name, const char* title, const RooArgList& finalPars); //will construct a covariance matrix assuming all uncorrelated
 
