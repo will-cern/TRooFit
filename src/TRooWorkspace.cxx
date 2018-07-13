@@ -61,6 +61,7 @@ TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
   if(fIsHFWorkspace) {
     if(set("ModelConfig_Observables")) defineSet("obs",*set("ModelConfig_Observables"));
     if(set("ModelConfig_POI")) defineSet("poi",*set("ModelConfig_POI"));
+    if(set("ModelConfig_GlobalObservables")) saveSnapshot("obsData_globalObservables",*set("ModelConfig_GlobalObservables"));
     
     //go through nuisance parameters and  guess errors for any params that dont have errors ..
     const RooArgSet* np = set("ModelConfig_NuisParams");
@@ -688,7 +689,18 @@ RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalO
   //load or otherwise create the nll
   RooAbsReal* nll = (!internalData) ? 0 : function(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
   if(!nll) {
+    //it seems that if any parameters are const and we later make them unconst then the nll doesnt update properly (the const optimization is borked) 
+    //so unconst all poi to be safe ...
+    RooArgSet* snap = 0;
+    if(set("poi")) {
+      snap = (RooArgSet*)set("poi")->snapshot();
+      const_cast<RooArgSet*>(set("poi"))->setAttribAll("Constant",kFALSE);
+    }
     nll = TRooFit::createNLL(thePdf,theData,set(Form("globalObservables%s",TString(simPdfName(6,simPdfName.Length()-6)).Data())));
+    if(snap) {
+      *const_cast<RooArgSet*>(set("poi")) = *snap;
+      delete snap;
+    }
     nll->SetName(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
     if(internalData) {
       import(*nll,RooFit::Silence());
@@ -933,6 +945,7 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
     //update all errors to usual poisson
     for(int i=1;i<=fDummyHists[channelName]->GetNbinsX();i++) fDummyHists[channelName]->SetBinError(i,sqrt(fDummyHists[channelName]->GetBinContent(i)));
     fDummyHists[channelName]->SetMarkerStyle(20);
+    fDummyHists[channelName]->SetLineColor(kBlack);
     fDummyHists[channelName]->Draw("same");
     myLegend->AddEntry(fDummyHists[channelName],data(fCurrentData)->GetTitle(),"lpe");
   }
@@ -1197,11 +1210,44 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
     
       TGraph2D* myGraph = new TGraph2D;
       //graph needs at least 2 points in x-axis to render correctly delauny triangles
-      chan->fillGraph(myGraph,RooArgList(*var(chan->GetObservableName(0)),*theVar),(var(chan->GetObservableName(0))->numBins()==1)?2:-1,10);
+      chan->fillGraph(myGraph,RooArgList(*var(chan->GetObservableName(0)),*theVar),(var(chan->GetObservableName(0))->numBins()==1)?2:-1,21);
       myGraph->SetName(chan->GetName());
       myGraph->SetTitle(chan->GetTitle());
-      myGraph->SetBit(kCanDelete);
-      myGraph->Draw(option);
+      /*myGraph->SetBit(kCanDelete);
+      myGraph->Draw(option);*/
+      
+      //graph2D is now a series of points, split this up into 1D graphs ...
+      int nBins = var(chan->GetObservableName(0))->numBins(chan->GetRangeName());
+      
+      TMultiGraph* allGraphs = new TMultiGraph; allGraphs->SetTitle(Form("%s;%s;%s",chan->GetTitle(),theVar->GetTitle(),(nBins==1)?"Bin Content":"Bin Content - Current Content"));
+      
+      if(nBins==1 || myGraph->GetN() == nBins*21) {
+        for(int k=0;k<nBins;k++) {
+          TGraph* gg = new TGraph;
+          for(int j=k*21;j<(k+1)*21;j++) {
+            double val = myGraph->GetZ()[j]*chan->GetBinVolume(k+1) - (nBins!=1)*chan->GetBinContent(k+1); //shift so that 0 = nominal if looking at multiple bins
+            if(fabs(val)<1e-12) val = 0; //seems to be a slight discrepency between values ... possibly difference in getBinVolume (used in GetBinContent) vs GetBinVolume)
+            gg->SetPoint(j%21,myGraph->GetY()[j],val); 
+          }
+          allGraphs->Add(gg);
+        }
+      } else {
+        Error("DrawDependence","Wrong number of points :-( ");
+      }
+      
+      delete myGraph;
+      
+      for(int j=0;j<allGraphs->GetListOfGraphs()->GetEntries();j++) {
+        TGraph* gg = (TGraph*)allGraphs->GetListOfGraphs()->At(j);
+        gg->SetTitle(Form("Bin %d",j+1));
+        gg->SetLineColor(j+2);
+      }
+      
+      
+      allGraphs->SetBit(kCanDelete);
+      allGraphs->Draw("AL");
+      
+      
     }
     gPad->Update();
     

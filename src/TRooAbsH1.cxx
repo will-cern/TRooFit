@@ -993,7 +993,7 @@ void TRooAbsH1::fillGraph(TGraph2D* graphToFill, const RooArgList& plotVars, int
   if(plotVars.getSize()!=2) {
     Error("fillGraph","Mismatch ... need exactly 2 vars to fill TGraph2D");
   }
-  graphToFill->Set(nPointsX*nPointsY);
+  if(nPointsX>0&&nPointsY>0) graphToFill->Set(nPointsX*nPointsY);
   
   RooAbsRealLValue* obs[2] = {0,0}; 
   double tmpVals[2] = {0,0};
@@ -1008,12 +1008,13 @@ void TRooAbsH1::fillGraph(TGraph2D* graphToFill, const RooArgList& plotVars, int
   }
   
   double n=0;
-  for(int j=0;j<((nPointsY<0)?obs[1]->numBins():nPointsY);j++) {
-    if(nPointsY<0) obs[1]->setBin(j);
-    else obs[1]->setVal( low[1] + j*(high[1]-low[1])/(nPointsY-1) );
-    for(int i=0;i<((nPointsX<0)?obs[0]->numBins():nPointsX);i++) {
-      if(nPointsX<0) obs[0]->setBin(i);
-      else obs[0]->setVal(  low[0] + i*(high[0]-low[0])/(nPointsX-1) );
+  for(int i=0;i<((nPointsX<0)?obs[0]->numBins(GetRangeName()):nPointsX);i++) {
+    if(nPointsX<0) obs[0]->setBin(i,GetRangeName());
+    else obs[0]->setVal(  low[0] + i*(high[0]-low[0])/(nPointsX-1) );
+    for(int j=0;j<((nPointsY<0)?obs[1]->numBins(GetRangeName()):nPointsY);j++) {
+      if(nPointsY<0) obs[1]->setBin(j,GetRangeName());
+      else obs[1]->setVal( low[1] + j*(high[1]-low[1])/(nPointsY-1) );
+    
       double expec = expectedEvents(fObservables); //expectation can be a function of xVar, so need to update
       graphToFill->SetPoint(n, obs[0]->getVal(), obs[1]->getVal(), getVal(fObservables)*expec );
       n++;
@@ -1126,7 +1127,7 @@ std::pair<double,double> TRooAbsH1::getError(const RooFitResult& fr, const RooAb
       RooRealVar& rrv = (RooRealVar&)fpf[fpf_idx[ivar]] ;
       
       Double_t cenVal = rrv.getVal() ;
-      Double_t errVal = sqrt(V(ivar,ivar)) ;
+      //Double_t errVal = sqrt(V(ivar,ivar)) ;
       
       
       // Make Plus variation
