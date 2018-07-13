@@ -7,6 +7,8 @@
 #include "TROOT.h"
 #include "TPad.h"
 
+#include <algorithm>
+
 ClassImp(TRooFitResult) 
 
 using namespace std;
@@ -170,6 +172,20 @@ void TRooFitResult::Draw(Option_t* option, const char* argFilter) {
   Draw(option,args);
 }
 
+double extractNumber(const TString& sWhat, const TString& pat) {
+      double out = 0.05;
+      int startPos = sWhat.Index(pat)+pat.Length();
+      int endPos = (sWhat.Index(" ",sWhat.Index(pat))==-1) ? sWhat.Length() :   //goes to end of sWhat
+                                sWhat.Index(" ",sWhat.Index(pat)); //goes to next occurance of a space 
+      TString s(sWhat(startPos, endPos-startPos));
+      if(s=="") return out; //defaults to 0.05;
+      out = s.Atof();
+      if(out==0||out>=1) return 0.05;
+      return out;
+}
+
+
+
 void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
   //Option: pull - draws pull plot for floating variables (provided their initial error was nonzero)
 
@@ -236,22 +252,98 @@ void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
   } else if(opt.Contains("cov")||opt.Contains("cor")) {
     //drawing a covariance matrix ..
     //obtain the reduced matrix ..
+    RooArgList l;
     const RooArgList* a = &args;
     if(!args.getSize()) a = &floatParsFinal();
+    
+    RooAbsArg* singleArg = 0;
+    if(a->getSize()==1) {
+      //this means user wants to see the correlations or variance wrt to a single parameter ...
+      singleArg = a->at(0);
+      a = &floatParsFinal();
+    }
+    
     auto cov = reducedCovarianceMatrix(*a);
-    TH2D* covHist = new TH2D(opt.Contains("cov") ? "covariance" : "correlation",opt.Contains("cov")?"Covariance":"Correlation",a->getSize(),0,a->getSize(),a->getSize(),0,a->getSize());
-    for(int i=1;i<=a->getSize();i++) {
-      covHist->GetXaxis()->SetBinLabel(i, a->at(i-1)->GetTitle());
-      for(int j=1;j<=a->getSize();j++) {
-        if(i==1) covHist->GetYaxis()->SetBinLabel(j, a->at(j-1)->GetTitle());
-        if(opt.Contains("cor")) {
-          covHist->SetBinContent(i,j,cov(i-1,j-1)/sqrt(cov(i-1,i-1)*cov(j-1,j-1)));
-        } else {
-          covHist->SetBinContent(i,j,cov(i-1,j-1));
+    TString myTitle = opt.Contains("cov")?"Covariance":"Correlation";
+    if(opt.Contains("threshold=")) {
+      //going to filter variables so only ones with at least one non-diagonal entry with magnitude greater than threshold are shown ...
+      double thresh = extractNumber(opt,"threshold=");
+      for(int i=1;i<=a->getSize();i++) {
+        bool keep(false);
+        for(int j=1;j<=a->getSize();j++) {
+          if(i==j) continue; //skip diagonals
+          if(singleArg && strcmp(a->at(j-1)->GetName(),singleArg->GetName())!=0) continue; //when doing a single arg, only look at that arg
+          double val = opt.Contains("cor") ? cov(i-1,j-1)/sqrt(cov(i-1,i-1)*cov(j-1,j-1)) : cov(i-1,j-1);
+          if(fabs(val) >= thresh) { keep = true; break; }
         }
+        if(keep) l.add(*a->at(i-1));
+      }
+      if(l.getSize()!=a->getSize()) {
+        if(l.getSize()==0) {
+          Info("Draw","No values above threshold %g",thresh);
+          return;
+        }
+        if(singleArg) l.add(*singleArg);
+        a = &l;
+        cov.ResizeTo(a->getSize(),a->getSize());
+        cov = reducedCovarianceMatrix(*a);
+        myTitle += Form(" (Threshold = %g)",thresh);
       }
     }
-    if(opt.Contains("cor")) { covHist->SetAxisRange(-1,1,"Z"); }
+    
+    TH1* covHist = 0;
+    if(singleArg) {
+      myTitle = Form("%s %s",singleArg->GetTitle(),myTitle.Data());
+      covHist = new TH1D(opt.Contains("cov") ? "covariance" : "correlation",myTitle,a->getSize()-1,0,a->getSize()-1);
+      covHist->SetDirectory(0);
+      int j = a->index(singleArg)+1;
+      std::vector<std::pair<std::string,double>> vals;
+      int count(0);
+      for(int i=1;i<=a->getSize();i++) {
+        if(i==j) continue; //don't plot self correlation/covariance
+        vals.push_back( std::make_pair(a->at(i-1)->GetTitle(), (opt.Contains("cor") ? cov(i-1,j-1)/sqrt(cov(i-1,i-1)*cov(j-1,j-1)) : cov(i-1,j-1) ) ) );
+        count++;
+        covHist->GetXaxis()->SetBinLabel(count,a->at(i-1)->GetTitle());
+        if(opt.Contains("cor")) {
+          covHist->SetBinContent(count,j,cov(i-1,j-1)/sqrt(cov(i-1,i-1)*cov(j-1,j-1)));
+        } else {
+          covHist->SetBinContent(count,j,cov(i-1,j-1));
+        }
+      }
+      if(opt.Contains("cor")) { covHist->SetAxisRange(-1,1,"Y"); }
+      covHist->SetBarWidth(0.9);covHist->SetBarOffset(0.05);
+      covHist->SetFillColor(4);
+      
+      std::sort(vals.begin(),vals.end(), [](auto &left, auto &right) { return fabs(left.second) > fabs(right.second); });
+      for(unsigned int i=0;i<vals.size();i++) {
+        covHist->GetXaxis()->SetBinLabel(i+1,vals[i].first.c_str());
+        covHist->SetBinContent(i+1,vals[i].second);
+      }
+      
+      //create a copy histogram and add it ...
+      TH1* copyHist = static_cast<TH1*>(covHist->Clone(covHist->GetName())); copyHist->SetDirectory(0);
+      for(int i=1;i<=copyHist->GetNbinsX();i++) copyHist->SetBinContent(i,-copyHist->GetBinContent(i));
+      copyHist->SetFillColor(kCyan);
+      covHist->GetListOfFunctions()->Add(copyHist,"b same");
+      
+    } else {
+      covHist = new TH2D(opt.Contains("cov") ? "covariance" : "correlation",myTitle,a->getSize(),0,a->getSize(),a->getSize(),0,a->getSize());
+      covHist->SetDirectory(0);
+      for(int i=1;i<=a->getSize();i++) {
+        covHist->GetXaxis()->SetBinLabel(i, a->at(i-1)->GetTitle());
+        for(int j=1;j<=a->getSize();j++) {
+          if(i==1) covHist->GetYaxis()->SetBinLabel(j, a->at(j-1)->GetTitle());
+          if(opt.Contains("cor")) {
+            covHist->SetBinContent(i,j,cov(i-1,j-1)/sqrt(cov(i-1,i-1)*cov(j-1,j-1)));
+          } else {
+            covHist->SetBinContent(i,j,cov(i-1,j-1));
+          }
+        }
+      }
+      if(opt.Contains("cor")) { covHist->SetAxisRange(-1,1,"Z"); }
+    }
+    
+    if(fCovHist) delete fCovHist;
     fCovHist = covHist;
     fCovHist->SetStats(0);
   }
@@ -266,6 +358,14 @@ void TRooFitResult::Draw(Option_t* option, const RooArgList& args) {
       }
   }
   if(!opt.Contains("same") && opt.Contains("pull") && fPullFrame) fPullFrame->Draw();
-  if(!opt.Contains("same") && (opt.Contains("cov")||opt.Contains("cor"))) fCovHist->Draw("COLZ");
+  if(!opt.Contains("same") && (opt.Contains("cov")||opt.Contains("cor"))) {
+    if(fCovHist->GetDimension()==2) {
+      if(opt.Contains("text")) fCovHist->Draw("COLZ TEXT");
+      else fCovHist->Draw("COLZ");
+    } else if(fCovHist->GetDimension()==1) {
+      if(opt.Contains("text")) fCovHist->Draw("B TEXT");
+      else fCovHist->Draw("B");
+    }
+  }
   TObject::Draw(option);
 }

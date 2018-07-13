@@ -119,7 +119,7 @@ private:
   std::vector<TGraph> fPullLines;
   std::vector<TGraphErrors> fPullBoxes;
 
-  TH2D* fCovHist = 0; //covariance histogram
+  TH1* fCovHist = 0; //covariance histogram
 
   std::map<TString, TRooFitResult*> fAssociatedFitResults; //can associate other fits to this fit
 
