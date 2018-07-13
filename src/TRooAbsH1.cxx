@@ -831,6 +831,14 @@ TH1* TRooAbsH1::createOrAdjustHistogram(TH1* hist, bool noBinLabels) const {
         obs[0] = dynamic_cast<RooAbsLValue*>(&arg);
         //rebin happens below
       }
+      
+       TString myUnit = dynamic_cast<const RooAbsReal*>(this)->getUnit();
+       if(!myUnit.Length()) hist->GetYaxis()->SetTitle("Events");
+       if(dynamic_cast<RooRealVar*>(&arg) && dynamic_cast<RooRealVar*>(&arg)->getBinning(GetRangeName()).isUniform()) {
+            TString s = Form("%g",dynamic_cast<RooRealVar*>(&arg)->getBinning(GetRangeName()).binWidth(0));
+            if(argreal && strlen(dynamic_cast<RooRealVar*>(&arg)->getUnit())) {s += " "; s += dynamic_cast<RooRealVar*>(&arg)->getUnit();}
+            hist->GetYaxis()->SetTitle(Form("%s / %s",hist->GetYaxis()->GetTitle(),s.Data()));
+        }
     }
     break;
     case 0: {
@@ -1405,11 +1413,12 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         h = g->GetHistogram();
       }
       
+      
       if(fObservables.getSize()) {
         RooAbsArg& arg = fObservables[0];
         RooAbsReal* argreal = dynamic_cast<RooAbsReal*>(&arg);
-        
         TString myUnit = dynamic_cast<const RooAbsReal*>(this)->getUnit();
+        
         if(argreal && strlen(argreal->getUnit())) {
           h->GetXaxis()->SetTitle(Form("%s [%s]",arg.GetTitle(),argreal->getUnit()));
           if(dynamic_cast<TObject*>(this)->InheritsFrom(RooAbsPdf::Class())){
@@ -1419,6 +1428,7 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         } else {
           h->GetXaxis()->SetTitle(arg.GetTitle());
         }
+        
         
         if(dynamic_cast<TObject*>(this)->InheritsFrom(RooAbsPdf::Class())) {
           if(myUnit.Length()) {
