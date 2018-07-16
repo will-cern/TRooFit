@@ -281,7 +281,7 @@ bool TRooWorkspace::dataFill(const char* channelName, double x, double w) {
 
 #include "TCut.h"
 
-bool TRooWorkspace::sampleFill(const char* sampleName, TTree* tree, const char* weight) {
+bool TRooWorkspace::sampleFill(const char* sampleName, TTree* tree, const char* weight, const char* variationName, double variationVal) {
   TString sWeight(weight);
   //loop over channels, create sample for each one that matches pattern
   TIterator* catIter = cat("channelCat")->typeIterator();
@@ -293,7 +293,11 @@ bool TRooWorkspace::sampleFill(const char* sampleName, TTree* tree, const char* 
     TH1* histToFill = (TH1*)fDummyHists[c->GetName()]->Clone("tmpHist");
     histToFill->Reset();
     tree->Draw(Form("%s>>tmpHist",var( fDummyHists[c->GetName()]->GetName() )->getStringAttribute("formula")), TCut("cut",cc->getStringAttribute("formula"))*sWeight);
-    s->Add(histToFill);
+    if(variationName) {
+      sampleAddVariation(sampleName,c->GetName(),variationName,variationVal,histToFill);
+    } else {
+      s->Add(histToFill);
+    }
     delete histToFill;
     
   }
@@ -315,7 +319,8 @@ bool TRooWorkspace::sampleAdd(const char* sampleName, const char* channelName,  
 bool TRooWorkspace::sampleAddVariation(const char* sampleName, const char* channelName, const char* parName, double parVal, TH1* h1) {
   //get the parameter 
   if(!var(parName)) {
-    Error("sampleAddVariation","%s is not defined. Please call addParameter method first to define the parameter",parName);
+    Info("sampleAddVariation","%s is not defined. Creating a gaussian-constrained parameter",parName);
+    addParameter(parName,parName,0,-5,5,"normal");
     return kFALSE;
   }
   return sample(sampleName,channelName)->AddVariation(*var(parName), parVal, h1);
@@ -324,9 +329,30 @@ bool TRooWorkspace::sampleAddVariation(const char* sampleName, const char* chann
 void TRooWorkspace::SetVariationBinContent(const char* sampleName, const char* channelName, const char* parName, double parVal, Int_t bin, double val) {
   //get the parameter 
   if(!var(parName)) {
-    Error("SetVariationBinContent","%s is not defined. Please call addParameter method first to define the parameter",parName);
+    Info("SetVariationBinContent","%s is not defined. Creating a gaussian-constrained parameter",parName);
+    addParameter(parName,parName,0,-5,5,"normal");
   }
   sample(sampleName,channelName)->SetVariationBinContent(*var(parName), parVal, bin,val);
+}
+
+double TRooWorkspace::GetSampleCoefficient(const char* sampleFullName) const {
+  RooAbsReal* samp = function(sampleFullName);
+  if(!samp) {
+    Error("GetSampleCoefficient","Unknown sample: %s",sampleFullName);
+    return 1.;
+  }
+  //need to determine which channel this sample belongs to, because coefficient on sample may not be 1 (this is case in histfactory models) 
+  std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+  TObject* c;
+  while( (c = catIter->Next()) ) {
+    if(channel(c->GetName())->dependsOn(*samp)) break;
+  }
+  int idx = channel(c->GetName())->funcList().index(samp);
+  if(idx!=-1) {
+    return dynamic_cast<RooAbsReal*>(channel(c->GetName())->coefList().at(idx))->getVal();
+  } 
+  Error("GetSampleCoefficient","Failed to find sample coefficient!");
+  return 1;
 }
 
 double TRooWorkspace::sampleIntegralAndError(double& err, const char* sampleFullName, const TRooFitResult& fr) const {
@@ -360,20 +386,9 @@ double TRooWorkspace::sampleIntegralAndError(double& err, const char* sampleFull
     }
     delete myObs;
   
-    //need to determine which channel this sample belongs to, because coefficient on sample may not be 1 (this is case in histfactory models) 
-    std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
-    TObject* c;
-    while( (c = catIter->Next()) ) {
-      if(channel(c->GetName())->dependsOn(*samp)) break;
-    }
-    int idx = channel(c->GetName())->funcList().index(samp);
-    if(idx!=-1) {
-      double coef = dynamic_cast<RooAbsReal*>(channel(c->GetName())->coefList().at(idx))->getVal();
-      err *= coef;
-      out *= coef;
-    } else {
-      Error("sampleIntegralError","Failed to find sample coefficient!");
-    }
+     double coef = GetSampleCoefficient(sampleFullName);
+     err *= coef;
+     out *= coef;
   
     return out;
   }
@@ -1209,44 +1224,124 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
      
     } else {
     
-      TGraph2D* myGraph = new TGraph2D;
-      //graph needs at least 2 points in x-axis to render correctly delauny triangles
-      chan->fillGraph(myGraph,RooArgList(*var(chan->GetObservableName(0)),*theVar),(var(chan->GetObservableName(0))->numBins()==1)?2:-1,21);
-      myGraph->SetName(chan->GetName());
-      myGraph->SetTitle(chan->GetTitle());
-      /*myGraph->SetBit(kCanDelete);
-      myGraph->Draw(option);*/
-      
-      //graph2D is now a series of points, split this up into 1D graphs ...
-      int nBins = var(chan->GetObservableName(0))->numBins(chan->GetRangeName());
-      
-      TMultiGraph* allGraphs = new TMultiGraph; allGraphs->SetTitle(Form("%s;%s;%s",chan->GetTitle(),theVar->GetTitle(),(nBins==1)?"Bin Content":"Bin Content - Current Content"));
-      
-      if(nBins==1 || myGraph->GetN() == nBins*21) {
-        for(int k=0;k<nBins;k++) {
-          TGraph* gg = new TGraph;
-          for(int j=k*21;j<(k+1)*21;j++) {
-            double val = myGraph->GetZ()[j]*chan->GetBinVolume(k+1) - (nBins!=1)*chan->GetBinContent(k+1); //shift so that 0 = nominal if looking at multiple bins
-            if(fabs(val)<1e-12) val = 0; //seems to be a slight discrepency between values ... possibly difference in getBinVolume (used in GetBinContent) vs GetBinVolume)
-            gg->SetPoint(j%21,myGraph->GetY()[j],val); 
+      TMultiGraph* allGraphs = new TMultiGraph; allGraphs->SetTitle(Form("%s;%s;%s",chan->GetTitle(),theVar->GetTitle(),( var(chan->GetObservableName(0))->numBins(chan->GetRangeName())==1 || !sOpt.Contains("bins"))?"Integral":"Bin Content - Current Content"));
+    
+      std::vector<TRooAbsH1*> comps;
+      std::vector<TRooAbsH1*> myComps; //created here
+      if(!sOpt.Contains("samples")) comps.push_back(chan);
+      else {
+        //break down by sample ...
+        RooFIter fItr = chan->funcList().fwdIterator();
+        RooAbsArg* arg;
+        while( (arg = fItr.next()) ) {
+          if(arg->InheritsFrom("TRooAbsH1")) {
+            comps.push_back(dynamic_cast<TRooAbsH1*>(arg));
+            break;
           }
-          allGraphs->Add(gg);
+          
+          //if got here ... we will need to create a temporary TRooH1 for the sample and use that 
+          TRooH1D* myComp = new TRooH1D(arg->GetName(),arg->GetTitle(),*var(chan->GetObservableName(0)),chan->GetRangeName());
+          double coef = GetSampleCoefficient(arg->GetName());
+          for(int i=1;i<=myComp->GetXaxis()->GetNbins();i++) {
+            myComp->SetBinContent(i,coef);
+          }
+          myComp->Scale(*static_cast<RooAbsReal*>(arg));
+          
+          TString myTitle(myComp->GetTitle());
+          if(myTitle.Contains(TString("_")+chan->GetTitle())) myTitle = myTitle.ReplaceAll(TString("_")+chan->GetTitle(),"");
+          myTitle.ReplaceAll("L_x_",""); 
+          myTitle.ReplaceAll("_overallSyst",""); 
+          myTitle.ReplaceAll("_x_StatUncert","");
+          myTitle.ReplaceAll("_x_HistSyst","");
+          myTitle.ReplaceAll("_x_Exp","");
+          myComp->SetTitle(myTitle); 
+          myComp->SetFillColor(TRooFit::GetColorByName(myTitle,true));
+          
+          
+          myComps.push_back(myComp);
+          
+          comps.push_back(myComp);
+          
         }
-      } else {
-        Error("DrawDependence","Wrong number of points :-( ");
       }
       
-      delete myGraph;
+      for(auto& comp : comps) {
+    
+        TGraph2D* myGraph = new TGraph2D;
+        
+        RooRealVar* xVar = var(comp->GetObservableName(0));
+        
+        //graph needs at least 2 points in x-axis to render correctly delauny triangles
+        comp->fillGraph(myGraph,RooArgList(*xVar,*theVar),(xVar->numBins()==1)?2:-1,21);
+        myGraph->SetName(comp->GetName());
+        myGraph->SetTitle(comp->GetTitle());
+        /*myGraph->SetBit(kCanDelete);
+        myGraph->Draw(option);*/
+        
+        //graph2D is now a series of points, split this up into 1D graphs ...
+        int nBins = xVar->numBins(comp->GetRangeName());
+        
+        
+        
+        if(nBins==1 || myGraph->GetN() == nBins*21) {
+          if(!sOpt.Contains("bins")) {
+            //integrate the values ... across the bins 
+            TGraph* gg = new TGraph;
+            
+            std::vector<double> pointVals(21,0.);
+            for(int k=0;k<nBins;k++) {
+              
+              for(int j=k*21;j<(k+1)*21;j++) {
+                pointVals[j%21] += myGraph->GetZ()[j]*comp->GetBinVolume(k+1) - (sOpt.Contains("samples"))*comp->GetBinContent(k+1); //shift to 0 if doing over samples
+                gg->SetPoint(j%21,myGraph->GetY()[j],pointVals[j%21]); 
+              }
+            }
+            allGraphs->Add(gg);
+            
+          } else {
+            if(sOpt.Contains("samples") && !dynamic_cast<RooAbsReal*>(comp)->dependsOn(*theVar)) continue; //don't show non-dependent samples
+            for(int k=0;k<nBins;k++) {
+              TGraph* gg = new TGraph;
+              if(sOpt.Contains("samples")) {
+                gg->SetTitle(Form("%s bin %d",comp->GetTitle(),k+1));
+              } else {
+                gg->SetTitle(Form("Bin %d",k+1));
+              }
+              for(int j=k*21;j<(k+1)*21;j++) {
+                double val = myGraph->GetZ()[j]*comp->GetBinVolume(k+1) - (nBins!=1)*comp->GetBinContent(k+1); //shift so that 0 = nominal if looking at multiple bins
+                if(fabs(val)<1e-12) val = 0; //seems to be a slight discrepency between values ... possibly difference in getBinVolume (used in GetBinContent) vs GetBinVolume)
+                gg->SetPoint(j%21,myGraph->GetY()[j],val); 
+              }
+              allGraphs->Add(gg);
+            }
+          }
+        } else {
+          Error("DrawDependence","Wrong number of points :-( ");
+        }
+        
+        delete myGraph;
+      } //loop over comps
       
       for(int j=0;j<allGraphs->GetListOfGraphs()->GetEntries();j++) {
         TGraph* gg = (TGraph*)allGraphs->GetListOfGraphs()->At(j);
-        gg->SetTitle(Form("Bin %d",j+1));
-        gg->SetLineColor(j+2);
+        if(sOpt.Contains("bins")) {
+          gg->SetLineColor(j+2);
+        } else if(sOpt.Contains("samples")) {
+          gg->SetTitle(comps[j]->GetTitle());
+          gg->SetLineWidth(2);
+          //gg->SetLineColor(j+2);
+          if(!dynamic_cast<RooAbsReal*>(comps[j])->dependsOn(*theVar)) gg->SetLineStyle(2); //should we even show non-dependent samples?
+          gg->SetLineColor(comps[j]->GetFillColor());
+        } else {
+          gg->SetLineWidth(2);
+        }
       }
       
       
       allGraphs->SetBit(kCanDelete);
       allGraphs->Draw("AL");
+      
+      for(auto& comp : myComps) delete comp;
       
       
     }

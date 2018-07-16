@@ -47,7 +47,7 @@ public:
   bool sampleAdd(const char* sample, const char* channel,  TH1* h1);
   bool sampleAdd(const char* sample, const char* channel, RooAbsReal& arg);
   bool sampleAddVariation(const char* sample, const char* channel, const char* parName, double parVal, TH1* h1);
-  bool sampleFill(const char* sample, TTree* tree, const char* weight); //fills given sample in all channels where formula have been defined
+  bool sampleFill(const char* sample, TTree* tree, const char* weight, const char* variationName=0, double variationVal=0); //fills given sample in all channels where formula have been defined
   
   void SetBinContent(const char* sampleName, const char* channelName, Int_t bin, double val) { sample(sampleName,channelName)->SetBinContent(bin,val); }
   void SetVariationBinContent(const char* sample, const char* channel, const char* parName, double parVal, Int_t bin, double val);
@@ -84,6 +84,8 @@ public:
   void addLabel(const char* label) { fLabels.push_back(label); }
   
   TLegend* GetLegend();
+  
+  double GetSampleCoefficient(const char* sampleFullName) const;
   
   RooSimultaneous* model(const char* channels="*");
   
