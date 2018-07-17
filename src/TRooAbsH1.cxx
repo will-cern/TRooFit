@@ -374,7 +374,7 @@ RooRealVar* TRooAbsH1::getStatFactor(int bin, bool createIf) {
     //got here, ok just have to create a new factor 
     
     //Note: this will assume that the stat error can only get up to 5 times bigger than the central value!
-    RooRealVar* statFactor = new RooRealVar(Form("%s_stat_bin%d",(stack)?stack->GetName():GetName(),bin),Form("#gamma_{%d}^{%s}",bin,GetName()),1,0,5);
+    RooRealVar* statFactor = new RooRealVar(Form("%s_stat_bin%d",(stack)?stack->GetName():GetName(),bin),Form("#gamma_{%d}^{%s}",bin,(stack)?stack->GetName():GetName()),1,0,5);
     statFactor->setStringAttribute("statBinNumber",Form("%d",bin));
     statFactor->setStringAttribute("constraintType","statPoisson");
     statFactor->setStringAttribute("sumw",Form("%e",getNominalHist()->GetBinContent(bin))); 
