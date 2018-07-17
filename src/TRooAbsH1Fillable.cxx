@@ -1042,6 +1042,7 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
             }break;
         case 4:{ //6th order polynomial with log extrapolation
             
+            if(val==0) break; //since in this mode the corrections to val are entirely multiplicative, if we have 0 we are effectively done
         
         
             //scale and shift x values so x_up-x_down = 2 and x_up+x_down=0 (i.e. usual +1, -1 case) 
