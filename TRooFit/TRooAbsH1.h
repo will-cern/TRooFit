@@ -124,6 +124,7 @@ public:
   
   //other methods to mimic TH1 behaviour 
   Double_t Integral(Option_t* opt="", const TRooFitResult* fr=0) const;
+  Double_t Integral(Option_t* opt, const TRooFitResult& fr) const { return Integral(opt,&fr); }
   Double_t IntegralAndErrors(Double_t& errUp, Double_t& errDown, const TRooFitResult* fr=0, const char* rangeName=0, Option_t* opt="") const;
   Double_t IntegralAndError(Double_t& err, const TRooFitResult* fr=0, const char* rangeName=0, Option_t* opt="") const;
   Double_t IntegralAndError(Double_t& err, const TRooFitResult& fr, const char* rangeName=0, Option_t* opt="") const { return IntegralAndError(err,&fr,rangeName,opt); }
