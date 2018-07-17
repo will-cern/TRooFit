@@ -86,6 +86,29 @@ TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
   
 }
 
+TRooHF1* TRooWorkspace::addFactor(const char* name, const char* title, double nomVal) {
+  TRooHF1 _factor(name,title,RooArgList(),{},{});
+  _factor.SetBinContent(1,nomVal);
+  import(_factor);
+  return factor(name);
+}
+
+TRooHF1* TRooWorkspace::factor(const char* factorName) {
+  return static_cast<TRooHF1*>(function(factorName));
+}
+
+bool TRooWorkspace::factorSetVariation(const char* name, const char* parName, double parVal, double val) {
+  TRooHF1* _factor = factor(name);
+  if(!_factor) return false;
+  
+  if(!var(parName)) {
+    Info("factorSetVariation","%s is not defined. Creating a gaussian-constrained parameter",parName);
+    addParameter(parName,parName,0,-5,5,"normal");
+  }
+  _factor->SetVariationBinContent(*var(parName), parVal, 1, val);
+  return true;
+}
+
 
 RooRealVar* TRooWorkspace::addParameter(const char* name, const char* title, double val, double min, double max, const char* constraintType) {
   factory(Form("%s[%f,%f]",name,min,max));
@@ -321,7 +344,6 @@ bool TRooWorkspace::sampleAddVariation(const char* sampleName, const char* chann
   if(!var(parName)) {
     Info("sampleAddVariation","%s is not defined. Creating a gaussian-constrained parameter",parName);
     addParameter(parName,parName,0,-5,5,"normal");
-    return kFALSE;
   }
   return sample(sampleName,channelName)->AddVariation(*var(parName), parVal, h1);
 }
@@ -918,7 +940,7 @@ RooFitResult* TRooWorkspace::loadFit(const char* fitName, bool prefit) {
 
 TLegend* TRooWorkspace::GetLegend() {
   if(!fLegend) { 
-    fLegend = new TLegend(0.5,1.-gStyle->GetPadTopMargin()-0.2,1.-gStyle->GetPadRightMargin(),1.-gStyle->GetPadTopMargin()); 
+    fLegend = new TLegend(0.5,1.-gStyle->GetPadTopMargin()-0.2,1.-gStyle->GetPadRightMargin(),1.-gStyle->GetPadTopMargin()-0.03); 
     fLegend->SetLineWidth(0);
     fLegend->SetFillStyle(0);
     fLegend->SetTextSize(gStyle->GetTextSize()*0.75);
@@ -1236,7 +1258,7 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
         while( (arg = fItr.next()) ) {
           if(arg->InheritsFrom("TRooAbsH1")) {
             comps.push_back(dynamic_cast<TRooAbsH1*>(arg));
-            break;
+            continue;
           }
           
           //if got here ... we will need to create a temporary TRooH1 for the sample and use that 

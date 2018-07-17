@@ -17,6 +17,7 @@
 
 #include "TRooFit/TRooHStack.h"
 #include "TRooFit/TRooH1.h"
+#include "TRooFit/TRooHF1.h"
 
 #include "TTree.h"
 #include "TLegend.h"
@@ -42,6 +43,9 @@ public:
   TRooHStack* addChannel(const char* name, const char* title, const char* observable);
   bool addSample(const char* name, const char* title, const char* channels="*", bool allowNegative=false);
   
+  TRooHF1* addFactor(const char* name, const char* title, double nomVal=1.);
+  bool factorSetVariation(const char* name, const char* parName, double parVal, double val);
+  
   bool dataFill(const char* channel, double x, double w=1.);
   Int_t sampleFill(const char* sample, const char* channel, double x, double w=1.);
   bool sampleAdd(const char* sample, const char* channel,  TH1* h1);
@@ -54,6 +58,7 @@ public:
   
   //add a normalization factor to a sample, across all channels
   void sampleScale(const char* sample,RooAbsReal& arg);
+  void sampleScale(const char* sampleName,const char* par) { if(var(par)) sampleScale(sampleName,*var(par)); }
   
   //set fill color of sample in all channels
   void sampleSetFillColor(const char* sample, Int_t in);
@@ -63,6 +68,7 @@ public:
   
   TRooH1* sample(const char* sampleName, const char* channelName);
   TRooHStack* channel(const char* name) const;
+  TRooHF1* factor(const char* factorName);
   
   void setData(const char* dataName) { 
     if(!data(dataName)) return;
