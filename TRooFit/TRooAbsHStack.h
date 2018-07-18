@@ -34,6 +34,8 @@ public:
   void Draw(Option_t* option,const TRooFitResult& r);
   void Draw(Option_t* option = "");
   
+  void DrawDependence(const char* _var, Option_t* option=""); //use to show the value of this TRooAbsH1 as a function of the given var
+  
   void Add(RooAbsReal* func, bool acquireStatFactors=true);
   THStack* GetStack(const RooFitResult* fr = 0) const;
   THStack* GetStack(const TRooFitResult& fr) const { return GetStack(&fr); }
