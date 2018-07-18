@@ -5,6 +5,7 @@
 
 #include "RooCategory.h"
 #include "RooDataSet.h"
+#include "RooBinning.h"
 
 #include "TRooFit/Utils.h"
 
@@ -135,6 +136,30 @@ RooRealVar* TRooWorkspace::addObservable(const char* name, const char* title, do
   RooRealVar* out = addParameter(name,title,min,max);
   if(!out) return 0;
   
+  if(!set("obs")) defineSet("obs",name);
+  else extendSet("obs",name);
+  
+  return out;
+}
+
+RooRealVar* TRooWorkspace::addObservable(const char* name, const char* title, int nBins, double min, double max) {
+  RooRealVar* out = addParameter(name,title,min,max);
+  if(!out) return 0;
+  out->setBins(nBins);
+  
+  if(!set("obs")) defineSet("obs",name);
+  else extendSet("obs",name);
+  
+  return out;
+}
+
+
+
+RooRealVar* TRooWorkspace::addObservable(const char* name, const char* title, int nBins, const double* bins) {
+  if(nBins==0) return 0;
+  RooRealVar* out = addParameter(name,title,nBins,bins[0],bins[1]);
+  if(!out) return 0;
+  out->setBinning(RooBinning(nBins,bins));
   if(!set("obs")) defineSet("obs",name);
   else extendSet("obs",name);
   
@@ -1435,6 +1460,22 @@ void TRooWorkspace::Print(Option_t* opt) const {
     while( (_var = dynamic_cast<RooRealVar*>(itr.next())) ) {
       //if(var->isConstant()) continue;if(set("obs")->find(*var)) continue;
       
+      TString extraString;
+      if(sOpt.Contains("affects")) {
+        extraString += " [";
+        std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+        TObject* c;
+        while( (c = catIter->Next()) ) {
+          TRooHStack* chan = channel(c->GetName());
+          if(!chan) continue;
+          if(chan->dependsOn(*_var)) {
+            if(extraString.Length()!=2) extraString += ",";
+            extraString += c->GetName();
+          }
+        }
+        extraString += "]";
+      }
+      
       //check for constraint term .. which is a pdf featuring just this parameter 
       RooArgSet otherPars(*_allVars); otherPars.remove(*_var);
       RooFIter pitr = _allPdfs.fwdIterator();
@@ -1452,14 +1493,26 @@ void TRooWorkspace::Print(Option_t* opt) const {
           if(strcmp(gPdf->x.arg().GetName(),_var->GetName())==0) mean = gPdf->mean;
           else mean = gPdf->x;
           double sigma= gPdf->sigma;
-          paramStrings["gaussian"].push_back( Form("%s [%g,%g]",_var->GetName(),mean,sigma) );
+          paramStrings["gaussian"].push_back( Form("%s [%g,%g]%s",_var->GetName(),mean,sigma,extraString.Data()) );
         } else if(constraintPdf->InheritsFrom("RooPoisson")) {
-          paramStrings["poisson"].push_back(_var->GetName());
+          //assume that _var appears multiplicatively inside the mean of the poisson ... so find the server that depends on _var and getVal and divide by _var val to determine tau factor
+          //tau factor is square of inverse relatively uncert ... 
+          RooFIter sItr = constraintPdf->serverMIterator();
+          RooAbsReal* ss;
+          while( (ss = (RooAbsReal*)sItr.next()) ) {
+            if(ss->dependsOn(*_var)) break;
+          }
+          if(ss) {
+            double tau = ss->getVal() / _var->getVal();
+            paramStrings["poisson"].push_back(Form("%s [%g%%]%s",_var->GetName(),100.*1./sqrt(tau),extraString.Data()));
+          } else {
+            paramStrings["poisson"].push_back(Form("%s%s",_var->GetName(),extraString.Data()));
+          }
         } else {
-          paramStrings["other"].push_back(_var->GetName());
+          paramStrings["other"].push_back(Form("%s%s",_var->GetName(),extraString.Data()));
         }
       } else {
-        paramStrings["unconstrained"].push_back(_var->GetName());
+        paramStrings["unconstrained"].push_back(Form("%s%s",_var->GetName(),extraString.Data()));
       }
       
     }
@@ -1474,7 +1527,7 @@ void TRooWorkspace::Print(Option_t* opt) const {
     }
     if(paramStrings["gaussian"].size()) {
       std::cout << std::endl;
-      std::cout << "Gaussian-constrained parameters (usually systematics)" << std::endl;
+      std::cout << "Gaussian-constrained parameters (usually systematics)  [mean,sigma]" << std::endl;
       std::cout << "------------------------" << std::endl;
       for(auto& s : paramStrings["gaussian"]) {
         std::cout << s << std::endl;
@@ -1482,7 +1535,7 @@ void TRooWorkspace::Print(Option_t* opt) const {
     }
     if(paramStrings["poisson"].size()) {
       std::cout << std::endl;
-      std::cout << "Poisson-constrained parameters (usually statistical uncertainties)" << std::endl;
+      std::cout << "Poisson-constrained parameters (usually statistical uncertainties)  [relUncert]" << std::endl;
       std::cout << "------------------------" << std::endl;
       for(auto& s : paramStrings["poisson"]) {
         std::cout << s << std::endl;
@@ -1490,7 +1543,7 @@ void TRooWorkspace::Print(Option_t* opt) const {
     }
     if(paramStrings["other"].size()) {
       std::cout << std::endl;
-      std::cout << "Unknown-constrained parameters" << std::endl;
+      std::cout << "Other-constrained parameters" << std::endl;
       std::cout << "------------------------" << std::endl;
       for(auto& s : paramStrings["unconstrained"]) {
         std::cout << s << std::endl;

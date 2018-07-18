@@ -38,6 +38,8 @@ public:
   RooRealVar* addParameter(const char* name, const char* title, double val, double min, double max, const char* constraintType=0);
   RooRealVar* addParameter(const char* name, const char* title, double min, double max, const char* constraintType=0);
   RooRealVar* addObservable(const char* name, const char* title, double min, double max);
+  RooRealVar* addObservable(const char* name, const char* title, int nBins, double min, double max);
+  RooRealVar* addObservable(const char* name, const char* title, int nBins, const double* bins);
   TRooHStack* addChannel(const char* name, const char* title, const char* observable, int nBins, double min, double max);
   TRooHStack* addChannel(const char* name, const char* title, const char* observable, int nBins, const double* bins);
   TRooHStack* addChannel(const char* name, const char* title, const char* observable);
