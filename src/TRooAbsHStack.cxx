@@ -175,6 +175,7 @@ TAxis* TRooAbsHStack::GetXaxis() const {
   //Returns the x-axis of the last drawn stack, if there is one avaiable 
   
   if(fDrawStacks.size() && fDrawStacks.back().frame) return fDrawStacks.back().frame->GetXaxis();
+  if(fDummyHist) return fDummyHist->GetXaxis();
   return 0;
   
 }
@@ -183,6 +184,7 @@ TAxis* TRooAbsHStack::GetYaxis() const {
   //Returns the y-axis of the last drawn stack, if there is one avaiable 
   
   if(fDrawStacks.size() && fDrawStacks.back().frame) return fDrawStacks.back().frame->GetYaxis();
+  if(fDummyHist) return fDummyHist->GetYaxis();
   return 0;
   
 }
