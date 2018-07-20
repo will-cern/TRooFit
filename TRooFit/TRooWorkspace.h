@@ -123,6 +123,11 @@ public:
   //draws all channels, showing how values of channels depend on var
   void DrawDependence(const char* var, Option_t* option="TRI1");
   
+  void SetRatioHeight(double in) { 
+    if(fLegend) fLegend->SetTextSize( fLegend->GetTextSize() * (1. - fRatioHeight) / (1. - in) );
+    fRatioHeight = in; 
+  }
+  
   Bool_t writeToFile(const char* fileName, Bool_t recreate=kTRUE);
   
   virtual void Print(Option_t* opt="") const;
@@ -145,6 +150,8 @@ private:
   TLegend* fLegend = 0;
 
   std::vector<TString> fLabels; //plot labels
+
+  Double_t fRatioHeight = 0; //if nonzero, channelDraw will draw ratio plots
 
   Bool_t fIsHFWorkspace = false; //if true, this is a histfactory workspace
   Bool_t kDisabledForcedRecommendedOptions = false;

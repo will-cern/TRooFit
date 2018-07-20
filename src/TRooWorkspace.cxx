@@ -965,10 +965,11 @@ RooFitResult* TRooWorkspace::loadFit(const char* fitName, bool prefit) {
 
 TLegend* TRooWorkspace::GetLegend() {
   if(!fLegend) { 
-    fLegend = new TLegend(0.5,1.-gStyle->GetPadTopMargin()-0.2,1.-gStyle->GetPadRightMargin(),1.-gStyle->GetPadTopMargin()-0.03); 
+    if(gPad) fLegend = new TLegend(0.5,1.-gPad->GetTopMargin()-0.2,1.-gPad->GetRightMargin(),1.-gPad->GetTopMargin()-0.03); 
+    else fLegend = new TLegend(0.5,1.-gStyle->GetPadTopMargin()-0.2,1.-gStyle->GetPadRightMargin(),1.-gStyle->GetPadTopMargin()-0.03); 
     fLegend->SetLineWidth(0);
     fLegend->SetFillStyle(0);
-    fLegend->SetTextSize(gStyle->GetTextSize()*0.75);
+    fLegend->SetTextSize(gStyle->GetTextSize()*0.75 / (1. - fRatioHeight) );
   }
   return fLegend;
 }
@@ -990,14 +991,38 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
   
   if(fCurrentFitIsPrefit && !sOpt.Contains("init")) sOpt += "init";
 
-  TLegend* myLegend = (TLegend*)GetLegend()->Clone("legend");
-  myLegend->SetBit(kCanDelete); //so that it is deleted when pad cleared
-
-  channel(channelName)->Draw(sOpt,res);
   
+
   pad->SetName(channel(channelName)->GetName());pad->SetTitle(channel(channelName)->GetTitle());
   
-  if(channel(channelName)->getAttribute("isValidation")) gPad->SetFillColor(kGray);
+  TPad* ratioPad = 0;
+  if(fRatioHeight>0.) {
+    //drawing a ratio plot has been requested ... divide the pad into two ...
+    TPad* mainPad = new TPad(pad->GetName(),pad->GetTitle(),0,fRatioHeight,1,1);
+    mainPad->SetNumber(1);mainPad->SetBorderMode(0);
+    mainPad->SetBottomMargin(0.01); mainPad->SetTopMargin( pad->GetTopMargin()/(1.-fRatioHeight) );
+    
+    ratioPad = new TPad(Form("%s_ratio",pad->GetName()),pad->GetTitle(),0,0,1,fRatioHeight);
+    ratioPad->SetNumber(2);ratioPad->SetBorderMode(0);
+    ratioPad->SetTopMargin(0.01); ratioPad->SetBottomMargin( pad->GetBottomMargin()/fRatioHeight );
+    
+    mainPad->Draw();
+    ratioPad->Draw();
+    mainPad->cd();
+    pad = mainPad;
+    
+  }
+  
+  channel(channelName)->Draw(sOpt,res);
+  
+  TLegend* myLegend = (TLegend*)GetLegend()->Clone("legend");
+  myLegend->SetBit(kCanDelete); //so that it is deleted when pad cleared
+  
+  if(channel(channelName)->getAttribute("isValidation")) {
+    gPad->SetFillColor(kGray);
+    if(ratioPad) ratioPad->SetFillColor(kGray);
+  }
+  
   fDummyHists[channelName]->Reset();
   if(data(fCurrentData)) {
     //determine observables for this channel ...
@@ -1021,6 +1046,8 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
     }
   }
   
+  
+  
   //adjust legend size based on # of rows 
   
   myLegend->SetY1( myLegend->GetY2() - myLegend->GetNRows()*myLegend->GetTextSize() );
@@ -1029,7 +1056,7 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
 
   
   if(!sOpt.Contains("same")) {
-    TLatex latex;latex.SetNDC();latex.SetTextSize(gStyle->GetTextSize()*0.75);
+    TLatex latex;latex.SetNDC();latex.SetTextSize(myLegend->GetTextSize());
     Double_t xPos = gPad->GetLeftMargin()+12./gPad->GetCanvas()->GetWw();
     Double_t yPos = 1. - gPad->GetTopMargin() -12./gPad->GetCanvas()->GetWh() - latex.GetTextSize();
     for(auto label : fLabels) {
@@ -1066,6 +1093,57 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
   channel(channelName)->GetYaxis()->SetRangeUser(currMin,currMax);
   pad->Modified(1);
   pad->Update();
+  
+  if(ratioPad) {
+    
+    
+    TH1* nominalHist = dynamic_cast<TH1*>(pad->GetListOfPrimitives()->FindObject(channelName));
+    TH1* errorHist = dynamic_cast<TH1*>(pad->GetListOfPrimitives()->FindObject(Form("%s_error",channelName)));
+    
+    if(!nominalHist) {
+      Error("channelDraw","Could not find nominal histogram for channel %s",channelName);
+      return;
+    }
+    
+    //clone nominalHist and remove error, so we can use it for dividing ...
+    TH1* nominalHistNoErrors = (TH1*)nominalHist->Clone("nomHist");
+    TRooFit::RemoveErrors(nominalHistNoErrors);
+    
+    TH1* dataRatio = (TH1*)fDummyHists[channelName]->Clone("data");
+    dataRatio->SetDirectory(0);
+    TH1* errRatio = (errorHist) ? (TH1*)errorHist->Clone("errRatio") : (TH1*)nominalHistNoErrors->Clone("errRatio");
+    errRatio->SetDirectory(0);
+    TString s(errRatio->GetOption()); s.ReplaceAll("same","");
+    errRatio->SetOption(s);
+    errRatio->SetMinimum(0.001);
+    errRatio->SetMaximum(1.999);
+    errRatio->GetYaxis()->SetNdivisions(5,0,0);
+    errRatio->GetYaxis()->SetTitle("Data / Pred.");
+    errRatio->GetYaxis()->SetTitleSize( errRatio->GetYaxis()->GetTitleSize() * (1.-fRatioHeight) / fRatioHeight );
+    errRatio->GetYaxis()->SetLabelSize( errRatio->GetYaxis()->GetLabelSize() * (1.-fRatioHeight) / fRatioHeight );
+    errRatio->GetXaxis()->SetTitleSize( errRatio->GetXaxis()->GetTitleSize() * (1.-fRatioHeight) / fRatioHeight );
+    errRatio->GetXaxis()->SetLabelSize( errRatio->GetXaxis()->GetLabelSize() * (1.-fRatioHeight) / fRatioHeight );
+    errRatio->GetYaxis()->SetTitleOffset( errRatio->GetXaxis()->GetTitleOffset() * fRatioHeight / (1.-fRatioHeight) );
+    
+    errRatio->SetStats(false);errRatio->SetBit(TH1::kNoTitle);
+    
+    errRatio->Divide(nominalHistNoErrors);
+    dataRatio->Divide(nominalHistNoErrors);
+    
+    delete nominalHistNoErrors; //done with this now ...
+    
+    
+    
+    //need to construct ratio plots and draw them ...
+    ratioPad->cd();ratioPad->SetGridy();
+    
+    errRatio->SetBit(kCanDelete);errRatio->Draw();
+    dataRatio->SetBit(kCanDelete);dataRatio->Draw("p same");
+    
+    ratioPad->Modified(1);
+    ratioPad->Update();
+    
+  }
   
 }
 
