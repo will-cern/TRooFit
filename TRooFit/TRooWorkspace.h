@@ -123,9 +123,10 @@ public:
   //draws all channels, showing how values of channels depend on var
   void DrawDependence(const char* var, Option_t* option="TRI1");
   
-  void SetRatioHeight(double in) { 
+  void SetRatioHeight(double in, bool showSignificance=false) { 
     if(fLegend) fLegend->SetTextSize( fLegend->GetTextSize() * (1. - fRatioHeight) / (1. - in) );
     fRatioHeight = in; 
+    kShowSignificance=showSignificance;
   }
   
   Bool_t writeToFile(const char* fileName, Bool_t recreate=kTRUE);
@@ -155,6 +156,9 @@ private:
 
   Bool_t fIsHFWorkspace = false; //if true, this is a histfactory workspace
   Bool_t kDisabledForcedRecommendedOptions = false;
+  
+  Bool_t kShowSignificance = false;
+  
   ClassDef(TRooWorkspace,1) // An extended form of a RooWorkspace
 };
  

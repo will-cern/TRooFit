@@ -12,6 +12,22 @@ ClassImp(TRooFit)
 
 TRooFit::TRooFit() : TObject() { }
 
+
+double TRooFit::significance(double obs, double exp, double relUncert, double relUncertDown) {
+  double r = (obs<exp) ? relUncertDown : relUncert;
+  double v_b = (r*exp)*(r*exp); //variance of b i.e. sigma_b^2
+  
+  if(fabs(exp)<1e-9 && obs==0) return 0;
+  
+  if(obs >= exp) {
+    //Cowan's formula based on Wilks theorem approximation of one-sided likelihood ratio test statistic
+    return sqrt( 2.0*( obs*((obs!=0)?log(obs*(exp+v_b)/(exp*exp + obs*v_b)):0) - (exp*exp/v_b)*log(1.0 + v_b*(obs-exp)/(exp*(exp+v_b)))) );
+  } else {
+    //Uncapped test statistic case, I believe just leads to a negative sign for the significance
+    return -sqrt( 2.0*( obs*((obs!=0)?log(obs*(exp+v_b)/(exp*exp + obs*v_b)):0) - (exp*exp/v_b)*log(1.0 + v_b*(obs-exp)/(exp*(exp+v_b)))) );
+  }
+}
+
 RooAbsPdf* TRooFit::BuildModel(TRooAbsH1& pdf, RooAbsData& data) {
   return pdf.buildConstraints( *data.get() , "", true );
 }

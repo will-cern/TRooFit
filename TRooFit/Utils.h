@@ -23,6 +23,10 @@ class TRooFit : public TObject  {
     TRooFit();
     
     ///Static methods of TRooFit, can be used on their own ...
+    //returns a significance for an observation given an expectation and a relative uncert (can be asymmetric)
+    static double significance(double obs, double exp, double relUncert, double relUncertDown);
+    
+    
     //set the recommended options for the minimization methods 
     static void setRecommendedDefaultOptions();
     //create a NLL method with the recommended settings

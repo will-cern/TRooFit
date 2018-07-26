@@ -1033,8 +1033,8 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
     for(int i=1;i<=fDummyHists[channelName]->GetNbinsX();i++) fDummyHists[channelName]->SetBinError(i,sqrt(fDummyHists[channelName]->GetBinContent(i)));
     fDummyHists[channelName]->SetMarkerStyle(20);
     fDummyHists[channelName]->SetLineColor(kBlack);
-    fDummyHists[channelName]->Draw("same");
-    myLegend->AddEntry(fDummyHists[channelName],data(fCurrentData)->GetTitle(),"lpe");
+    fDummyHists[channelName]->Draw("p e0X0 same");
+    myLegend->AddEntry(fDummyHists[channelName],data(fCurrentData)->GetTitle(),"pE0X0");
   }
   
   THStack* myStack = (THStack*)gPad->GetListOfPrimitives()->FindObject(Form("%s_stack",channel(channelName)->GetName()));
@@ -1127,8 +1127,23 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
     
     errRatio->SetStats(false);errRatio->SetBit(TH1::kNoTitle);
     
-    errRatio->Divide(nominalHistNoErrors);
-    dataRatio->Divide(nominalHistNoErrors);
+    if(kShowSignificance) {
+      //calculate significance of data ...
+      for(int i=1;i<=dataRatio->GetNbinsX();i++) {
+        dataRatio->SetBinContent(i, TRooFit::significance( dataRatio->GetBinContent(i), nominalHist->GetBinContent(i), errorHist->GetBinError(i)/nominalHist->GetBinContent(i),  errorHist->GetBinError(i)/nominalHist->GetBinContent(i) ) );
+        dataRatio->SetBinError(i,0);
+      }
+    
+      errRatio->Reset();
+      errRatio->GetYaxis()->SetTitle("signif. / #sigma");
+      errRatio->SetMinimum(-5);
+      errRatio->SetMaximum(5);
+      dataRatio->SetLineWidth(2);
+      
+    } else {
+      errRatio->Divide(nominalHistNoErrors);
+      dataRatio->Divide(nominalHistNoErrors);
+    }
     
     delete nominalHistNoErrors; //done with this now ...
     
@@ -1138,7 +1153,7 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
     ratioPad->cd();ratioPad->SetGridy();
     
     errRatio->SetBit(kCanDelete);errRatio->Draw();
-    dataRatio->SetBit(kCanDelete);dataRatio->Draw("p same");
+    dataRatio->SetBit(kCanDelete);dataRatio->Draw((kShowSignificance) ? "hist same" : "p e0X0 same");
     
     ratioPad->Modified(1);
     ratioPad->Update();
@@ -1682,8 +1697,8 @@ void TRooWorkspace::setDefaultStyle() {
   gStyle->SetLabelSize(lsize,"z");
   gStyle->SetTitleSize(tsize,"z");
   gStyle->SetMarkerStyle(20);
-  gStyle->SetMarkerSize(0.7);
-  gStyle->SetHistLineWidth(2);
+  gStyle->SetMarkerSize(0.5);
+  gStyle->SetHistLineWidth(1);
   gStyle->SetLineStyleString(2,"[12 12]");
   gStyle->SetEndErrorSize(0.);
   gStyle->SetOptTitle(0);
@@ -1692,6 +1707,7 @@ void TRooWorkspace::setDefaultStyle() {
   gStyle->SetPadTickX(1);
   gStyle->SetPadTickY(1);
   gStyle->SetOptStat(0);
+  
 
   gStyle->SetLegendFont(font);
 
