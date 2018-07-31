@@ -43,6 +43,9 @@ class TRooFit : public TObject  {
     //do uncertainty breakdown returning lists of the pars with the asymmetric errors set to the error corresponding to each group
     //there is always a 'TOTAL' group for the total asymmetric uncertainty
     static const std::map<TString,RooArgList*> breakdown(RooAbsReal* nll, const RooArgSet& pars, std::vector<TString> groups, RooFitResult* unconditionalFitResult=0, bool runInitialMinos=false, bool doSTATCORR=false);
+    //same as above method but for a single par, so just return list of up and down values ...
+    static const std::map<TString,std::pair<double,double>> breakdown(RooAbsReal* nll, const RooRealVar& pars, std::vector<TString> groups, RooFitResult* unconditionalFitResult=0, bool runInitialMinos=false, bool doSTATCORR=false);
+    
     
     static std::pair<RooAbsData*,RooArgSet*> generateAsimovDataset(RooAbsPdf* thePdf, RooAbsData* data, const RooArgSet* gobs=0);
     static std::pair<RooAbsData*,RooArgSet*> generateAsimovDataset(RooAbsPdf* thePdf, const RooArgSet* obs, const RooArgSet* gobs=0);

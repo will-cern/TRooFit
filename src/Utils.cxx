@@ -284,6 +284,7 @@ std::pair<RooAbsData*,RooArgSet*> TRooFit::generateToy(RooAbsPdf* thePdf, const 
 RooFitResult* TRooFit::minimize(RooAbsReal* nll, bool save, bool hesse) {
   
   
+  
   int printLevel  =   ::ROOT::Math::MinimizerOptions::DefaultPrintLevel();
   TString minim=      ::ROOT::Math::MinimizerOptions::DefaultMinimizerType().c_str();
   TString algorithm = ::ROOT::Math::MinimizerOptions::DefaultMinimizerAlgo().c_str();
@@ -292,6 +293,21 @@ RooFitResult* TRooFit::minimize(RooAbsReal* nll, bool save, bool hesse) {
   
   RooFit::MsgLevel msglevel = RooMsgService::instance().globalKillBelow();
   if(printLevel < 0) RooMsgService::instance().setGlobalKillBelow(RooFit::FATAL); 
+  
+  //check how many parameters we have ... if 0 parameters then we wont run a fit, we just evaluate nll and return ...
+  std::unique_ptr<RooAbsCollection> floatPars(nll->getParameters((RooArgSet*)0)->selectByAttrib("Constant",kFALSE));
+  if(floatPars->getSize()==0) {
+    //construct an empty fit result ...
+    RooFitResult* result = new RooFitResult("fitResult","No fit");
+    result->setFinalParList( RooArgList() );
+    result->setInitParList( RooArgList() );
+    result->setConstParList( RooArgList() );
+    TMatrixDSym d;
+    result->setCovarianceMatrix( d );
+    result->setMinNLL( nll->getVal() );
+    if(printLevel < 0) RooMsgService::instance().setGlobalKillBelow(msglevel); 
+    return result;
+  }
   
   RooMinimizer _minimizer(*nll);
   _minimizer.optimizeConst(2);
@@ -614,6 +630,23 @@ const std::map<TString,RooArgList*> TRooFit::breakdown(RooAbsReal* nll, const Ro
   return out;
 
 }
+
+const std::map<TString,std::pair<double,double>> TRooFit::breakdown(RooAbsReal* nll, const RooRealVar& par, std::vector<TString> groups, RooFitResult* unconditionalFitResult, bool runInitialMinos, bool doSTATCORR) {
+  
+  RooArgSet s(par);
+  auto res = breakdown(nll,s,groups,unconditionalFitResult,runInitialMinos,doSTATCORR);
+  
+  std::map<TString,std::pair<double,double>> out;
+  
+  for(auto& r : res) {
+    out[r.first] = std::make_pair( dynamic_cast<RooRealVar*>(r.second->find(par.GetName()))->getErrorHi() , dynamic_cast<RooRealVar*>(r.second->find(par.GetName()))->getErrorLo() );
+    delete r.second;
+  }
+  
+  return out;
+  
+}
+    
 
 
 
