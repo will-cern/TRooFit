@@ -67,9 +67,10 @@ public:
   void sampleSetLineColor(const char* sample, Int_t in);
   
   double sampleIntegralAndError(double& err, const char* sampleFullName, const TRooFitResult& res="") const;
+  double sampleIntegralAndError(double& err, const char* channelName, unsigned int sampleNumber, const TRooFitResult& fr="") const;
   
   TRooH1* sample(const char* sampleName, const char* channelName);
-  TRooHStack* channel(const char* name) const;
+  TRooAbsHStack* channel(const char* name) const;
   TRooHF1* factor(const char* factorName);
   
   void setData(const char* dataName) { 
@@ -136,7 +137,8 @@ public:
   static void setDefaultStyle();
   
 private:
-
+  TString fChannelCatName = "channelCat"; //should only change if wrapping a non-conventional workspace
+  TString fSimPdfName = "simPdf"; //should only change if wrapping a non-conventional workspace
 
   std::map<TString,TH1*> fDummyHists;
   

@@ -28,6 +28,9 @@
 #pragma link C++ class TRooGPConstraint+;
 #pragma link C++ class TRooGPVar+;
 
+#include "TRooFit/TRooExtendedBinding.h"
+#pragma link C++ class TRooExtendedBinding+;
+
 //#include "TRooFit/TRooSlider.h"
 //#pragma link C++ class TRooSlider+;
 

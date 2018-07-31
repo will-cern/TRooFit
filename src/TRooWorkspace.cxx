@@ -1,13 +1,16 @@
 #include "TRooFit/TRooWorkspace.h"
 
 #include "TRooFit/TRooHStack.h"
+#include "TRooFit/TRooHPdfStack.h"
 #include "TRooFit/TRooH1D.h"
 
 #include "RooCategory.h"
 #include "RooDataSet.h"
 #include "RooBinning.h"
+#include "RooProduct.h"
 
 #include "TRooFit/Utils.h"
+
 
 #define protected public
 #include "RooGaussian.h"
@@ -33,8 +36,27 @@ TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
   
   //now see if we are a histfactory workspace (i.e. we don't have TRooHStacks defined for all channels ...
   
+  //if there is only one RooCategory then assume that is the channelCat name ...
+  if(allCats().getSize()==1) fChannelCatName = allCats().first()->GetName();
+  
+  //similar check for data ...
+  if(data(fCurrentData)==0) {
+    //use the first data set as the data ...
+    fCurrentData = allData().front()->GetName();
+  }
+  
+  //search for a RooSimultaneous, will use to help create channel stack objects ...
+  RooArgSet _allPdfs = allPdfs();
+  RooFIter pitr = _allPdfs.fwdIterator();
+  RooAbsPdf* _pdf = 0;
+  while( (_pdf = dynamic_cast<RooAbsPdf*>(pitr.next())) ) {
+    if(_pdf->InheritsFrom(RooSimultaneous::Class())) break;
+  }
+  if(_pdf && fSimPdfName!=_pdf->GetName()) fSimPdfName=_pdf->GetName();
+  
+  
   //create TRooHStack for each channel ...
-  TIterator* catIter = cat("channelCat")->typeIterator();
+  TIterator* catIter = cat(fChannelCatName)->typeIterator();
   TObject* c;
   while( (c = catIter->Next()) ) {
     TString cName(c->GetName());
@@ -43,26 +65,61 @@ TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
     } else {
       continue; //no need to make a TRooHStack
     }
+    
+    
     RooRealSumPdf* channelPdf = dynamic_cast<RooRealSumPdf*>(pdf(cName+"_model"));
-    TRooHStack* channelStack = 0;
+    TRooAbsHStack* channelStack = 0;
     if(!channelPdf) {
-      Error("setHF","Could not find model for channel %s",c->GetName());
-      channelStack = new TRooHStack(c->GetName(),c->GetName());
+      //try getting from the simPdf ...
+      if(!_pdf) {
+        Error("TRooWorkspace","Could not find model for channel %s",c->GetName());
+        channelStack = new TRooHStack(c->GetName(),c->GetName());
+      } else {
+        RooAbsPdf* myPdf = (dynamic_cast<RooSimultaneous*>(_pdf))->getPdf(cName); //this may be a RooProdPdf (from constraints) ... so we look for a server that is of a known type ...
+        
+        RooArgSet allNodes; myPdf->treeNodeServerList(&allNodes);
+        RooFIter nodeItr = allNodes.fwdIterator();
+        RooAbsArg* arg = 0;
+        while( (arg = nodeItr.next()) ) {
+          
+          if(arg->InheritsFrom(RooRealSumPdf::Class())) {
+            channelStack = new TRooHStack(*dynamic_cast<RooRealSumPdf*>(arg),*set("ModelConfig_Observables"));
+            dynamic_cast<RooAbsReal*>(channelStack)->SetName(c->GetName());dynamic_cast<RooAbsReal*>(channelStack)->SetTitle(c->GetName());
+            channelStack->SetMinimum(0);
+            break;
+          } else if(arg->InheritsFrom(RooAddPdf::Class())) {
+            channelStack = new TRooHPdfStack(*dynamic_cast<RooAddPdf*>(arg),*set("ModelConfig_Observables"));
+            dynamic_cast<RooAbsReal*>(channelStack)->SetName(c->GetName());dynamic_cast<RooAbsReal*>(channelStack)->SetTitle(c->GetName());
+            channelStack->SetMinimum(0);
+            break;
+          }
+        }
+        if(!channelStack) {
+          Error("TRooWorkspace","Could not identify model for channel %s",c->GetName());
+          channelStack = new TRooHStack(c->GetName(),c->GetName());
+        }
+      }
     } else {
       channelStack = new TRooHStack(*channelPdf,*set("ModelConfig_Observables"));
-      channelStack->SetName(c->GetName());channelStack->SetTitle(c->GetName());
+      dynamic_cast<RooAbsReal*>(channelStack)->SetName(c->GetName());dynamic_cast<RooAbsReal*>(channelStack)->SetTitle(c->GetName());
       channelStack->SetMinimum(0);
     }
-    import(*channelStack,RooFit::Silence());
+    import(*dynamic_cast<RooAbsPdf*>(channelStack),RooFit::Silence());
     //create a dummy hist for each channel too
     fDummyHists[c->GetName()] = (channelStack->fDummyHist) ? (TH1*)channelStack->fDummyHist->Clone(c->GetName()) : new TH1D(c->GetName(),c->GetName(),1,0,1);
     fDummyHists[c->GetName()]->SetDirectory(0);
+    delete channelStack; //since channelStack was cloned when it was imported
   }
   
   if(fIsHFWorkspace) {
     if(set("ModelConfig_Observables")) defineSet("obs",*set("ModelConfig_Observables"));
     if(set("ModelConfig_POI")) defineSet("poi",*set("ModelConfig_POI"));
-    if(set("ModelConfig_GlobalObservables")) saveSnapshot("obsData_globalObservables",*set("ModelConfig_GlobalObservables"));
+    if(set("ModelConfig_GlobalObservables")) saveSnapshot(Form("%s_globalObservables",fCurrentData.Data()),*set("ModelConfig_GlobalObservables"));
+    
+    
+     RooArgSet* _allVars = static_cast<RooArgSet*>(allVars().selectByAttrib("Constant",kFALSE));
+     _allVars->remove(*(const_cast<TRooWorkspace*>(this)->set("obs")));
+     RooArgSet _allPdfs = allPdfs();
     
     //go through nuisance parameters and  guess errors for any params that dont have errors ..
     const RooArgSet* np = set("ModelConfig_NuisParams");
@@ -80,9 +137,43 @@ TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
         } else if(TString(v->GetName()).BeginsWith("gamma_stat_") && fabs(v->getMin())<1e-9) {
           //stat parameters have their max value set to 5*sigma ...
           v->setError( (v->getMax()-1.)/5. );
+        } else {
+          RooRealVar* _var = v;
+          //check for constraint term .. which is a pdf featuring just this parameter 
+          RooArgSet otherPars(*_allVars); otherPars.remove(*_var);
+          RooFIter pitr = _allPdfs.fwdIterator();
+          RooAbsPdf* constraintPdf = 0;
+          while( RooAbsPdf* _pdf = dynamic_cast<RooAbsPdf*>(pitr.next()) ) {
+            if(!_pdf->dependsOn(*_var)) continue;
+            if(_pdf->dependsOn(otherPars)) continue;
+            constraintPdf = _pdf; break;
+          }
+          if(constraintPdf) {
+            if(constraintPdf->InheritsFrom("RooGaussian")) {
+              //determine the "mean" (usually a global observable) and the standard deviation ...
+              RooGaussian* gPdf = static_cast<RooGaussian*>(constraintPdf);
+              
+              double sigma= gPdf->sigma;
+              _var->setError(sigma);
+            } else if(constraintPdf->InheritsFrom("RooPoisson")) {
+              //assume that _var appears multiplicatively inside the mean of the poisson ... so find the server that depends on _var and getVal and divide by _var val to determine tau factor
+              //tau factor is square of inverse relatively uncert ... 
+              RooFIter sItr = constraintPdf->serverMIterator();
+              RooAbsReal* ss;
+              while( (ss = (RooAbsReal*)sItr.next()) ) {
+                if(ss->dependsOn(*_var)) break;
+              }
+              if(ss) {
+                double tau = ss->getVal() / _var->getVal();
+                _var->setError( 1./sqrt(tau) );
+              } 
+            } 
+          }
         }
+        
       }
     }
+    delete _allVars;
   }
   
 }
@@ -176,12 +267,12 @@ bool TRooWorkspace::addArgument(const char* name, const char* title, double val)
 }
 
 TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const char* observable, int nBins, double min, double max) {
-  RooCategory* c = cat("channelCat");
+  RooCategory* c = cat(fChannelCatName);
   if(!c) {
-    factory(Form("channelCat[%s=0]",name));
-    c = cat("channelCat");
-    if(!set("obs")) defineSet("obs","channelCat");
-    else extendSet("obs","channelCat");
+    factory(Form("%s[%s=0]",fChannelCatName.Data(),name));
+    c = cat(fChannelCatName);
+    if(!set("obs")) defineSet("obs",fChannelCatName);
+    else extendSet("obs",fChannelCatName);
     
     if(!c) return 0;
   }
@@ -196,9 +287,9 @@ TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const
   
   //create a TRooHStack and import it ..
   TRooHStack* hs = new TRooHStack(name,title);
-  fStagedChannels.add(*hs);
+  //fStagedChannels.add(*hs);
   hs->setFloor(true,1e-9); //this also does the SetMinimim
-  //import(*hs);
+  TRooHStack* hstmp = hs; import(*hs); hs = dynamic_cast<TRooHStack*>(function(hs->GetName())); delete hstmp; //FIXME should check it's ok
   
   //need to store a dummyHist for the binning ...
   fDummyHists[name] = new TH1D(observable,"Data",nBins,min,max);
@@ -208,12 +299,12 @@ TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const
 }
 
 TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const char* observable, int nBins, const double* bins) {
-  RooCategory* c = cat("channelCat");
+  RooCategory* c = cat(fChannelCatName);
   if(!c) {
-    factory(Form("channelCat[%s=0]",name));
-    c = cat("channelCat");
-    if(!set("obs")) defineSet("obs","channelCat");
-    else extendSet("obs","channelCat");
+    factory(Form("%s[%s=0]",fChannelCatName.Data(),name));
+    c = cat(fChannelCatName);
+    if(!set("obs")) defineSet("obs",fChannelCatName);
+    else extendSet("obs",fChannelCatName);
     
     if(!c) return 0;
   }
@@ -253,13 +344,13 @@ TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const
 
 Int_t TRooWorkspace::setChannelAttribute(const char* channels,const char* attribute,Bool_t val) {
   TRegexp pattern(channels,true);
-  TIterator* catIter = cat("channelCat")->typeIterator();
+  TIterator* catIter = cat(fChannelCatName)->typeIterator();
   int nCat(0);
   TObject* c;
   while( (c = catIter->Next()) ) {
     TString cName(c->GetName());
     if(cName.Contains(pattern)) {
-      channel(c->GetName())->setAttribute(attribute,val);
+      function(c->GetName())->setAttribute(attribute,val);
       nCat++;
     } 
   }
@@ -288,7 +379,7 @@ bool TRooWorkspace::addSample(const char* name, const char* title, const char* c
   TRegexp pattern(channels,true);
   
   //loop over channels, create sample for each one that matches pattern
-  TIterator* catIter = cat("channelCat")->typeIterator();
+  TIterator* catIter = cat(fChannelCatName)->typeIterator();
   TObject* c;
   while( (c = catIter->Next()) ) {
     TString cName(c->GetName());
@@ -298,7 +389,8 @@ bool TRooWorkspace::addSample(const char* name, const char* title, const char* c
       TRooH1D* h = new TRooH1D(hName,title,*var(fDummyHists[c->GetName()]->GetName()),fDummyHists[c->GetName()]);
       h->SetFillColor( TRooFit::GetColorByName(name,true) );
       if(!allowNegative) h->setFloor(true,0); //by default, samples cannot go negative
-      //import(*h);
+      TRooH1D* htmp = h;
+      import(*h);h = static_cast<TRooH1D*>(function(h->GetName()));delete htmp;
       channel(c->GetName())->Add(h);
     }
   }
@@ -318,7 +410,7 @@ bool TRooWorkspace::dataFill(const char* channelName, double x, double w) {
     import(*data);
   }
   
-  cat("channelCat")->setLabel(channelName);
+  cat(fChannelCatName)->setLabel(channelName);
   var( fDummyHists[channelName]->GetName() )->setVal( x );
   
   data("obsData")->add(*set("obs"),w);
@@ -332,15 +424,16 @@ bool TRooWorkspace::dataFill(const char* channelName, double x, double w) {
 bool TRooWorkspace::sampleFill(const char* sampleName, TTree* tree, const char* weight, const char* variationName, double variationVal) {
   TString sWeight(weight);
   //loop over channels, create sample for each one that matches pattern
-  TIterator* catIter = cat("channelCat")->typeIterator();
+  TIterator* catIter = cat(fChannelCatName)->typeIterator();
   TObject* c;
   while( (c = catIter->Next()) ) {
     TRooH1* s = sample(sampleName,c->GetName());
-    TRooHStack* cc = channel(c->GetName());
+    TRooAbsHStack* cc = channel(c->GetName());
+    RooAbsReal* ccFunc = dynamic_cast<RooAbsReal*>(cc);
     
     TH1* histToFill = (TH1*)fDummyHists[c->GetName()]->Clone("tmpHist");
     histToFill->Reset();
-    tree->Draw(Form("%s>>tmpHist",var( fDummyHists[c->GetName()]->GetName() )->getStringAttribute("formula")), TCut("cut",cc->getStringAttribute("formula"))*sWeight);
+    tree->Draw(Form("%s>>tmpHist",var( fDummyHists[c->GetName()]->GetName() )->getStringAttribute("formula")), TCut("cut",ccFunc->getStringAttribute("formula"))*sWeight);
     if(variationName) {
       sampleAddVariation(sampleName,c->GetName(),variationName,variationVal,histToFill);
     } else {
@@ -389,24 +482,73 @@ double TRooWorkspace::GetSampleCoefficient(const char* sampleFullName) const {
     return 1.;
   }
   //need to determine which channel this sample belongs to, because coefficient on sample may not be 1 (this is case in histfactory models) 
-  std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+  std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
   TObject* c;
   while( (c = catIter->Next()) ) {
-    if(channel(c->GetName())->dependsOn(*samp)) break;
+    if(function(c->GetName())->dependsOn(*samp)) break;
   }
-  int idx = channel(c->GetName())->funcList().index(samp);
+  int idx = channel(c->GetName())->compList().index(samp);
   if(idx!=-1) {
-    return dynamic_cast<RooAbsReal*>(channel(c->GetName())->coefList().at(idx))->getVal();
+    return dynamic_cast<RooAbsReal*>(channel(c->GetName())->coeffList().at(idx))->getVal();
   } 
   Error("GetSampleCoefficient","Failed to find sample coefficient!");
   return 1;
 }
 
-double TRooWorkspace::sampleIntegralAndError(double& err, const char* sampleFullName, const TRooFitResult& fr) const {
-  RooAbsReal* samp = function(sampleFullName);
+double TRooWorkspace::sampleIntegralAndError(double& err, const char* channelName, unsigned int sampleNumber, const TRooFitResult& fr) const {
+  RooAbsReal* samp = dynamic_cast<RooAbsReal*>(channel(channelName)->compList().at(sampleNumber));
   if(!samp) return 0;
+  double out = 0;
+  
+  //first check if the coefficient is simple or derived
+  RooAbsArg* coefArg = channel(channelName)->coeffList().at(sampleNumber);
+  if(coefArg->isDerived() || !samp->InheritsFrom("TRooAbsH1")) {
+    //arg may depend on parameters in e.g. the fit result, so we will combine integral with coeffient in a RooProduct before getting the error ...
+    
+    RooArgSet* myObs = samp->getObservables(*const_cast<TRooWorkspace*>(this)->set("obs"));
+    
+    //if sample is in a RooAddPdf, then it should be auto-normalized, (FIXME: unless allExtendable is true), so only thing that impacts the result is the coefficent
+    std::unique_ptr<RooAbsReal> inte( (function(channelName)->InheritsFrom(RooAddPdf::Class())) ? new RooRealVar("const1","const",1) : samp->createIntegral(*myObs) );
+    
+    RooProduct prod("prod","prod",RooArgList((*inte),*coefArg));
+    
+    RooArgSet* params = 0;
+    RooArgSet* snap = 0;
+  
+    if(fr.floatParsFinal().getSize()||fr.constPars().getSize()) {
+        params = samp->getParameters(*myObs);
+        snap = (RooArgSet*)params->snapshot();
+        *params = fr.floatParsFinal();
+        *params = fr.constPars();
+    }
+  
+    out = prod.getVal();
+    auto res = TRooAbsH1::getError(fr,&prod,*myObs,0);
+    
+    err = res.first;
+  
+    if(fr.floatParsFinal().getSize()||fr.constPars().getSize()) {
+      *params = *snap;
+      delete snap;
+    }
+    delete myObs;
+    
+  } else if(samp->InheritsFrom("TRooAbsH1")) {
+    out = (dynamic_cast<TRooAbsH1*>(samp))->IntegralAndError(err,fr);
+    //scale by coef ...
+    double coef = static_cast<RooAbsReal*>(coefArg)->getVal();
+    err *= coef;
+    out *= coef;
+  } 
+  return out;
+}
+
+double TRooWorkspace::sampleIntegralAndError(double& err, const char* sampleFullName, const TRooFitResult& fr) const {
+  RooAbsReal* samp = function(sampleFullName); //retrieve pdf too, if exists
+  if(!samp) return 0;
+  double out = 0;
   if(samp->InheritsFrom("TRooAbsH1")) {
-    return (dynamic_cast<TRooAbsH1*>(samp))->IntegralAndError(err,fr);;
+    out = (dynamic_cast<TRooAbsH1*>(samp))->IntegralAndError(err,fr);;
   } else {
     //just a normal function, so we have to manually do integral and error ...
     RooArgSet* myObs = samp->getObservables(*const_cast<TRooWorkspace*>(this)->set("obs"));
@@ -422,7 +564,7 @@ double TRooWorkspace::sampleIntegralAndError(double& err, const char* sampleFull
         *params = fr.constPars();
     }
   
-    double out = inte->getVal();
+    out = inte->getVal();
     auto res = TRooAbsH1::getError(fr,&*inte,*myObs,0);
     
     err = res.first;
@@ -432,13 +574,13 @@ double TRooWorkspace::sampleIntegralAndError(double& err, const char* sampleFull
       delete snap;
     }
     delete myObs;
-  
-     double coef = GetSampleCoefficient(sampleFullName);
-     err *= coef;
-     out *= coef;
-  
-    return out;
   }
+  double coef = GetSampleCoefficient(sampleFullName);
+  err *= coef;
+  out *= coef;
+  
+  return out;
+  
 }
 
 TRooH1* TRooWorkspace::sample(const char* sampleName, const char* channelName) {
@@ -447,10 +589,10 @@ TRooH1* TRooWorkspace::sample(const char* sampleName, const char* channelName) {
   return out;
 }
 
-TRooHStack* TRooWorkspace::channel(const char* name) const {
-  TRooHStack* out =  dynamic_cast<TRooHStack*>(pdf(name));
+TRooAbsHStack* TRooWorkspace::channel(const char* name) const {
+  TRooAbsHStack* out =  dynamic_cast<TRooAbsHStack*>(function(name));
   if(!out) {
-    out = dynamic_cast<TRooHStack*>(fStagedChannels.find(name));
+    out = dynamic_cast<TRooAbsHStack*>(fStagedChannels.find(name));
   }
   return out;
 }
@@ -458,14 +600,14 @@ TRooHStack* TRooWorkspace::channel(const char* name) const {
 
 //set fill color of sample in all channels
 void TRooWorkspace::sampleSetFillColor(const char* sampleName, Int_t in) {
-  std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+  std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
   TObject* c;
   while( (c = catIter->Next()) ) {
     if(sample(sampleName,c->GetName())) sample(sampleName,c->GetName())->SetFillColor(in);
   }
 }
 void TRooWorkspace::sampleSetLineColor(const char* sampleName, Int_t in) {
-  std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+  std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
   TObject* c;
   while( (c = catIter->Next()) ) {
     if(sample(sampleName,c->GetName())) sample(sampleName,c->GetName())->SetLineColor(in);
@@ -473,7 +615,7 @@ void TRooWorkspace::sampleSetLineColor(const char* sampleName, Int_t in) {
 }
 
 void TRooWorkspace::sampleScale(const char* sampleName,RooAbsReal& arg) {
-  std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+  std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
   TObject* c;
   while( (c = catIter->Next()) ) {
     if(sample(sampleName,c->GetName())) sample(sampleName,c->GetName())->Scale(arg);
@@ -494,20 +636,20 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
   }
   
   TRegexp pattern(channels,true);
-  std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+  std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
   TObject* c;
   
-  TString simPdfName("simPdf");
+  TString simPdfName(fSimPdfName);
   int nComps(0);
   TString factoryString("");
   
-  RooSimultaneous* simPdf = dynamic_cast<RooSimultaneous*>(pdf("simPdf"));
+  RooSimultaneous* simPdf = dynamic_cast<RooSimultaneous*>(pdf(simPdfName));
   
   while( (c = catIter->Next()) ) {
     bool pass=false;
     for(auto& pattern : patterns) if(TString(c->GetName()).Contains(pattern)) pass=true;
     if(pass==false) continue;
-    if(channel(c->GetName())->getAttribute("isValidation")) continue; //don't include validation regions when constructing models
+    if(function(c->GetName())->getAttribute("isValidation")) continue; //don't include validation regions when constructing models
     nComps++;
     
     if(simPdf) {
@@ -519,15 +661,15 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
       }
       factoryString += Form(",%s=%s_with_Constraints",c->GetName(),c->GetName());
       //remove from the stagedChannels list if its there (FIXME: is this a memory leak?)
-      fStagedChannels.remove(*channel(c->GetName()),true/*silent*/,true/*match by name*/);
+      //fStagedChannels.remove(*channel(c->GetName()),true/*silent*/,true/*match by name*/);
     }
     simPdfName += Form("_%s",c->GetName());
   }
   
   if(nComps>0) {
-    if(nComps==cat("channelCat")->numTypes()) { simPdfName="simPdf"; } //all channels available
+    if(nComps==cat(fChannelCatName)->numTypes()) { simPdfName=fSimPdfName; } //all channels available
     if(pdf(simPdfName)) return static_cast<RooSimultaneous*>(pdf(simPdfName));
-    factory(Form("SIMUL::%s(channelCat%s)",simPdfName.Data(),factoryString.Data()));
+    factory(Form("SIMUL::%s(%s%s)",simPdfName.Data(),fChannelCatName.Data(),factoryString.Data()));
     
    
     
@@ -703,7 +845,7 @@ RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalO
   if(globalObservables) allVars() = *globalObservables; //sets the global observables;
   
   //check if we need to reduce the data (remove validation regions)
-  std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+  std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
   TObject* c;
   TString excludedChannels;
   std::set<TString> excludedChannelsSet;
@@ -711,7 +853,7 @@ RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalO
     if(!thePdf->getPdf(c->GetName())) {
       excludedChannelsSet.insert(c->GetName());
       if(excludedChannels!="") excludedChannels += " || ";
-      excludedChannels += Form("channelCat == %d",((RooCatType*)c)->getVal());
+      excludedChannels += Form("%s == %d",fChannelCatName.Data(),((RooCatType*)c)->getVal());
     }
   }
   RooAbsData* reducedData=0;
@@ -731,7 +873,7 @@ RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalO
         obs.add(weightVar);
         reducedData = new RooDataSet(theData->GetName(),theData->GetTitle(),obs,"weightVar");
         for(int i=0;i<theData->numEntries();i++) {
-          if(excludedChannelsSet.find(theData->get(i)->getCatLabel("channelCat"))!=excludedChannelsSet.end()) continue; //skip excluded channels
+          if(excludedChannelsSet.find(theData->get(i)->getCatLabel(fChannelCatName))!=excludedChannelsSet.end()) continue; //skip excluded channels
           
           reducedData->add(*theData->get(),theData->weight());
         }
@@ -1018,7 +1160,7 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
   TLegend* myLegend = (TLegend*)GetLegend()->Clone("legend");
   myLegend->SetBit(kCanDelete); //so that it is deleted when pad cleared
   
-  if(channel(channelName)->getAttribute("isValidation")) {
+  if(function(channelName)->getAttribute("isValidation")) {
     gPad->SetFillColor(kGray);
     if(ratioPad) ratioPad->SetFillColor(kGray);
   }
@@ -1026,15 +1168,16 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
   fDummyHists[channelName]->Reset();
   if(data(fCurrentData)) {
     //determine observables for this channel ...
-    RooArgSet* chanObs = channel(channelName)->getObservables(data(fCurrentData));
+    RooArgSet* chanObs = function(channelName)->getObservables(data(fCurrentData));
     RooArgList l(*chanObs); delete chanObs;
-    data(fCurrentData)->fillHistogram(fDummyHists[channelName], l, Form("channelCat==channelCat::%s",channelName));
+    fDummyHists[channelName]->SetMinimum(0);
+    data(fCurrentData)->fillHistogram(fDummyHists[channelName], l, Form("%s==%s::%s",fChannelCatName.Data(),fChannelCatName.Data(),channelName));
     //update all errors to usual poisson
     for(int i=1;i<=fDummyHists[channelName]->GetNbinsX();i++) fDummyHists[channelName]->SetBinError(i,sqrt(fDummyHists[channelName]->GetBinContent(i)));
     fDummyHists[channelName]->SetMarkerStyle(20);
     fDummyHists[channelName]->SetLineColor(kBlack);
-    fDummyHists[channelName]->Draw("p e0X0 same");
-    myLegend->AddEntry(fDummyHists[channelName],data(fCurrentData)->GetTitle(),"pE0X0");
+    fDummyHists[channelName]->Draw("p EX0 same");
+    myLegend->AddEntry(fDummyHists[channelName],data(fCurrentData)->GetTitle(),"pEX0");
   }
   
   THStack* myStack = (THStack*)gPad->GetListOfPrimitives()->FindObject(Form("%s_stack",channel(channelName)->GetName()));
@@ -1204,9 +1347,9 @@ void TRooWorkspace::Draw(Option_t* option, const TRooFitResult& res) {
     pad->Clear();
   
     int nCat=0;
-    TIterator* catIter = cat("channelCat")->typeIterator();
+    TIterator* catIter = cat(fChannelCatName)->typeIterator();
     TObject* c;
-    while( (c = catIter->Next()) ) if(!channel(c->GetName())->getAttribute("hidden")) nCat++;
+    while( (c = catIter->Next()) ) if(!function(c->GetName())->getAttribute("hidden")) nCat++;
     delete catIter;
     
     if(nCat>1) {
@@ -1218,11 +1361,11 @@ void TRooWorkspace::Draw(Option_t* option, const TRooFitResult& res) {
   }
   
   
-  TIterator* catIter = cat("channelCat")->typeIterator();
+  TIterator* catIter = cat(fChannelCatName)->typeIterator();
   TObject* c;
   int i=1;
   while( (c = catIter->Next()) ) {
-    if(channel(c->GetName())->getAttribute("hidden")) continue;
+    if(function(c->GetName())->getAttribute("hidden")) continue;
     pad->cd(i++);
     channelDraw(c->GetName(),option,res);
   }
@@ -1257,9 +1400,9 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
     pad->Clear();
     
     int nCat=0;
-    TIterator* catIter = cat("channelCat")->typeIterator();
+    TIterator* catIter = cat(fChannelCatName)->typeIterator();
     TObject* c;
-    while( (c = catIter->Next()) ) if(!channel(c->GetName())->getAttribute("hidden")) nCat++;
+    while( (c = catIter->Next()) ) if(!function(c->GetName())->getAttribute("hidden")) nCat++;
     delete catIter;
     
     if(nCat>1) {
@@ -1275,15 +1418,16 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
   bool doPull = sOpt.Contains("pull");
   sOpt.ReplaceAll("pull","");
   
-  TIterator* catIter = cat("channelCat")->typeIterator();
+  TIterator* catIter = cat(fChannelCatName)->typeIterator();
   TObject* c;
   int i=1;
   while( (c = catIter->Next()) ) {
-    TRooHStack* chan = channel(c->GetName());
-    if(chan->getAttribute("hidden")) continue;
+    TRooAbsHStack* chan = channel(c->GetName());
+    RooAbsReal* chanFunc = dynamic_cast<RooAbsReal*>(chan);
+    if(chanFunc->getAttribute("hidden")) continue;
     pad->cd(i++);
-    if(chan->getAttribute("isValidation")) gPad->SetFillColor(kGray);
-    if(!chan->dependsOn(*theVar)) continue; //no dependence
+    if(chanFunc->getAttribute("isValidation")) gPad->SetFillColor(kGray);
+    if(!chanFunc->dependsOn(*theVar)) continue; //no dependence
     
     if(doSlice) {
       //perform 3 slices, around current value of parameter, based on range ...
@@ -1318,9 +1462,9 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
      
      //draw the current and (if a fit is loaded, the prefit) pulls for the given variable ... defined here as (prediction-data)/sigma_data
      TH1* dataHist = (TH1*)fDummyHists[c->GetName()]->Clone("dataHist");
-     RooArgSet* chanObs = chan->getObservables(data(fCurrentData));
+     RooArgSet* chanObs = chanFunc->getObservables(data(fCurrentData));
      RooArgList l(*chanObs); delete chanObs;
-     data(fCurrentData)->fillHistogram(dataHist, l, Form("channelCat==channelCat::%s",c->GetName()));
+     data(fCurrentData)->fillHistogram(dataHist, l, Form("%s==%s::%s",fChannelCatName.Data(),fChannelCatName.Data(),c->GetName()));
      
      double varVals[6] = {theVar->getVal(),theVar->getVal()+theVar->getErrorHi(),theVar->getVal()+theVar->getErrorLo(),0,0,0};
      RooRealVar* varInit = 0;
@@ -1347,7 +1491,7 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
       
       //scale each bin based on dataHist error
       for(int k=1;k<=myHist->GetNbinsX();k++) {
-        double dataError = (myHist->GetBinContent(k)<0) ? (dataHist->GetBinContent(k)-0.5*TMath::ChisquareQuantile(TMath::Prob(1,1)/2.,2.*(dataHist->GetBinContent(k)))) : ((0.5*TMath::ChisquareQuantile(1.-TMath::Prob(1,1)/2.,2.*(dataHist->GetBinContent(k)+1))) - dataHist->GetBinContent(k));
+        double dataError = 0;//(myHist->GetBinContent(k)<0) ? (dataHist->GetBinContent(k)-0.5*TMath::ChisquareQuantile(TMath::Prob(1,1)/2.,2.*(dataHist->GetBinContent(k)))) : ((0.5*TMath::ChisquareQuantile(1.-TMath::Prob(1,1)/2.,2.*(dataHist->GetBinContent(k)+1))) - dataHist->GetBinContent(k));
         myHist->SetBinContent(k,myHist->GetBinContent(k)/dataError);
         myHist->SetBinError(k,0);
       }
@@ -1371,7 +1515,7 @@ void TRooWorkspace::DrawDependence(const char* _var, Option_t* option) {
       if(!sOpt.Contains("samples")) comps.push_back(chan);
       else {
         //break down by sample ...
-        RooFIter fItr = chan->funcList().fwdIterator();
+        RooFIter fItr = chan->compList().fwdIterator();
         RooAbsArg* arg;
         while( (arg = fItr.next()) ) {
           if(arg->InheritsFrom("TRooAbsH1")) {
@@ -1502,34 +1646,53 @@ void TRooWorkspace::Print(Option_t* opt) const {
   
   if(sOpt.Contains("channels")) {
     //list the channels of this workspace ...
-    std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+    std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
     TObject* c;
     while( (c = catIter->Next()) ) {
-      TRooHStack* chan = channel(c->GetName());
+      TRooAbsHStack* chan = channel(c->GetName());
+      RooAbsReal* chanFunc = dynamic_cast<RooAbsReal*>(chan);
       std::cout << c->GetName();
       if(!chan) {
         std::cout << " - INVALID CHANNEL!!!" << std::endl;
         continue;
       }
-      if(chan->getAttribute("hidden")) std::cout << " [HIDDEN]";
-      if(chan->getAttribute("isValidation")) std::cout << " [BLINDED]";
+      if(chanFunc->getAttribute("hidden")) std::cout << " [HIDDEN]";
+      if(chanFunc->getAttribute("isValidation")) std::cout << " [BLINDED]";
       if(sOpt.Contains("yields")) {
         double err; 
         double inte = chan->IntegralAndError(err,(fCurrentFitResult)?*fCurrentFitResult:"");
         std::cout << Form(" [ %g +/- %g ]",inte,err);
+        
+        if(data(fCurrentData)) {
+          double yield = data(fCurrentData)->sumEntries(Form("%s==%s::%s",fChannelCatName.Data(),fChannelCatName.Data(),c->GetName()));
+          std::cout << Form(" { %g }", yield);
+        }
+        
       }
       std::cout << std::endl;
       if(sOpt.Contains("samples")) {
-        RooFIter fItr = chan->funcList().fwdIterator();
+        //if the components are reused, then need to distinguish by printing the coefficient name too ...
+        std::set<std::string> compNames;
+        bool printCoeffNames(false);
+        for(int i=0;i<chan->compList().getSize();i++) { 
+          if(compNames.find(chan->compList().at(i)->GetName())!=compNames.end()) { printCoeffNames=true; break; }
+          compNames.insert( chan->compList().at(i)->GetName() );
+        }
+      
+        RooFIter fItr = chan->compList().fwdIterator();
         RooAbsArg* arg;
+        int i=0;
         while( (arg = fItr.next()) ) {
-          std::cout << "   " << arg->GetName();
+          std::cout << "   ";
+          if(printCoeffNames) std::cout << chan->coeffList().at(i)->GetName() << "*";
+          std::cout << arg->GetName();
           if(sOpt.Contains("yields")) {
             double err; 
-            double inte = sampleIntegralAndError(err,arg->GetName(),(fCurrentFitResult)?*fCurrentFitResult:"");
+            double inte = sampleIntegralAndError(err,chan->GetName(),i,(fCurrentFitResult)?*fCurrentFitResult:"");
             std::cout << Form(" [ %g +/- %g ]",inte,err);
           }
           std::cout << std::endl;
+          i++;
         }
       }
     }
@@ -1556,16 +1719,31 @@ void TRooWorkspace::Print(Option_t* opt) const {
       TString extraString;
       if(sOpt.Contains("affects")) {
         extraString += " [";
-        std::unique_ptr<TIterator> catIter(cat("channelCat")->typeIterator());
+        std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
         TObject* c;
+        std::set<std::string> affectedChans;
         while( (c = catIter->Next()) ) {
-          TRooHStack* chan = channel(c->GetName());
+          RooAbsReal* chan = function(c->GetName());
           if(!chan) continue;
-          if(chan->dependsOn(*_var)) {
+          if(chan->dependsOn(*_var)) affectedChans.insert( c->GetName() );
+        }
+        
+        if(affectedChans.size() <= uint(cat(fChannelCatName)->numTypes())/2) {
+          for(auto& s : affectedChans) {
             if(extraString.Length()!=2) extraString += ",";
+            extraString += s;
+          }
+        } else {
+          extraString += "All";
+          catIter->Reset();
+          while( (c = catIter->Next()) ) {
+            if(affectedChans.find(c->GetName())!=affectedChans.end()) continue;
+            if(extraString.Length()!=5) extraString += ",";
+            else extraString += " except ";
             extraString += c->GetName();
           }
         }
+        
         extraString += "]";
       }
       
@@ -1602,10 +1780,10 @@ void TRooWorkspace::Print(Option_t* opt) const {
             paramStrings["poisson"].push_back(Form("%s%s",_var->GetName(),extraString.Data()));
           }
         } else {
-          paramStrings["other"].push_back(Form("%s%s",_var->GetName(),extraString.Data()));
+          paramStrings["other"].push_back(Form("%s [%s]%s",_var->GetName(),constraintPdf->ClassName(),extraString.Data()));
         }
       } else {
-        paramStrings["unconstrained"].push_back(Form("%s%s",_var->GetName(),extraString.Data()));
+        paramStrings["unconstrained"].push_back(Form("%s [%g]%s",_var->GetName(),_var->getVal(),extraString.Data()));
       }
       
     }
@@ -1638,7 +1816,7 @@ void TRooWorkspace::Print(Option_t* opt) const {
       std::cout << std::endl;
       std::cout << "Other-constrained parameters" << std::endl;
       std::cout << "------------------------" << std::endl;
-      for(auto& s : paramStrings["unconstrained"]) {
+      for(auto& s : paramStrings["other"]) {
         std::cout << s << std::endl;
       }
     }

@@ -122,7 +122,14 @@ Double_t TRooAbsH1::Integral(Option_t* opt, const TRooFitResult* fr) const {
       *params = fr->constPars();
   }
   
-  double out = inte->getVal();
+  double out = 0;
+  if(dynamic_cast<const RooAbsReal*>(this)->InheritsFrom("RooAddPdf")) {
+    //special case where we are a RooAddPdf ... 
+    //we actually don't want the integral that RooAddPdf gives us (which integrates the individual components ... which is only ok if all components are TRooH1)
+    out = dynamic_cast<const RooAbsPdf*>(this)->expectedEvents(fObservables);
+  } else {
+    inte->getVal();
+  }
   
   if(fr) {
     *params = *snap;
@@ -132,9 +139,23 @@ Double_t TRooAbsH1::Integral(Option_t* opt, const TRooFitResult* fr) const {
   return out;
   
 }
+
+#include "TRooFit/TRooExtendedBinding.h"
+
 Double_t TRooAbsH1::IntegralAndErrorImpl(Double_t& err, Double_t& errDown, const RooFitResult& fr, const char* rangeName, Option_t* opt) const {
   TString sOpt(opt);
-  std::unique_ptr<RooAbsReal> inte( (sOpt.Contains("m")) ?  createIntegralWM(fObservables,rangeName) : dynamic_cast<const RooAbsReal*>(this)->createIntegral(fObservables,rangeName) );
+  std::unique_ptr<RooAbsReal> inte;
+  if(sOpt.Contains("m")) {
+    inte.reset( createIntegralWM(fObservables,rangeName) );
+  } else if(dynamic_cast<const RooAbsReal*>(this)->InheritsFrom("RooAddPdf")) {
+    //special case where we are a RooAddPdf ... 
+    //we actually don't want the integral that RooAddPdf gives us (which integrates the individual components ... which is only ok if all components are TRooH1)
+    inte.reset( new TRooExtendedBinding("exBind",GetTitle(),*const_cast<RooAbsPdf*>(dynamic_cast<const RooAbsPdf*>(this)),fObservables) ); //FIXME: does not factor in range ...
+    
+    
+  } else {
+    inte.reset( dynamic_cast<const RooAbsReal*>(this)->createIntegral(fObservables,rangeName) );
+  }
   
   //the getPropagatedError method needs protecting from negligible errors 
   TRooFitResult fr2(&fr , 1e-9);
@@ -650,12 +671,14 @@ Double_t TRooAbsH1::GetBinContent(const char* bin, const RooFitResult* r) const 
 
 TAxis* TRooAbsH1::GetXaxis() const {
   //Retrieve the x-axis
-  return fDummyHist->GetXaxis();
+  if(fDummyHist) return fDummyHist->GetXaxis();
+  return 0;
 }
 
 TAxis* TRooAbsH1::GetYaxis() const {
   //Retrieve the y-axis
-  return fDummyHist->GetYaxis();
+  if(fDummyHist) return fDummyHist->GetYaxis();
+  return 0;
 }
 
 
@@ -1465,7 +1488,7 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
     } else { 
       TH1* hist = TRooAbsH1::createOrAdjustHistogram( 0 );
       fDrawHistograms.back().hist = hist;
-      fillHistogram( hist , r2, true);
+      fillHistogram( hist , r2, opt.Contains("e"));
       
       
       

@@ -63,6 +63,9 @@ public:
     
   }
 
+  virtual RooListProxy& compList() = 0;
+  virtual const RooListProxy& compList() const = 0;
+  virtual const RooListProxy& coeffList() const = 0;
 
 protected:
   
@@ -82,8 +85,8 @@ protected:
 
   //this methods are implemented in the concrete classes
   virtual TIterator*& compIter() = 0;
-  virtual RooListProxy& compList() = 0;virtual const RooListProxy& compList() const = 0;
-  virtual const RooListProxy& coeffList() const = 0;
+  
+  
   virtual void reinit() = 0; //called after adding new components
   //virtual TClass* IsA() const = 0;
 

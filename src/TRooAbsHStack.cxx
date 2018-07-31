@@ -284,19 +284,34 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
        
        
        if(!(hist&&noRestyle)) hist = createOrAdjustHistogram(hist); 
-      hist->SetName(func->GetName()); hist->SetTitle(func->GetTitle());
+      hist->SetName(func->GetName());
+      
+      TString myTitle(Form("%s_x_%s",coef->GetName(),func->GetName()));
+      //for nicer histfactory support ...
+      if(myTitle.Contains(TString("_")+GetTitle())) myTitle = myTitle.ReplaceAll(TString("_")+GetTitle(),"");
+      myTitle.ReplaceAll("L_x_",""); 
+      myTitle.ReplaceAll("_overallSyst",""); 
+      myTitle.ReplaceAll("_x_StatUncert","");
+      myTitle.ReplaceAll("_x_HistSyst","");
+      myTitle.ReplaceAll("_x_Exp","");
+      hist->SetTitle(myTitle); 
+      
+      hist->SetFillColor(TRooFit::GetColorByName(myTitle,true));
+      
       //FIXME: need to use fit result to move parameters!
       
       RooAbsPdf* pdf = (RooAbsPdf*)func;
       //use cdf to fill bins ... i.e. correctly integrate over pdfs 
       double expectedEvents = pdf->expectedEvents(fObservables); //will scale to this
       
+      if(expectedEvents==0) expectedEvents=1;
+      
       RooAbsReal* cdf = pdf->createCdf(fObservables);
       
       auto snap = fObservables.snapshot();
       
       std::vector<double> prevIntegral(hist->GetNbinsY(),0.); //need one running total for each 'row' if doing up to 2D
-      for(int i=1;i<=hist->GetNbinsX();i++) {
+      for(int i=0;i<=hist->GetNbinsX();i++) {
         if(fObservables.getSize()>0) {
           if(fObservables[0].InheritsFrom(RooAbsRealLValue::Class())) {
             ((RooAbsRealLValue&)fObservables[0]).setVal( hist->GetXaxis()->GetBinUpEdge(i) );
@@ -314,7 +329,7 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
           }
           
           double nextIntegral = cdf->getVal();
-          hist->SetBinContent(hist->GetBin(i,j,0),(nextIntegral-prevIntegral[j-1])*expectedEvents);
+          if(i!=0) hist->SetBinContent(hist->GetBin(i,j,0),(nextIntegral-prevIntegral[j-1])*expectedEvents);
           prevIntegral[j-1]=nextIntegral; 
         }
       }
@@ -330,7 +345,7 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
     
       if(!(hist&&noRestyle)) hist = createOrAdjustHistogram(hist);
       hist->SetName(func->GetName()); 
-      TString myTitle(func->GetTitle());
+      TString myTitle(func->GetName());
       //for nicer histfactory support ...
       if(myTitle.Contains(TString("_")+GetTitle())) myTitle = myTitle.ReplaceAll(TString("_")+GetTitle(),"");
       myTitle.ReplaceAll("L_x_",""); 
@@ -618,8 +633,10 @@ void TRooAbsHStack::DrawDependence(const char* _var, Option_t* option) {
   else {
     //break down by sample ...
     RooFIter fItr = compList().fwdIterator();
-    RooAbsArg* arg;
+    RooFIter cIter = coeffList().fwdIterator();
+    RooAbsArg* arg; RooAbsArg* coefArg;
     while( (arg = fItr.next()) ) {
+      coefArg = cIter.next();
       if(arg->InheritsFrom("TRooAbsH1")) {
         comps.push_back(dynamic_cast<TRooAbsH1*>(arg));
         continue;
@@ -628,7 +645,7 @@ void TRooAbsHStack::DrawDependence(const char* _var, Option_t* option) {
       //if got here ... we will need to create a temporary TRooH1 for the sample and use that 
       TRooH1D* myComp = new TRooH1D(arg->GetName(),arg->GetTitle(),*xVar,GetRangeName());
       
-      double coef = ((RooAbsReal*)coeffList().at( compList().index(arg) ))->getVal();
+      double coef = ((RooAbsReal*)coefArg)->getVal();
 
       for(int i=1;i<=myComp->GetXaxis()->GetNbins();i++) {
         myComp->SetBinContent(i,coef);

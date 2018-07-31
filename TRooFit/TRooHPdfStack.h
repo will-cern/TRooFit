@@ -34,7 +34,7 @@ public:
   TRooHPdfStack(const char* name, const char* title);
   virtual TObject* clone(const char* newname) const { return new TRooHPdfStack(*this,newname); }
   TRooHPdfStack(const TRooHPdfStack& other, const char* name=0) ;
-  
+  TRooHPdfStack(const RooAddPdf& other, const RooArgSet& observables);
   
 
   //virtual const char* GetRangeName() const { if(fRooHists.getSize()==0) return 0; return fRooHists[0].GetName(); }
@@ -49,14 +49,14 @@ public:
   //override getValV so we can suppress warnings about 0 and negative values
   virtual Double_t getValV( const RooArgSet* set = 0 ) const;
 
-  
+  virtual RooListProxy& compList() { return _pdfList; }
+  virtual const RooListProxy& coeffList() const { return _coefList; }
+  virtual const RooListProxy& compList() const { return _pdfList; }
 
 protected:
   ///Methods required by TRooAbsHStack
   virtual TIterator*& compIter() { return _pdfIter; }
-  virtual RooListProxy& compList() { return _pdfList; }
-  virtual const RooListProxy& coeffList() const { return _coefList; }
-  virtual const RooListProxy& compList() const { return _pdfList; }
+ 
   virtual void reinit();
   virtual double evaluate() const;
   

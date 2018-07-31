@@ -55,12 +55,14 @@ public:
 
   virtual void printMetaArgs(std::ostream& os) const;
 
-protected:
-  ///Methods required by TRooAbsHStack
-  virtual TIterator*& compIter() { return _funcIter; }
   virtual RooListProxy& compList() { return _funcList; }
   virtual const RooListProxy& coeffList() const { return _coefList; }
   virtual const RooListProxy& compList() const { return _funcList; }
+
+protected:
+  ///Methods required by TRooAbsHStack
+  virtual TIterator*& compIter() { return _funcIter; }
+  
   virtual void reinit();
 
   virtual double evaluate() const;
