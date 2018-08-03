@@ -31,6 +31,7 @@ public:
   TRooWorkspace() : RooWorkspace() { }
   TRooWorkspace(const char* name, const char* title = 0) : RooWorkspace(name,title) { }
   TRooWorkspace(const RooWorkspace& other);
+  ~TRooWorkspace() { fNll.removeAll(); }
   
 
   bool definePoi(const char* poi) { return defineSet("poi",poi); }
@@ -87,6 +88,8 @@ public:
   RooFitResult* loadFit(const char* fitName,bool prefit=false);
   RooFitResult* getFit(const char* fitName=0) { return dynamic_cast<RooFitResult*>(obj((fitName==0)?fCurrentFit.Data():fitName)); }
   RooAbsReal* getFitNll(const char* fitName=0);
+  
+  RooAbsReal* nll(const char* nllName) const { return dynamic_cast<RooAbsReal*>(fNll.find(nllName)); }
   
   double pll(RooAbsData* theData, const RooArgSet* globalObservables=0, bool oneSided=false, bool discovery=false);
   
@@ -160,6 +163,8 @@ private:
   Bool_t kDisabledForcedRecommendedOptions = false;
   
   Bool_t kShowSignificance = false;
+  
+  RooArgList fNll; //!
   
   ClassDef(TRooWorkspace,1) // An extended form of a RooWorkspace
 };

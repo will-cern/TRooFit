@@ -695,9 +695,9 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
      //ensure all global observables are held constant now - important for pll evaluation
      gobs.setAttribAll("Constant",kTRUE);
      
-     defineSet(Form("globalObservables%s",TString(simPdfName(6,simPdfName.Length()-6)).Data()),gobs);
+     defineSet(Form("globalObservables%s",TString(simPdfName(fSimPdfName.Length(),simPdfName.Length()-fSimPdfName.Length())).Data()),gobs);
      
-     saveSnapshot(Form("%s_globalObservables%s",fCurrentData.Data(),TString(simPdfName(6,simPdfName.Length()-6)).Data()),gobs);
+     saveSnapshot(Form("%s_globalObservables%s",fCurrentData.Data(),TString(simPdfName(fSimPdfName.Length(),simPdfName.Length()-fSimPdfName.Length())).Data()),gobs);
      
      //save the list of parameters as a set (poi+np)
      RooArgSet np;RooArgSet args;
@@ -727,9 +727,9 @@ bool TRooWorkspace::generateAsimov(const char* name, const char* title, bool fit
       snap = (RooArgSet*)set("poi")->snapshot();
       const_cast<RooArgSet*>(set("poi"))->setAttribAll("Constant",kTRUE);
     }
-    auto nll = TRooFit::createNLL(thePdf,data("obsData"),set("globalObservables"));
+    auto _nll = TRooFit::createNLL(thePdf,data("obsData"),set("globalObservables"));
     loadSnapshot("obsData_globalObservables");
-    auto fitResult = TRooFit::minimize(nll,true,false); //hesse not needed, just need best fit values 
+    auto fitResult = TRooFit::minimize(_nll,true,false); //hesse not needed, just need best fit values 
     import(*fitResult,Form("conditionalFit_obsData_for%s",name));
     delete fitResult;
     if(snap) {
@@ -762,9 +762,9 @@ std::pair<RooAbsData*,RooArgSet*> TRooWorkspace::generateToy(const char* name, c
       snap = (RooArgSet*)set("poi")->snapshot();
       const_cast<RooArgSet*>(set("poi"))->setAttribAll("Constant",kTRUE);
     }
-    auto nll = TRooFit::createNLL(thePdf,data("obsData"),set("globalObservables"));
+    auto _nll = TRooFit::createNLL(thePdf,data("obsData"),set("globalObservables"));
     loadSnapshot("obsData_globalObservables");
-    auto fitResult = TRooFit::minimize(nll,true,false); //hesse not needed, just need best fit values 
+    auto fitResult = TRooFit::minimize(_nll,true,false); //hesse not needed, just need best fit values 
     import(*fitResult,Form("conditionalFit_obsData_for%s",name));
     delete fitResult;
     if(snap) {
@@ -891,8 +891,8 @@ RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalO
   }
   
   //load or otherwise create the nll
-  RooAbsReal* nll = (!internalData) ? 0 : function(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
-  if(!nll) {
+  RooAbsReal* _nll = (!internalData) ? 0 : nll(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
+  if(!_nll) {
     //it seems that if any parameters are const and we later make them unconst then the nll doesnt update properly (the const optimization is borked) 
     //so unconst all poi to be safe ...
     RooArgSet* snap = 0;
@@ -900,16 +900,24 @@ RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalO
       snap = (RooArgSet*)set("poi")->snapshot();
       const_cast<RooArgSet*>(set("poi"))->setAttribAll("Constant",kFALSE);
     }
-    nll = TRooFit::createNLL(thePdf,theData,set(Form("globalObservables%s",TString(simPdfName(6,simPdfName.Length()-6)).Data())));
+    const RooArgSet* gobs = set(Form("globalObservables%s",TString(simPdfName(fSimPdfName.Length(),simPdfName.Length()-fSimPdfName.Length())).Data()));
+    _nll = TRooFit::createNLL(thePdf,theData,gobs);
     if(snap) {
       *const_cast<RooArgSet*>(set("poi")) = *snap;
       delete snap;
     }
-    nll->SetName(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
+    TString oldName = _nll->GetName();
+    _nll->SetName(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
     if(internalData) {
-      import(*nll,RooFit::Silence());
-      delete nll;
-      nll = function(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
+      //import(*_nll/*,RooFit::Silence()*/);
+      //delete _nll;
+      //Discovered that imported nll does not behave same as unimported version (fits not converging)
+      //next couple of lines were attempt to resolve difference but not successful
+      //hence now TRooWorkspace tracks its own nll in a list ...
+      //RooAbsReal* constr = function(Form("nll_%s_%s_constr",thePdf->GetName(),theData->GetName()));
+      //if(constr) constr->setOperMode(RooAbsArg::ADirty);
+      //_nll = function(Form("nll_%s_%s",theData->GetName(),thePdf->GetName()));
+      fNll.addOwned(*_nll);
     }
   }
   
@@ -926,19 +934,19 @@ RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalO
   delete allPars; delete allFloatVars;
   
   if(!kDisabledForcedRecommendedOptions) TRooFit::setRecommendedDefaultOptions();
-  RooFitResult* result = TRooFit::minimize(nll, true, doHesse);
+  RooFitResult* result = TRooFit::minimize(_nll, true, doHesse);
   if(internalData) result->Print();
   result->SetName(Form("fitTo_%s",theData->GetName()));
   result->SetTitle(result->GetTitle());
   
-  if(internalData) nll->setAttribute(result->GetName()); //used to track which nll corresponds to which fit
+  if(internalData) _nll->setAttribute(result->GetName()); //used to track which nll corresponds to which fit
   
   if(reducedData && !internalData) delete reducedData;
   
   //before returning we will override _minLL with the actual NLL value ... offsetting could have messed up the value
-  result->_minNLL = nll->getVal();
+  result->_minNLL = _nll->getVal();
   
-  if(!internalData) delete nll;
+  if(!internalData) delete _nll;
   
   return result;
   
@@ -951,7 +959,7 @@ RooAbsReal* TRooWorkspace::getFitNll(const char* fitName) {
   
   if(sFitName=="") return 0;
   
-  std::unique_ptr<RooAbsCollection> possibleNll( allFunctions().selectByAttrib(sFitName,true) );
+  std::unique_ptr<RooAbsCollection> possibleNll( fNll.selectByAttrib(sFitName,true) );
 
   if(possibleNll->getSize()==0) return 0;
   else if(possibleNll->getSize()==1) return static_cast<RooAbsReal*>(possibleNll->first());
@@ -972,14 +980,14 @@ void TRooWorkspace::impact(const char* impactPar) {
     return;
   }
   
-  RooAbsReal* nll = getFitNll();
-  if(!nll) return;
+  RooAbsReal* _nll = getFitNll();
+  if(!_nll) return;
   
   RooFitResult* out = getFit();
   if(!out) return;
   
   if(impactPar && out->floatParsInit().find(impactPar)) {
-     RooArgSet* globalFloatPars = nll->getObservables(out->floatParsInit()); 
+     RooArgSet* globalFloatPars = _nll->getObservables(out->floatParsInit()); 
      
      TGraph posImpact; posImpact.SetFillColor(kCyan); //will hold impacts from positive errors
      TGraph negImpact; negImpact.SetFillColor(38); //hold impacts from negative errrors
@@ -1008,13 +1016,13 @@ void TRooWorkspace::impact(const char* impactPar) {
       for(int j=-1;j<2;j+=2) { //j=0 is positive error, j=1 is negative errr
     
         *globalFloatPars = out->floatParsInit(); //restore initial state for global fit (includes restoring non-constant state)
-        RooRealVar* parInNLL = ((RooRealVar*)nll->getParameters(RooArgSet())->find(arg->GetName()));
+        RooRealVar* parInNLL = ((RooRealVar*)_nll->getParameters(RooArgSet())->find(arg->GetName()));
         RooRealVar* parInGlobalFit = ((RooRealVar*)out->floatParsFinal().find(arg->GetName()));
         parInNLL->setConstant(1);
         parInNLL->setVal( parInGlobalFit->getVal() + ((j<0) ? parInGlobalFit->getErrorLo() : parInGlobalFit->getErrorHi()) ); //set to desired value
         //rerun the fit ..
         Info("fitTo","Computing impact on %s due to %s",parName.Data(),arg->GetName());
-        RooFitResult* impactFit = TRooFit::minimize(nll);
+        RooFitResult* impactFit = TRooFit::minimize(_nll);
         double postfitImpact = ((RooRealVar*)impactFit->floatParsFinal().find(parName))->getVal() - ((RooRealVar*)out->floatParsFinal().find(parName))->getVal();
 
         if(j>0) {
