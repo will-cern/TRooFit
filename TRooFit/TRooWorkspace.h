@@ -81,7 +81,8 @@ public:
   
   void DisableForcedRecommendedOption(bool in) { kDisabledForcedRecommendedOptions=in; } //use to override forcing of the recommended fit options when calling fitTo
   
-  void impact(const char* impactPar=0);
+  double impact(const char* poi, const char* np, bool positive=true);
+  void impact(const char* impactPar=0, float correlationThreshold=0);
   
   RooFitResult* fitTo(RooAbsData* theData, const RooArgSet* globalObserables=0, bool doHesse=true);
   RooFitResult* fitTo(const char* dataName=0, bool doHesse=true, const RooArgSet& minosPars=RooArgSet());

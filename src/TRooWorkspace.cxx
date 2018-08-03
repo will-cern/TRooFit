@@ -8,6 +8,10 @@
 #include "RooDataSet.h"
 #include "RooBinning.h"
 #include "RooProduct.h"
+#include "TCanvas.h"
+#include "TROOT.h"
+#include "TLatex.h"
+#include "TStyle.h"
 
 #include "TRooFit/Utils.h"
 
@@ -969,7 +973,42 @@ RooAbsReal* TRooWorkspace::getFitNll(const char* fitName) {
   }
 }
 
-void TRooWorkspace::impact(const char* impactPar) {
+//compute impact using the current fit ...
+double TRooWorkspace::impact(const char* poi, const char* np, bool positive) {
+  RooAbsReal* _nll = getFitNll();
+  if(!_nll) return 0;
+  
+  RooFitResult* out = getFit();
+  if(!out) return 0;
+  
+  std::unique_ptr<RooArgSet> globalFloatPars( _nll->getObservables(out->floatParsInit()) ); 
+  
+  RooRealVar* arg = (RooRealVar*)globalFloatPars->find(np);
+  if(!arg) return 0;
+  
+  RooRealVar* poiArg = dynamic_cast<RooRealVar*>(out->floatParsFinal().find(poi));
+  if(!poiArg) return 0;
+  
+  
+  RooRealVar* parInNLL = arg;
+  RooRealVar* parInGlobalFit = ((RooRealVar*)out->floatParsFinal().find(arg->GetName()));
+  
+  parInNLL->setConstant(1);
+  parInNLL->setVal( parInGlobalFit->getVal() + ((!positive) ? parInGlobalFit->getErrorLo() : parInGlobalFit->getErrorHi()) ); //set to desired value
+  //rerun the fit ..
+  //Info("impact","Computing impact on %s due to %s",poi,np);
+  
+  RooFitResult* impactFit = TRooFit::minimize(_nll);
+  double postfitImpact = ((RooRealVar*)impactFit->floatParsFinal().find(poi))->getVal() - poiArg->getVal();
+  
+  *globalFloatPars = out->floatParsInit(); //restore initial state for global fit (includes restoring non-constant state)
+  
+  delete impactFit;
+  return postfitImpact;
+  
+}
+
+void TRooWorkspace::impact(const char* impactPar, float correlationThreshold) {
   //computes impact on given parameter, or parameter of interest
   
   TString parName;
@@ -980,73 +1019,117 @@ void TRooWorkspace::impact(const char* impactPar) {
     return;
   }
   
-  RooAbsReal* _nll = getFitNll();
-  if(!_nll) return;
-  
   RooFitResult* out = getFit();
   if(!out) return;
   
-  if(impactPar && out->floatParsInit().find(impactPar)) {
-     RooArgSet* globalFloatPars = _nll->getObservables(out->floatParsInit()); 
-     
-     TGraph posImpact; posImpact.SetFillColor(kCyan); //will hold impacts from positive errors
-     TGraph negImpact; negImpact.SetFillColor(38); //hold impacts from negative errrors
-     std::vector<TString> argNames;
-     std::map<TString,std::pair<RooFitResult*,RooFitResult*>> impactResults;//save the fit restults in a map
-    TMultiGraph impactGraph;
-    
-      
-    
-      //get impact for top X (most correlated) variables
-      int myIdx = out->floatParsFinal().index(parName);
-      std::vector<float> cors;
-      for(int i=0;i<out->floatParsFinal().getSize();i++) {
-        if(myIdx==i) continue;
-        cors.push_back(out->correlation(myIdx,i));
-      }
-      std::sort(cors.begin(),cors.end(),greater_abs<float>());
-    
-      RooFIter parItr = out->floatParsInit().fwdIterator();
-    Info("fitTo","%d variables to compute impact of ...",out->floatParsInit().getSize()-1);
-    while( RooAbsArg* arg = parItr.next() ) {
-      if(parName==arg->GetName()) continue; //dont compute self-impact!
-      if(cors.size()>10 && fabs(out->correlation(myIdx,out->floatParsFinal().index(arg->GetName()))) < fabs(cors[10])) continue;
-      //to compute e.g. post-fit impact due to lumi uncert, shift and fix par before redoing global fit ...
-    std::cout << "correlation = " << out->correlation(myIdx,out->floatParsFinal().index(arg->GetName())) << std::endl;
-      for(int j=-1;j<2;j+=2) { //j=0 is positive error, j=1 is negative errr
-    
-        *globalFloatPars = out->floatParsInit(); //restore initial state for global fit (includes restoring non-constant state)
-        RooRealVar* parInNLL = ((RooRealVar*)_nll->getParameters(RooArgSet())->find(arg->GetName()));
-        RooRealVar* parInGlobalFit = ((RooRealVar*)out->floatParsFinal().find(arg->GetName()));
-        parInNLL->setConstant(1);
-        parInNLL->setVal( parInGlobalFit->getVal() + ((j<0) ? parInGlobalFit->getErrorLo() : parInGlobalFit->getErrorHi()) ); //set to desired value
-        //rerun the fit ..
-        Info("fitTo","Computing impact on %s due to %s",parName.Data(),arg->GetName());
-        RooFitResult* impactFit = TRooFit::minimize(_nll);
-        double postfitImpact = ((RooRealVar*)impactFit->floatParsFinal().find(parName))->getVal() - ((RooRealVar*)out->floatParsFinal().find(parName))->getVal();
-
-        if(j>0) {
-          posImpact.SetPoint(posImpact.GetN(),posImpact.GetN()+1,postfitImpact);
-          impactResults[arg->GetName()].second=impactFit;
-        } else {
-          negImpact.SetPoint(negImpact.GetN(),negImpact.GetN()+1,postfitImpact);
-          impactResults[arg->GetName()].first=impactFit;
-        }
-      
-      }
-      argNames.push_back(arg->GetTitle());
-   }
+  if(impactPar==0 || out->floatParsInit().find(impactPar)==0) return;
   
-    impactGraph.Add(&negImpact);impactGraph.Add(&posImpact);
-    impactGraph.SetName("impact");
-    import(impactGraph);
-    /*impactGraph.Draw("AB");
-    for(int i=0;i<argNames_mu5.size();i++) {
-     impactGraph.GetHistogram()->GetXaxis()->SetBinLabel(impactGraph.GetHistogram()->GetNbinsX()*(i+0.5)/(nPars-1),argNames[i]);
-    }*/
-
+  
+  TString sOpt("");
+  
+  TVirtualPad* pad = gPad;
+  if(!pad) {
+    gROOT->MakeDefCanvas();
+    pad = gPad;
   }
   
+  
+     
+     
+      
+  
+  
+  
+  int myIdx = out->floatParsFinal().index(parName)+1;
+  std::vector<std::pair<std::string,double>> vals;
+  int count(0);
+  for(int i=1;i<=out->floatParsFinal().getSize();i++) {
+    if(i==myIdx) continue; //don't plot self correlation/covariance
+    if( fabs(out->correlation(myIdx-1,i-1)) < correlationThreshold ) continue;
+    vals.push_back(  std::make_pair(out->floatParsFinal().at(i-1)->GetName(),out->correlation(myIdx-1,i-1) ) );
+    count++;
+  }
+
+  std::sort(vals.begin(),vals.end(), [](auto &left, auto &right) { return fabs(left.second) > fabs(right.second); });
+  
+  int nBins = vals.size();
+  
+  if(nBins==0) {
+    Error("impact","No correlations were above the threshold %g",correlationThreshold);
+    return;
+  }
+  
+  TH1D* impactHist = new TH1D("impact","#theta = #hat{#theta}+#Delta#hat{#theta}",nBins,0,nBins);
+  impactHist->SetBarWidth(0.9);impactHist->SetBarOffset(0.05);
+  impactHist->SetFillColor(4);
+  impactHist->SetDirectory(0);
+  impactHist->GetYaxis()->SetTitle(Form("#Delta%s",out->floatParsInit().find(impactPar)->GetTitle()));
+  
+  //create a copy histogram and add it ...
+  TH1* copyHist = static_cast<TH1*>(impactHist->Clone(impactHist->GetName())); copyHist->SetDirectory(0);
+  copyHist->SetTitle("#theta = #hat{#theta}-#Delta#hat{#theta}");
+  copyHist->SetFillColor(kCyan);
+  impactHist->GetListOfFunctions()->Add(copyHist,"b same");
+  
+  impactHist->SetBit(kCanDelete);
+  impactHist->Draw("B");
+  
+  TLegend* myLegend = (TLegend*)GetLegend()->Clone("legend");
+  myLegend->SetBit(kCanDelete); //so that it is deleted when pad cleared
+  myLegend->AddEntry(impactHist,impactHist->GetTitle(),"F");
+  myLegend->AddEntry(copyHist,copyHist->GetTitle(),"F");
+  
+  
+  myLegend->SetY1( myLegend->GetY2() - myLegend->GetNRows()*myLegend->GetTextSize() );
+  myLegend->ConvertNDCtoPad();
+  myLegend->Draw();
+  
+  float maxVal=0;
+  for(int i=0;i<impactHist->GetNbinsX();i++) {
+    RooAbsArg* arg = out->floatParsFinal().find(vals[i].first.c_str());
+    //to compute e.g. post-fit impact due to lumi uncert, shift and fix par before redoing global fit ...
+    //std::cout << "correlation = " << out->correlation(myIdx,out->floatParsFinal().index(arg->GetName())) << std::endl;
+    for(int j=-1;j<2;j+=2) { 
+  
+      
+      double postfitImpact = impact(parName, arg->GetName(), (j>0) );
+
+      if(j>0) {
+        impactHist->SetBinContent(i+1,postfitImpact);
+        impactHist->GetXaxis()->SetBinLabel(i+1,arg->GetTitle());
+      } else {
+        copyHist->SetBinContent(i+1,postfitImpact);
+      }
+      
+      if(fabs(postfitImpact) > maxVal) maxVal = postfitImpact;
+    
+      impactHist->SetAxisRange(-maxVal*1.1,maxVal*1.1,"Y");
+      pad->Modified(1);
+      pad->Update();
+    
+    }
+  }
+       
+  
+  
+  
+  
+  
+
+  
+
+  
+  if(!sOpt.Contains("same")) {
+    TLatex latex;latex.SetNDC();latex.SetTextSize(myLegend->GetTextSize());
+    Double_t xPos = gPad->GetLeftMargin()+12./gPad->GetCanvas()->GetWw();
+    Double_t yPos = 1. - gPad->GetTopMargin() -12./gPad->GetCanvas()->GetWh() - latex.GetTextSize();
+    for(auto label : fLabels) {
+      latex.DrawLatex(xPos,yPos,label);
+      yPos -= latex.GetTextSize();
+    }
+  }
+
+  pad->Update();
   
 }
 
@@ -1108,10 +1191,7 @@ RooFitResult* TRooWorkspace::loadFit(const char* fitName, bool prefit) {
 }
 
 
-#include "TCanvas.h"
-#include "TROOT.h"
-#include "TLatex.h"
-#include "TStyle.h"
+
 
 TLegend* TRooWorkspace::GetLegend() {
   if(!fLegend) { 
