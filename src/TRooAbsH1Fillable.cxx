@@ -910,6 +910,7 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
       RooAbsArg* par = 0;
       while( (par = parItr.next()) ) {
         i++;
+        
         int upIdx = upSet[i]; //the paramSet corresponding to one nearest fluctuation 
         
         if(!kIsStandardParameterVariations && par->InheritsFrom( RooAbsCategory::Class() ) ) continue;
@@ -1043,7 +1044,8 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
         case 4:{ //6th order polynomial with log extrapolation
             
             if(val==0) break; //since in this mode the corrections to val are entirely multiplicative, if we have 0 we are effectively done
-        
+            
+            
         
             //scale and shift x values so x_up-x_down = 2 and x_up+x_down=0 (i.e. usual +1, -1 case) 
             //sf even flips x_up and x_down so that x_up > x_down
@@ -1056,9 +1058,9 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
             
         
             if(x_val >= 1.) {
-              val *= std::pow(y_up/nomVal, x_val);
+              if(fabs(y_up-nomVal)>1e-15) val *= std::pow(y_up/nomVal, x_val);
             } else if(x_val <= -1.) {
-              val *= std::pow(y_down/nomVal, -x_val);
+              if(fabs(y_down-nomVal)>1e-15) val *= std::pow(y_down/nomVal, -x_val);
             } else if(x_val) {
               //Based off what is in FlexibleInterpVar (interpCode 4)
               
@@ -1066,8 +1068,8 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
               
               double coeff[6];
               
-              double pow_up       =  y_up/nomVal;
-              double pow_down     =  y_down/nomVal;
+              double pow_up       =  (fabs(y_down-nomVal)>1e-15) ? y_up/nomVal : 1.;
+              double pow_down     =  (fabs(y_down-nomVal)>1e-15) ? y_down/nomVal : 1.;
               double logHi        =  std::log(pow_up) ; //BUGFIXED!
               double logLo        =  std::log(pow_down); //BUGFIXED!
               double pow_up_log   = y_up <= 0.0 ? 0.0 : pow_up * logHi;
@@ -1092,16 +1094,18 @@ Double_t TRooAbsH1Fillable::evaluateImpl(bool divideByBinWidth) const
               coeff[4] = 1./(8)*(    +  3*A0 -  3*S1 + A2);
               coeff[5] = 1./(8)*( -8 +  8*S0 -  5*A1 + S2);
               
+              //std::cout << nomVal << " " << y_up << " " << y_down << " " << val << " " << x_val << " " << coeff[0] << " " << coeff[1] << " " << coeff[2] << " " << coeff[3] << " " << coeff[4] << " " << coeff[5] << std::endl;
               
               val *= (1. + x_val * (coeff[0] + x_val * (coeff[1] + x_val * (coeff[2] + x_val * (coeff[3] + x_val * (coeff[4] + x_val * coeff[5]) ) ) ) ) );
               
             }
             
             
+            
             }break;
         }
 
-        
+        //std::cout << par->GetName() << " " << val << std::endl;
       }
       
       if(divideByBinWidth && val) { //divide by bin volume if it's necessary to
