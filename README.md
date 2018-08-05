@@ -11,13 +11,13 @@ TRooFit is a collection of pdf classes for RooFit, that are designed to behave l
 Setup (CMake)
 =====
 
-Setup any release that has ROOT, e.g. AthAnalysis, and then use acm to clone this package and compile it (here we checkout the version called ```TRooFit-ABCD-0.1.0```)
+Setup any release that has ROOT, e.g. AthAnalysis, and then use acm to clone this package and compile it (this will compile the master version of TRooFit)
 
 ```
 mkdir build source
 cd build
 acmSetup AthAnalysis,21.2,latest
-acm clone_project TRooFit will/TRooFit TRooFit-ABCD-0.1.0
+acm clone_project TRooFit will/TRooFit
 acm compile
 ````
 
