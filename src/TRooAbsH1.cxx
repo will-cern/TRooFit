@@ -912,8 +912,29 @@ TH1* TRooAbsH1::GetHistogram(const RooFitResult* r, bool includeErrors, TH1* his
 void TRooAbsH1::fillHistogram(TH1* histToFill, const RooFitResult* r, bool includeErrors) const {
   histToFill->Reset();
   //loop over bins and fill
+  //be more efficient by avoiding constantly setting fit result values ... 
+  RooAbsCollection* deps = 0;RooAbsCollection* cdeps = 0;
+  RooAbsCollection* rsnap = 0;RooAbsCollection* crsnap = 0;
+  RooAbsCollection* constParCopy = 0;
+  if(r) {
+    //move onto finalPars values 
+    deps = dynamic_cast<const RooAbsArg*>(this)->getDependents(r->floatParsFinal());
+    rsnap = deps->snapshot();
+    *deps = r->floatParsFinal(); //overrides with values from fit result
+    //likewise for constPars 
+    cdeps =  dynamic_cast<const RooAbsArg*>(this)->getDependents(r->constPars());
+    crsnap = cdeps->snapshot();
+    *cdeps = r->constPars(); cdeps->setAttribAll("Constant",true);
+    
+    //because there might be lots of const pars, to avoid setting them all each time inside getError
+    //we will remove the const pars from the fit result that will be passed
+    //(was found to be causing big slow down for e.g. the higgs combination workspaces, had over 18k const pars!)
+    constParCopy = r->constPars().snapshot();
+    const_cast<RooArgList&>(r->constPars()).removeAll();
+  }
+  
   for(int i=1;i<=histToFill->GetNbinsX();i++) {
-    double val = GetBinContent(i,r);
+    double val = GetBinContent(i,0/*don't pass fitResult because we already set it*/);
     if(val) histToFill->SetBinContent(i,val);
     if(includeErrors) {
       histToFill->SetBinError(i,GetBinError(i,r));
@@ -921,6 +942,17 @@ void TRooAbsH1::fillHistogram(TH1* histToFill, const RooFitResult* r, bool inclu
       histToFill->SetBinError(i,0);
     }
   }
+  
+  if(r) {
+    *deps = *rsnap;
+    *cdeps = *crsnap; //this will also revert constant status
+    delete deps;delete cdeps;
+    delete rsnap;delete crsnap;
+    const_cast<RooArgList&>(r->constPars()).addOwned( *constParCopy );
+    constParCopy->releaseOwnership();
+    delete constParCopy;
+  }
+  
 }
 
 void TRooAbsH1::fillGraph(TGraph* graphToFill, const RooFitResult* r, bool includeErrors, int nPoints, RooRealVar* xVar) const {
@@ -1106,18 +1138,20 @@ std::pair<double,double> TRooAbsH1::getError(const RooFitResult& fr, const RooAb
 
 
   // Clone self for internal use
-  RooAbsReal* cloneFunc = (RooAbsReal*)(func->cloneTree()) ;
+  RooAbsReal* cloneFunc = const_cast<RooAbsReal*>(func);//(RooAbsReal*)(func->cloneTree()) ;
   RooAbsPdf* cloneFuncPdf = dynamic_cast<RooAbsPdf*>(cloneFunc);
   RooArgSet* errorParams = cloneFunc->getObservables(fr.floatParsFinal()) ;
   RooArgSet* nset = cloneFunc->getParameters(*errorParams) ;
   //remove const pars from nset ...
   
-  //DONT NEED TO SNAP because we cloneTreed ... RooArgSet nsnap; nset->snapshot(nsnap);
+  //DONT NEED TO SNAP because we cloneTreed ... 
+  RooArgSet nsnap; nset->snapshot(nsnap);
   *nset = fr.constPars(); //also ensure any const parameters are set to their respective values 
   
   //nset->remove( fr.constPars(),false,true );
   auto constpars = nset->selectByAttrib("Constant",true); //this is more certain to catch the constant parameters and not normalize on them
   nset->remove(*constpars); delete constpars;
+  
   
   
   if(nZ==0) {
@@ -1136,11 +1170,14 @@ std::pair<double,double> TRooAbsH1::getError(const RooFitResult& fr, const RooAb
     }
     
     if(paramList.getSize()==0) {
-      delete cloneFunc; delete errorParams; delete nset;
+      //delete cloneFunc; 
+      *nset = nsnap;
+      delete errorParams; delete nset;
       return std::make_pair(0.,0.); //no error
     }
   
-    //DONT NEED TO SNAP BECAUSE WE cloneTree'd! RooArgSet psnap;errorParams->snapshot(psnap); //save the current values
+    //DONT NEED TO SNAP BECAUSE WE cloneTree'd! 
+    RooArgSet psnap;errorParams->snapshot(psnap); //save the current values
     *errorParams = fpf; //sets all param values to central values, including ones that had no error in floatParsFinal
     
   
@@ -1170,6 +1207,7 @@ std::pair<double,double> TRooAbsH1::getError(const RooFitResult& fr, const RooAb
       ((RooRealVar*)paramList.at(ivar))->setVal(cenVal) ;
       
     }
+    
   
     TMatrixDSym C(paramList.getSize()) ;      
     for (int i=0 ; i<paramList.getSize() ; i++) {
@@ -1185,14 +1223,14 @@ std::pair<double,double> TRooAbsH1::getError(const RooFitResult& fr, const RooAb
       F[j] = (plusVar[j]-minusVar[j])/2 ;
     }
     
-    //*errorParams = psnap; //puts all params back
-    //*nset = nsnap;
+    *errorParams = psnap; //puts all params back
+    *nset = nsnap;
   
     // Calculate error in linear approximation from variations and correlation coefficient
     Double_t sum = F*(C*F) ;
 
 
-    delete cloneFunc ;
+    //delete cloneFunc ;
     delete errorParams ;
     delete nset ;
   
@@ -1223,7 +1261,7 @@ std::pair<double,double> TRooAbsH1::getError(const RooFitResult& fr, const RooAb
   
   delete paramPdf;
   
-  delete cloneFunc;
+  //delete cloneFunc;
   delete errorParams;
   delete nset;
   

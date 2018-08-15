@@ -282,7 +282,6 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
       //need to fill a histogram ... use binning of GetRangeName() 
        
        
-       
        if(!(hist&&noRestyle)) hist = createOrAdjustHistogram(hist); 
       hist->SetName(func->GetName());
       
@@ -340,7 +339,6 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
       delete snap;
       
       delete cdf;
-      
     } else {
     
       if(!(hist&&noRestyle)) hist = createOrAdjustHistogram(hist);
@@ -530,7 +528,7 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
     //if drawing without same option, create a histogram and put at top of the primitives list so axis are drawn first
     if(!opt.Contains("same")) {
       fDrawStacks.back().frame = createOrAdjustHistogram(0);
-      fillHistogram(fDrawStacks.back().frame,r2,fillType);
+      if(!fillType) fillHistogram(fDrawStacks.back().frame,r2,fillType); //if filling with error be efficient and utilise histogram created below
       gPad->GetListOfPrimitives()->AddFirst( fDrawStacks.back().frame, "axis" );
       opt += "same";
     }
@@ -542,7 +540,8 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
     //if drawing with option "e3XXX" then need to also draw as a histogram
     if(fillType) {
         TRooAbsH1::Draw(TString::Format("%s e%dsame",(hadInit)?"init":"",fillType),r);
-        //FIXME: would like to have stack's maximum match up to error bar maximum
+        TH1* theHist = (TH1*)gPad->GetListOfPrimitives()->Last();
+        fDrawStacks.back().frame->Add( theHist );
     }
     
     if(fDrawStacks.back().frame) gPad->GetListOfPrimitives()->Add( fDrawStacks.back().frame , "sameaxis" ); //redraw to avoid cover up

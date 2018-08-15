@@ -121,7 +121,8 @@ public:
   //draws all channels
   virtual void Draw(Option_t* option, const TRooFitResult& res);
   virtual void Draw(Option_t* option="e3005") { 
-    if(fCurrentFit!="") Draw(option,getFit(fCurrentFit));
+    //if(fCurrentFit!="") Draw(option,getFit(fCurrentFit));
+    if(fCurrentFitResult) Draw(option,*fCurrentFitResult);
     else Draw(option,""); 
   }
   

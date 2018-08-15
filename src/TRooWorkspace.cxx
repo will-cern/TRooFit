@@ -1185,6 +1185,9 @@ RooFitResult* TRooWorkspace::loadFit(const char* fitName, bool prefit) {
   if(fCurrentFitResult) delete fCurrentFitResult;
   fCurrentFitResult = new TRooFitResult( result );
   
+  //constPars are expunged from the fCurrentFitResult, to help speed up printout of yields (avoids recopying const pars)
+  const_cast<RooArgList&>(fCurrentFitResult->constPars()).removeAll();
+  
   return result;
   
   
