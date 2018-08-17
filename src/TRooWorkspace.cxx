@@ -426,28 +426,31 @@ bool TRooWorkspace::dataFill(const char* channelName, double x, double w) {
 #include "TCut.h"
 
 bool TRooWorkspace::sampleFill(const char* sampleName, TTree* tree, const char* weight, const char* variationName, double variationVal) {
-  TString sWeight(weight);
-  //loop over channels, create sample for each one that matches pattern
   TIterator* catIter = cat(fChannelCatName)->typeIterator();
   TObject* c;
   while( (c = catIter->Next()) ) {
-    TRooH1* s = sample(sampleName,c->GetName());
-    TRooAbsHStack* cc = channel(c->GetName());
-    RooAbsReal* ccFunc = dynamic_cast<RooAbsReal*>(cc);
-    
-    TH1* histToFill = (TH1*)fDummyHists[c->GetName()]->Clone("tmpHist");
-    histToFill->Reset();
-    tree->Draw(Form("%s>>tmpHist",var( fDummyHists[c->GetName()]->GetName() )->getStringAttribute("formula")), TCut("cut",ccFunc->getStringAttribute("formula"))*sWeight);
-    if(variationName) {
-      sampleAddVariation(sampleName,c->GetName(),variationName,variationVal,histToFill);
-    } else {
-      s->Add(histToFill);
-    }
-    delete histToFill;
-    
+    sampleFill(sampleName,c->GetName(),tree,weight,variationName,variationVal);
   }
   delete catIter;
   
+  return true;
+}
+
+bool TRooWorkspace::sampleFill(const char* sampleName, const char* channelName, TTree* tree, const char* weight, const char* variationName, double variationVal) {
+  TString sWeight(weight);
+  TRooH1* s = sample(sampleName,channelName);
+  TRooAbsHStack* cc = channel(channelName);
+  RooAbsReal* ccFunc = dynamic_cast<RooAbsReal*>(cc);
+  
+  TH1* histToFill = (TH1*)fDummyHists[channelName]->Clone("tmpHist");
+  histToFill->Reset();
+  tree->Draw(Form("%s>>tmpHist",var( fDummyHists[channelName]->GetName() )->getStringAttribute("formula")), TCut("cut",ccFunc->getStringAttribute("formula"))*sWeight);
+  if(variationName) {
+    sampleAddVariation(sampleName,channelName,variationName,variationVal,histToFill);
+  } else {
+    s->Add(histToFill);
+  }
+  delete histToFill;
   return true;
 }
 
@@ -786,6 +789,69 @@ std::pair<RooAbsData*,RooArgSet*> TRooWorkspace::generateToy(const char* name, c
   
 }
 
+void TRooWorkspace::DrawPLL(const char* parName, const char* opt) {
+  
+  RooAbsReal* _nll = getFitNll();
+  if(!_nll) return;
+  
+  RooFitResult* _fit = getFit();
+  
+  RooRealVar* _var = var(parName);
+  
+  
+  
+  TString sOpt(opt);
+  
+  TVirtualPad* pad = gPad;
+  if(!pad) {
+    gROOT->MakeDefCanvas();
+    pad = gPad;
+  }
+  
+  TGraph* g = new TGraph;
+  g->SetName(Form("pll_%s",parName));
+  g->SetLineColor(kRed); g->SetLineWidth(2);
+  if(sOpt.Contains("nll")) {
+    g->SetLineColor(kBlue);
+    sOpt.ReplaceAll("nll","");
+  }
+  g->SetBit(kCanDelete);
+  g->Draw(sOpt);
+  
+  double minNll = _fit->minNll();
+  
+  RooArgSet* snap = (RooArgSet*)allVars().snapshot();
+  
+  for(int i=0;i<21;i++) {
+    double val = _var->getMin() + i*(_var->getMax()-_var->getMin())/20.;
+    _var->setConstant();
+    _var->setVal(val);
+    
+    if(g->GetLineColor()==kRed) {
+      RooFitResult* result = TRooFit::minimize(_nll, true, false); //no hesse
+      if(result->status()) {
+        delete result;
+        allVars() = *snap; //resets
+        continue;
+      }
+      delete result;
+    }
+    
+    g->SetPoint( g->GetN(), val, 2.*(_nll->getVal() - minNll) );
+    
+    
+    allVars() = *snap;
+    pad->Modified(1);
+    pad->Update();
+   }
+   
+   delete snap;
+    
+    
+  
+
+}
+
 double TRooWorkspace::pll(RooAbsData* theData, const RooArgSet* globalObservables, bool oneSided, bool discovery) {
   
   if(set("poi")==0) {
@@ -1001,7 +1067,8 @@ double TRooWorkspace::impact(const char* poi, const char* np, bool positive) {
   RooFitResult* impactFit = TRooFit::minimize(_nll);
   double postfitImpact = ((RooRealVar*)impactFit->floatParsFinal().find(poi))->getVal() - poiArg->getVal();
   
-  *globalFloatPars = out->floatParsInit(); //restore initial state for global fit (includes restoring non-constant state)
+  *globalFloatPars = out->floatParsFinal(); //restore final state (or should it be initial state?) for global fit (includes restoring non-constant state)
+  
   
   delete impactFit;
   return postfitImpact;
@@ -1101,7 +1168,7 @@ void TRooWorkspace::impact(const char* impactPar, float correlationThreshold) {
         copyHist->SetBinContent(i+1,postfitImpact);
       }
       
-      if(fabs(postfitImpact) > maxVal) maxVal = postfitImpact;
+      if(fabs(postfitImpact) > maxVal) maxVal = fabs(postfitImpact);
     
       impactHist->SetAxisRange(-maxVal*1.1,maxVal*1.1,"Y");
       pad->Modified(1);
