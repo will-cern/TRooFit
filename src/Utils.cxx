@@ -566,7 +566,10 @@ const std::map<TString,RooArgList*> TRooFit::breakdown(RooAbsReal* nll, const Ro
   }
   
   
-  
+  if(doSTATCORR && pars.getSize()<2) {
+    msg().Warning("breakdown","Only one parameter of interest specified, so no decorrelation to study -- returning just STAT");
+    doSTATCORR=false;
+  }
   
   
   if(!doSTATCORR) {
@@ -627,9 +630,9 @@ const std::map<TString,RooArgList*> TRooFit::breakdown(RooAbsReal* nll, const Ro
       delete decorrFit;
       
     }
-    out["STATCORR"] = new RooArgList;out["STATUNCORR"] = new RooArgList;
+    out["STATCORR"] = new RooArgList;out["STAT"] = new RooArgList;
     out["STATCORR"]->addClone(myList);
-    out["STATUNCORR"]->addClone(myList2);
+    out["STAT"]->addClone(myList2); //this is now the uncorrelated stat uncertainty (the 'diagaonal' variance)
     
     //finish by restoring float status of all parameters
     allPars.setAttribAll("Constant",kFALSE);
@@ -651,10 +654,10 @@ const std::map<TString,RooArgList*> TRooFit::breakdown(RooAbsReal* nll, const Ro
 
 }
 
-const std::map<TString,std::pair<double,double>> TRooFit::breakdown(RooAbsReal* nll, const RooRealVar& par, std::vector<TString> groups, RooFitResult* unconditionalFitResult, bool runInitialMinos, bool doSTATCORR) {
+const std::map<TString,std::pair<double,double>> TRooFit::breakdown(RooAbsReal* nll, const RooRealVar& par, std::vector<TString> groups, RooFitResult* unconditionalFitResult, bool runInitialMinos) {
   
   RooArgSet s(par);
-  auto res = breakdown(nll,s,groups,unconditionalFitResult,runInitialMinos,doSTATCORR);
+  auto res = breakdown(nll,s,groups,unconditionalFitResult,runInitialMinos,false /*no stat decorrelation for single poi*/);
   
   std::map<TString,std::pair<double,double>> out;
   
