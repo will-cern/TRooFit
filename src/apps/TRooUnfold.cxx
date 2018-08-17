@@ -42,10 +42,7 @@ TRooUnfold::TRooUnfold(const char* name, const char* title,TH2* nominalMigration
 Bool_t TRooUnfold::AddMigrationMatrix(TH2* migrationMatrix, const char* variation) {
   TString sVar(variation);
   if(m_migrationMatrix[sVar]==0) {
-    migrationMatrix->Print();
-    TH2* myMatrix = (TH2*)migrationMatrix->Clone(Form("migration_%s",sVar.Data()));
-    myMatrix->Print();
-    m_migrationMatrix[sVar] = myMatrix;
+    m_migrationMatrix[sVar] = (TH2*)migrationMatrix->Clone(Form("migration_%s",sVar.Data()));
     m_migrationMatrix[sVar]->SetDirectory(0);
   } else {
     m_migrationMatrix[sVar]->Add(migrationMatrix);
