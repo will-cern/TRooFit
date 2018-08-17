@@ -439,7 +439,7 @@ std::vector<RooFitResult*> TRooFit::minos_series(RooAbsReal* nll, const RooArgSe
   if(unconditionalFitResult==0) runInitialMinos=true; //calling minos will create the unconditional fit result for us
 
   if(runInitialMinos) {
-    std::cout << Form("minos_series: running unconditional fit and (global) minos errors for %d parameters",pars.getSize()) << std::endl;
+    msg().Info("minos_series","running unconditional fit and (global) minos errors for parameters: %s",pars.contentsString().c_str());
     unconditionalFitResult = TRooFit::minos(nll,pars,unconditionalFitResult);
   }
 
@@ -449,6 +449,22 @@ std::vector<RooFitResult*> TRooFit::minos_series(RooAbsReal* nll, const RooArgSe
   
   RooArgSet* floatPars = nll->getObservables(unconditionalFitResult->floatParsFinal());
   
+  //before running, check for float parameters that are not part of any group ... we will add these to an 'UNGROUPED' group
+  RooArgSet ungroupedFloatPars; ungroupedFloatPars.add(*floatPars);
+  ungroupedFloatPars.setName("NOGROUPpars");
+  ungroupedFloatPars.remove(pars);
+  for(auto& group : groups) {
+    RooAbsCollection* parsInGroup = ungroupedFloatPars.selectByAttrib(group,kTRUE);
+    ungroupedFloatPars.remove(*parsInGroup); delete parsInGroup;
+  }
+  
+  if(ungroupedFloatPars.getSize()) {
+    msg().Warning("minos_series","%d ungrouped parameters found ... adding to NOGROUP group",ungroupedFloatPars.getSize());
+    ungroupedFloatPars.Print();
+    groups.push_back("NOGROUP");
+  }
+  
+  
   RooFitResult* previousResult = unconditionalFitResult;
   
   for(auto& group : groups) {
@@ -456,7 +472,7 @@ std::vector<RooFitResult*> TRooFit::minos_series(RooAbsReal* nll, const RooArgSe
     RooFitResult* nextResult = new RooFitResult(*previousResult);
     
   
-    RooAbsCollection* parsInGroup = floatPars->selectByAttrib(group,kTRUE);
+    RooAbsCollection* parsInGroup = (group=="NOGROUP") ? new RooArgSet(ungroupedFloatPars) : floatPars->selectByAttrib(group,kTRUE);
     
     RooArgSet floatResults;
     RooFIter itr = nextResult->floatParsFinal().fwdIterator();
@@ -466,7 +482,7 @@ std::vector<RooFitResult*> TRooFit::minos_series(RooAbsReal* nll, const RooArgSe
     
     if(floatResults.getSize()==0) {
       //no floating left
-      std::cout << Form("minos_series: no float parameters in group %s (may have been covered by previous groups in series)",group.Data()) << std::endl;
+      msg().Info("minos_series", "no float parameters in group %s (may have been covered by previous groups in series)",group.Data());
     } else {
       if(parsInGroup->getSize()==0) {
         msg().Warning("minos_series","No parameters found in group %s",group.Data());
@@ -480,7 +496,7 @@ std::vector<RooFitResult*> TRooFit::minos_series(RooAbsReal* nll, const RooArgSe
       const_cast<RooArgList&>(nextResult->constPars()).addClone(floatCopy);
       
       //now run the minos 
-      std::cout << Form("minos_series: running minos for group %s. Parameters in group: %s",group.Data(),floatCopy.contentsString().c_str()) << std::endl;
+      msg().Info("minos_series","running minos for group %s. Parameters in group: %s",group.Data(),floatCopy.contentsString().c_str());
       
       TRooFit::minos(nll,pars,nextResult);
       
@@ -548,6 +564,10 @@ const std::map<TString,RooArgList*> TRooFit::breakdown(RooAbsReal* nll, const Ro
     out[groups[i-1]] = new RooArgList;
     out[groups[i-1]]->addClone(myList);
   }
+  
+  
+  
+  
   
   if(!doSTATCORR) {
     //add one more set for the remainder, it's just the uncerts on the last fit result
