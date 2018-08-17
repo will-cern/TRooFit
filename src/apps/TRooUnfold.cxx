@@ -739,7 +739,7 @@ TH1* TRooUnfold::GetPrefitTruthHistogram() {
   return m_prefitTruth;
 }
 
-std::vector<TH1*> TRooUnfold::GetPostfitTruthHistograms(const std::vector<TString>&& systGroups) {
+std::vector<TH1*> TRooUnfold::GetPostfitTruthHistograms(const std::vector<TString>&& systGroups, bool doSTATCORR) {
 
   std::vector<TString> myGroups(systGroups);
 
@@ -764,12 +764,15 @@ std::vector<TH1*> TRooUnfold::GetPostfitTruthHistograms(const std::vector<TStrin
     
   }
   
-  std::map<TString,RooArgList*> uncert_breakdown = TRooFit::breakdown(m_nll,m_poi,myGroups,m_fitResult);
+  std::map<TString,RooArgList*> uncert_breakdown = TRooFit::breakdown(m_nll,m_poi,myGroups,m_fitResult,false,doSTATCORR);
 
   std::vector<TH1*> out;
   
+  
   std::vector<TString> allGroups;
   allGroups.push_back("nominal");allGroups.push_back("TOTAL");allGroups.push_back("STAT");
+  if(doSTATCORR) allGroups.push_back("STATCORR");
+  
   for(auto syst : myGroups) allGroups.push_back(syst);
   
   
@@ -782,7 +785,7 @@ std::vector<TH1*> TRooUnfold::GetPostfitTruthHistograms(const std::vector<TStrin
     
     
     for(int i=1;i<=out.back()->GetNbinsX();i++) {
-      RooRealVar* v = static_cast<RooRealVar*>(uncert_breakdown[(group=="nominal")?"STAT":group]->find(GetSigNormVar(i)->GetName()));
+      RooRealVar* v = static_cast<RooRealVar*>(uncert_breakdown[(group=="nominal")?"TOTAL":group]->find(GetSigNormVar(i)->GetName()));
       if(group=="nominal") {
         out.back()->SetBinContent(i,v->getVal());
       } else {

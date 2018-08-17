@@ -82,7 +82,7 @@ class TRooUnfold : public TNamed  {
     }
     
     TH1* GetPrefitTruthHistogram();
-    std::vector<TH1*> GetPostfitTruthHistograms(const std::vector<TString>&& systGroups={});
+    std::vector<TH1*> GetPostfitTruthHistograms(const std::vector<TString>&& systGroups={}, bool doSTATCORR=false);
     
     RooAbsArg* GetServer(const char* name) {
       if(!m_fullModel) BuildModel();
