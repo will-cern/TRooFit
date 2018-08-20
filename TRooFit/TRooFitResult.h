@@ -63,6 +63,8 @@ public:
     //The covariance matrix is taken to be uncorrelated
   }; 
   
+  TRooFitResult(const RooAbsArg& finalPar) : TRooFitResult(RooArgList(finalPar)) { };
+  
   TRooFitResult(const RooArgList& finalPars, const RooArgList& _constPars) : TRooFitResult(0,0,finalPars) {
     //constructor that also sets the constPars
     RooArgList tmp;
