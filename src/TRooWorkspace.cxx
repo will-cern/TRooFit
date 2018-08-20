@@ -12,6 +12,7 @@
 #include "TROOT.h"
 #include "TLatex.h"
 #include "TStyle.h"
+#include "TPRegexp.h"
 
 #include "TRooFit/Utils.h"
 
@@ -389,23 +390,31 @@ Int_t TRooWorkspace::setVarAttribute(const char* channels,const char* attribute,
 
 bool TRooWorkspace::addSamples(const char* name, const char* title, const char* channels, bool allowNegative) {
   
-  TRegexp pattern(channels,true);
+  std::vector<TRegexp> patterns;
+  TStringToken pattern(channels,";");
+  while(pattern.NextToken()) {
+    patterns.emplace_back( TRegexp(pattern,true) );
+  }
+  
   
   //loop over channels, create sample for each one that matches pattern
   TIterator* catIter = cat(fChannelCatName)->typeIterator();
   TObject* c;
   while( (c = catIter->Next()) ) {
     TString cName(c->GetName());
-    if(cName.Contains(pattern)) {
-      fDummyHists[c->GetName()]->Reset(); //ensures it is empty
-      TString hName(Form("%s_%s",name,c->GetName()));
-      TRooH1D* h = new TRooH1D(hName,title,*var(fDummyHists[c->GetName()]->GetName()),fDummyHists[c->GetName()]);
-      h->SetFillColor( TRooFit::GetColorByName(name,true) );
-      if(!allowNegative) h->setFloor(true,0); //by default, samples cannot go negative
-      TRooH1D* htmp = h;
-      import(*h);h = static_cast<TRooH1D*>(function(h->GetName()));delete htmp;
-      channel(c->GetName())->Add(h);
-    }
+    bool matched(false);
+    for(auto& p : patterns) if(cName.Contains(p)) { matched=true; break; }
+    if(!matched) continue;
+
+    fDummyHists[c->GetName()]->Reset(); //ensures it is empty
+    TString hName(Form("%s_%s",name,c->GetName()));
+    TRooH1D* h = new TRooH1D(hName,title,*var(fDummyHists[c->GetName()]->GetName()),fDummyHists[c->GetName()]);
+    h->SetFillColor( TRooFit::GetColorByName(name,true) );
+    if(!allowNegative) h->setFloor(true,0); //by default, samples cannot go negative
+    TRooH1D* htmp = h;
+    import(*h);h = static_cast<TRooH1D*>(function(h->GetName()));delete htmp;
+    channel(c->GetName())->Add(h);
+
   }
   
   delete catIter;
@@ -434,32 +443,39 @@ bool TRooWorkspace::Fill(const char* channelName, double x, double w) {
 
 #include "TCut.h"
 
-bool TRooWorkspace::sampleFill(const char* sampleName, TTree* tree, const char* weight, const char* variationName, double variationVal) {
-  TIterator* catIter = cat(fChannelCatName)->typeIterator();
+
+bool TRooWorkspace::Fill(const char* sampleName, const char* channelNames, TTree* tree, const char* weight, const char* variationName, double variationVal) {
+  TString sWeight(weight);
+
+  std::vector<TRegexp> patterns;
+  TStringToken pattern(channelNames,";");
+  while(pattern.NextToken()) {
+    patterns.emplace_back( TRegexp(pattern,true) );
+  }
+  
+  
+  //loop over channels, create sample for each one that matches pattern
+  std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
   TObject* c;
   while( (c = catIter->Next()) ) {
-    Fill(sampleName,c->GetName(),tree,weight,variationName,variationVal);
-  }
-  delete catIter;
-  
-  return true;
-}
+    TString cName(c->GetName());
+    bool matched(false);
+    for(auto& p : patterns) if(cName.Contains(p)) { matched=true; break; }
+    if(!matched) continue;
 
-bool TRooWorkspace::Fill(const char* sampleName, const char* channelName, TTree* tree, const char* weight, const char* variationName, double variationVal) {
-  TString sWeight(weight);
-  TRooH1* s = sample(sampleName,channelName);
-  TRooAbsHStack* cc = channel(channelName);
-  RooAbsReal* ccFunc = dynamic_cast<RooAbsReal*>(cc);
+    if( !var( fDummyHists[cName]->GetName() )->getStringAttribute("formula") ) continue; //var must have a formula
+
+    TRooH1* s = sample(sampleName,cName);
+    if(!s) continue; //skip channel because sample does not exist
+    TRooAbsHStack* cc = channel(cName);
+    RooAbsReal* ccFunc = dynamic_cast<RooAbsReal*>(cc);
   
-  TH1* histToFill = (TH1*)fDummyHists[channelName]->Clone("tmpHist");
-  histToFill->Reset();
-  tree->Draw(Form("%s>>tmpHist",var( fDummyHists[channelName]->GetName() )->getStringAttribute("formula")), TCut("cut",ccFunc->getStringAttribute("formula"))*sWeight);
-  if(variationName) {
-    Add(sampleName,channelName,histToFill,variationName,variationVal);
-  } else {
-    s->Add(histToFill);
+    TH1* histToFill = (TH1*)fDummyHists[cName]->Clone("tmpHist");
+    histToFill->Reset();
+    tree->Draw(Form("%s>>tmpHist",var( fDummyHists[cName]->GetName() )->getStringAttribute("formula")), TCut("cut",ccFunc->getStringAttribute("formula"))*sWeight);
+    Add(sampleName,cName,histToFill,variationName,variationVal);
+    delete histToFill;
   }
-  delete histToFill;
   return true;
 }
 
@@ -621,31 +637,68 @@ TRooAbsHStack* TRooWorkspace::channel(const char* name) const {
 }
   
 
-//set fill color of sample in all channels
-void TRooWorkspace::sampleSetFillColor(const char* sampleName, Int_t in) {
+//set fill color of samples in given channels
+void TRooWorkspace::SetFillColor(const char* sampleName,const char* channelNames, Int_t in) {
+  std::vector<TRegexp> patterns;
+  TStringToken pattern(channelNames,";");
+  while(pattern.NextToken()) {
+    patterns.emplace_back( TRegexp(pattern,true) );
+  }
+  
+  
+  //loop over channels, create sample for each one that matches pattern
   std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
   TObject* c;
   while( (c = catIter->Next()) ) {
+    TString cName(c->GetName());
+    bool matched(false);
+    for(auto& p : patterns) if(cName.Contains(p)) { matched=true; break; }
+    if(!matched) continue;
     if(sample(sampleName,c->GetName())) sample(sampleName,c->GetName())->SetFillColor(in);
   }
 }
-void TRooWorkspace::sampleSetLineColor(const char* sampleName, Int_t in) {
+void TRooWorkspace::SetLineColor(const char* sampleName,const char* channelNames, Int_t in) {
+  std::vector<TRegexp> patterns;
+  TStringToken pattern(channelNames,";");
+  while(pattern.NextToken()) {
+    patterns.emplace_back( TRegexp(pattern,true) );
+  }
+  
+  
+  //loop over channels, create sample for each one that matches pattern
   std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
   TObject* c;
   while( (c = catIter->Next()) ) {
+    TString cName(c->GetName());
+    bool matched(false);
+    for(auto& p : patterns) if(cName.Contains(p)) { matched=true; break; }
+    if(!matched) continue;
     if(sample(sampleName,c->GetName())) sample(sampleName,c->GetName())->SetLineColor(in);
   }
+  
 }
 
-void TRooWorkspace::sampleScale(const char* sampleName,RooAbsReal& arg) {
+void TRooWorkspace::Scale(const char* sampleName,const char* channelNames,RooAbsReal& arg) {
+  std::vector<TRegexp> patterns;
+  TStringToken pattern(channelNames,";");
+  while(pattern.NextToken()) {
+    patterns.emplace_back( TRegexp(pattern,true) );
+  }
+  
+  
+  //loop over channels, create sample for each one that matches pattern
   std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
   TObject* c;
   while( (c = catIter->Next()) ) {
+    TString cName(c->GetName());
+    bool matched(false);
+    for(auto& p : patterns) if(cName.Contains(p)) { matched=true; break; }
+    if(!matched) continue;
     if(sample(sampleName,c->GetName())) sample(sampleName,c->GetName())->Scale(arg);
   }
 }
 
-#include "TPRegexp.h"
+
 
 
 RooSimultaneous* TRooWorkspace::model(const char* channels) {

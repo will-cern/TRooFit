@@ -61,16 +61,15 @@ public:
   void SetBinContent(const char* sampleName, const char* channelName, Int_t bin, double val, const char* variationName=0, double variationVal=0);
   
   
-  bool sampleFill(const char* sample, TTree* tree, const char* weight="1", const char* variationName=0, double variationVal=0); //fills given sample in all channels where formula have been defined
   
 
   //add a normalization factor to a sample, across all channels
-  void sampleScale(const char* sample,RooAbsReal& arg);
-  void sampleScale(const char* sampleName,const char* par) { if(var(par)) sampleScale(sampleName,*var(par)); }
+  void Scale(const char* sample, const char* channelNames, RooAbsReal& arg);
+  void Scale(const char* sampleName,const char* channelNames, const char* par) { if(var(par)) Scale(sampleName,channelNames,*var(par)); }
   
-  //set fill color of sample in all channels
-  void sampleSetFillColor(const char* sample, Int_t in);
-  void sampleSetLineColor(const char* sample, Int_t in);
+  //set fill color of sample in given channels (semicolon separated list) (use "*" to specify all channels)
+  void SetFillColor(const char* sample, const char* channelNames, Int_t in);
+  void SetLineColor(const char* sample, const char* channelNames, Int_t in);
   
   double IntegralAndError(double& err, const char* sampleName, const char* channelName, const TRooFitResult& res) const;
   double IntegralAndError(double& err, const char* sampleName, const char* channelName) const { return IntegralAndError(err,sampleName,channelName,fCurrentFitResult?*fCurrentFitResult:""); }
