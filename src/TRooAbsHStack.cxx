@@ -488,6 +488,9 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
             ++itr;
           }
          }
+         
+         gPad->SetLogy((dynamic_cast<RooAbsArg*>(this)->getAttribute("Logy")));
+         
       } else {
         //check if I'm already in the list of primitives ... if so, we wont add me a second time
         if(gPad->GetListOfPrimitives()->FindObject(me)) {
