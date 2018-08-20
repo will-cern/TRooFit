@@ -94,7 +94,7 @@ public:
   double impact(const char* poi, const char* np, bool positive=true);
   void impact(const char* impactPar=0, float correlationThreshold=0);
   
-  RooFitResult* fitTo(RooAbsData* theData, const RooArgSet* globalObserables=0, bool doHesse=true);
+  RooFitResult* fitTo(RooAbsData* theData, const RooArgSet* globalObservables=0, bool doHesse=true);
   RooFitResult* fitTo(const char* dataName=0, bool doHesse=true, const RooArgSet& minosPars=RooArgSet());
   RooFitResult* loadFit(const char* fitName,bool prefit=false);
   RooFitResult* getFit(const char* fitName=0) { return dynamic_cast<RooFitResult*>(obj((fitName==0)?fCurrentFit.Data():fitName)); }
@@ -143,7 +143,7 @@ public:
   void DrawDependence(const char* var, Option_t* option="TRI1");
   
   void SetRatioHeight(double in, bool showSignificance=false) { 
-    if(fLegend) fLegend->SetTextSize( fLegend->GetTextSize() * (1. - fRatioHeight) / (1. - in) );
+    SafeDelete(fLegend);//if(fLegend) fLegend->SetTextSize( fLegend->GetTextSize() * (1. - fRatioHeight) / (1. - in) );
     fRatioHeight = in; 
     kShowSignificance=showSignificance;
   }

@@ -1331,8 +1331,8 @@ RooFitResult* TRooWorkspace::loadFit(const char* fitName, bool prefit) {
 
 TLegend* TRooWorkspace::GetLegend() {
   if(!fLegend) { 
-    if(gPad) fLegend = new TLegend(0.5,1.-gPad->GetTopMargin()-0.2,1.-gPad->GetRightMargin(),1.-gPad->GetTopMargin()-0.03); 
-    else fLegend = new TLegend(0.5,1.-gStyle->GetPadTopMargin()-0.2,1.-gStyle->GetPadRightMargin(),1.-gStyle->GetPadTopMargin()-0.03); 
+    if(gPad) fLegend = new TLegend(0.5,1.-gPad->GetTopMargin()-0.2,1.-gPad->GetRightMargin(),1.-gPad->GetTopMargin() - 0.03); 
+    else fLegend = new TLegend(0.5,1.-gStyle->GetPadTopMargin()-0.2,1.-gStyle->GetPadRightMargin(),1.-gStyle->GetPadTopMargin() - 0.03); 
     fLegend->SetLineWidth(0);
     fLegend->SetFillStyle(0);
     fLegend->SetTextSize(gStyle->GetTextSize()*0.75 / (1. - fRatioHeight) );
@@ -1361,65 +1361,93 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
 
   pad->SetName(channel(channelName)->GetName());pad->SetTitle(channel(channelName)->GetTitle());
   
-  TPad* ratioPad = 0;
+  TVirtualPad* ratioPad = 0;
   if(fRatioHeight>0.) {
-    //drawing a ratio plot has been requested ... divide the pad into two ...
-    TPad* mainPad = new TPad(pad->GetName(),pad->GetTitle(),0,fRatioHeight,1,1);
-    mainPad->SetNumber(1);mainPad->SetBorderMode(0);
-    mainPad->SetBottomMargin(0.01); mainPad->SetTopMargin( pad->GetTopMargin()/(1.-fRatioHeight) );
-    
-    ratioPad = new TPad(Form("%s_ratio",pad->GetName()),pad->GetTitle(),0,0,1,fRatioHeight);
-    ratioPad->SetNumber(2);ratioPad->SetBorderMode(0);
-    ratioPad->SetTopMargin(0.01); ratioPad->SetBottomMargin( pad->GetBottomMargin()/fRatioHeight );
-    
-    mainPad->Draw();
-    ratioPad->Draw();
-    mainPad->cd();
-    pad = mainPad;
-    
+  
+    if(!sOpt.Contains("same")) {
+      //drawing a ratio plot has been requested ... divide the pad into two ...
+      TPad* mainPad = new TPad(pad->GetName(),pad->GetTitle(),0,fRatioHeight,1,1);
+      mainPad->SetNumber(1);mainPad->SetBorderMode(0);
+      mainPad->SetBottomMargin(0.01); mainPad->SetTopMargin( pad->GetTopMargin()/(1.-fRatioHeight) );
+      
+      ratioPad = new TPad(Form("%s_ratio",pad->GetName()),pad->GetTitle(),0,0,1,fRatioHeight);
+      ((TPad*)ratioPad)->SetNumber(2);ratioPad->SetBorderMode(0);
+      ratioPad->SetTopMargin(0.01); ratioPad->SetBottomMargin( pad->GetBottomMargin()/fRatioHeight );
+      
+      mainPad->Draw();
+      ratioPad->Draw();
+      mainPad->cd();
+      pad = mainPad;
+    } else {
+      //assumes correct pads already exist
+      TVirtualPad* mainPad = pad->GetPad(1);
+      mainPad->cd();
+      ratioPad = pad->GetPad(2);
+      pad = mainPad;
+    }
   }
   
   channel(channelName)->Draw(sOpt,res);
   
-  TLegend* myLegend = (TLegend*)GetLegend()->Clone("legend");
-  myLegend->SetBit(kCanDelete); //so that it is deleted when pad cleared
+  TLegend* myLegend = 0;
+  if(!sOpt.Contains("same")) { 
+    myLegend = (TLegend*)GetLegend()->Clone("legend");
+    myLegend->SetBit(kCanDelete); //so that it is deleted when pad cleared
+    myLegend->SetTextSize(myLegend->GetTextSize()*(1.-fRatioHeight));
+  } else {
+    for(int i=0;i<pad->GetListOfPrimitives()->GetEntries();i++) {
+      TObject* obj = pad->GetListOfPrimitives()->At(i);
+      if(obj->IsA()==TLegend::Class()) {
+        myLegend = (TLegend*)obj;
+        break;
+      }
+    }
+  }
   
   if(function(channelName)->getAttribute("isValidation")) {
     gPad->SetFillColor(kGray);
     if(ratioPad) ratioPad->SetFillColor(kGray);
   }
   
-  fDummyHists[channelName]->Reset();
-  if(data(fCurrentData)) {
-    //determine observables for this channel ...
-    RooArgSet* chanObs = function(channelName)->getObservables(data(fCurrentData));
-    RooArgList l(*chanObs); delete chanObs;
-    fDummyHists[channelName]->SetMinimum(1e-9); //resets minimum
-    data(fCurrentData)->fillHistogram(fDummyHists[channelName], l, Form("%s==%s::%s",fChannelCatName.Data(),fChannelCatName.Data(),channelName));
-    //update all errors to usual poisson
-    for(int i=1;i<=fDummyHists[channelName]->GetNbinsX();i++) fDummyHists[channelName]->SetBinError(i,sqrt(fDummyHists[channelName]->GetBinContent(i)));
-    fDummyHists[channelName]->SetMarkerStyle(20);
-    fDummyHists[channelName]->SetLineColor(kBlack);
-    fDummyHists[channelName]->Draw("p EX0 same");
-    myLegend->AddEntry(fDummyHists[channelName],data(fCurrentData)->GetTitle(),"pEX0");
-  }
-  
-  THStack* myStack = (THStack*)gPad->GetListOfPrimitives()->FindObject(Form("%s_stack",channel(channelName)->GetName()));
-  if(myStack) {
-    //add stack entries to legend
-    TList* l = myStack->GetHists();
-    for(int i=l->GetEntries()-1;i>=0;i--) { //go in reverse order
-      myLegend->AddEntry(l->At(i),l->At(i)->GetTitle(),"f");
+  if(!sOpt.Contains("same")) {
+    fDummyHists[channelName]->Reset();
+    if(data(fCurrentData)) {
+      //determine observables for this channel ...
+      RooArgSet* chanObs = function(channelName)->getObservables(data(fCurrentData));
+      RooArgList l(*chanObs); delete chanObs;
+      fDummyHists[channelName]->SetMinimum(1e-9); //resets minimum
+      data(fCurrentData)->fillHistogram(fDummyHists[channelName], l, Form("%s==%s::%s",fChannelCatName.Data(),fChannelCatName.Data(),channelName));
+      //update all errors to usual poisson
+      for(int i=1;i<=fDummyHists[channelName]->GetNbinsX();i++) fDummyHists[channelName]->SetBinError(i,sqrt(fDummyHists[channelName]->GetBinContent(i)));
+      fDummyHists[channelName]->SetMarkerStyle(20);
+      fDummyHists[channelName]->SetLineColor(kBlack);
+      fDummyHists[channelName]->Draw("p EX0 same");
+      myLegend->AddEntry(fDummyHists[channelName],data(fCurrentData)->GetTitle(),"pEX0");
     }
+    
+    THStack* myStack = (THStack*)gPad->GetListOfPrimitives()->FindObject(Form("%s_stack",channel(channelName)->GetName()));
+    if(myStack) {
+      //add stack entries to legend
+      TList* l = myStack->GetHists();
+      for(int i=l->GetEntries()-1;i>=0;i--) { //go in reverse order
+        myLegend->AddEntry(l->At(i),l->At(i)->GetTitle(),"f");
+      }
+    }
+    //adjust legend size based on # of rows 
+    myLegend->SetY1( myLegend->GetY2() - myLegend->GetNRows()*myLegend->GetTextSize() );
+    myLegend->ConvertNDCtoPad();
+    myLegend->Draw();
+  } else {
+    if(sOpt.Contains("init") && sOpt.Contains("hist") && myLegend) {
+      //user trying to display prefit ... add this to legend ...
+      myLegend->AddEntry(gPad->GetListOfPrimitives()->Last()  ,"Prefit", "l");
+    }
+    //adjust legend size based on # of rows 
+    myLegend->SetY1NDC( myLegend->GetY2NDC() - myLegend->GetNRows()*myLegend->GetTextSize() );
+    myLegend->ConvertNDCtoPad();
   }
   
   
-  
-  //adjust legend size based on # of rows 
-  
-  myLegend->SetY1( myLegend->GetY2() - myLegend->GetNRows()*myLegend->GetTextSize() );
-  myLegend->ConvertNDCtoPad();
-  myLegend->Draw();
 
   
   if(!sOpt.Contains("same")) {
@@ -1474,7 +1502,7 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
   pad->Modified(1);
   pad->Update();
   
-  if(ratioPad) {
+  if(!sOpt.Contains("same") && ratioPad) {
     
     
     TH1* nominalHist = dynamic_cast<TH1*>(pad->GetListOfPrimitives()->FindObject(channelName));
