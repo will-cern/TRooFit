@@ -514,7 +514,11 @@ double TRooWorkspace::GetSampleCoefficient(const char* sampleFullName) const {
   return 1;
 }
 
-double TRooWorkspace::sampleIntegralAndError(double& err, const char* channelName, unsigned int sampleNumber, const TRooFitResult& fr) const {
+double TRooWorkspace::IntegralAndError(double& err, const char* sampleName, const char* channelName, const TRooFitResult& fr) const {
+  int sampleNumber = channel(channelName)->compList().index(Form("%s_%s",sampleName,channelName));
+  if(sampleNumber==-1) sampleNumber = channel(channelName)->compList().index(sampleName);
+  if(sampleNumber==-1) return 0;
+
   RooAbsReal* samp = dynamic_cast<RooAbsReal*>(channel(channelName)->compList().at(sampleNumber));
   if(!samp) return 0;
   double out = 0;
@@ -562,45 +566,45 @@ double TRooWorkspace::sampleIntegralAndError(double& err, const char* channelNam
   return out;
 }
 
-double TRooWorkspace::sampleIntegralAndError(double& err, const char* sampleFullName, const TRooFitResult& fr) const {
-  RooAbsReal* samp = function(sampleFullName); //retrieve pdf too, if exists
-  if(!samp) return 0;
-  double out = 0;
-  if(samp->InheritsFrom("TRooAbsH1")) {
-    out = (dynamic_cast<TRooAbsH1*>(samp))->IntegralAndError(err,fr);;
-  } else {
-    //just a normal function, so we have to manually do integral and error ...
-    RooArgSet* myObs = samp->getObservables(*const_cast<TRooWorkspace*>(this)->set("obs"));
-   std::unique_ptr<RooAbsReal> inte( samp->createIntegral(*myObs) );
-  
-    RooArgSet* params = 0;
-    RooArgSet* snap = 0;
-  
-    if(fr.floatParsFinal().getSize()||fr.constPars().getSize()) {
-        params = samp->getParameters(*myObs);
-        snap = (RooArgSet*)params->snapshot();
-        *params = fr.floatParsFinal();
-        *params = fr.constPars();
-    }
-  
-    out = inte->getVal();
-    auto res = TRooAbsH1::getError(fr,&*inte,*myObs,0);
-    
-    err = res.first;
-  
-    if(fr.floatParsFinal().getSize()||fr.constPars().getSize()) {
-      *params = *snap;
-      delete snap;
-    }
-    delete myObs;
-  }
-  double coef = GetSampleCoefficient(sampleFullName);
-  err *= coef;
-  out *= coef;
-  
-  return out;
-  
-}
+// double TRooWorkspace::sampleIntegralAndError(double& err, const char* sampleFullName, const TRooFitResult& fr) const {
+//   RooAbsReal* samp = function(sampleFullName); //retrieve pdf too, if exists
+//   if(!samp) return 0;
+//   double out = 0;
+//   if(samp->InheritsFrom("TRooAbsH1")) {
+//     out = (dynamic_cast<TRooAbsH1*>(samp))->IntegralAndError(err,fr);;
+//   } else {
+//     //just a normal function, so we have to manually do integral and error ...
+//     RooArgSet* myObs = samp->getObservables(*const_cast<TRooWorkspace*>(this)->set("obs"));
+//    std::unique_ptr<RooAbsReal> inte( samp->createIntegral(*myObs) );
+//   
+//     RooArgSet* params = 0;
+//     RooArgSet* snap = 0;
+//   
+//     if(fr.floatParsFinal().getSize()||fr.constPars().getSize()) {
+//         params = samp->getParameters(*myObs);
+//         snap = (RooArgSet*)params->snapshot();
+//         *params = fr.floatParsFinal();
+//         *params = fr.constPars();
+//     }
+//   
+//     out = inte->getVal();
+//     auto res = TRooAbsH1::getError(fr,&*inte,*myObs,0);
+//     
+//     err = res.first;
+//   
+//     if(fr.floatParsFinal().getSize()||fr.constPars().getSize()) {
+//       *params = *snap;
+//       delete snap;
+//     }
+//     delete myObs;
+//   }
+//   double coef = GetSampleCoefficient(sampleFullName);
+//   err *= coef;
+//   out *= coef;
+//   
+//   return out;
+//   
+// }
 
 TRooH1* TRooWorkspace::sample(const char* sampleName, const char* channelName) {
   RooAbsReal* chan = dynamic_cast<RooAbsReal*>(channel(channelName));
@@ -1868,7 +1872,7 @@ void TRooWorkspace::Print(Option_t* opt) const {
           std::cout << arg->GetName();
           if(sOpt.Contains("yields")) {
             double err; 
-            double inte = sampleIntegralAndError(err,chan->GetName(),i,(fCurrentFitResult)?*fCurrentFitResult:"");
+            double inte = IntegralAndError(err,arg->GetName(),chan->GetName());
             std::cout << Form(" [ %g +/- %g ]",inte,err);
           }
           std::cout << std::endl;

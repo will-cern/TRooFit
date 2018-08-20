@@ -72,8 +72,11 @@ public:
   void sampleSetFillColor(const char* sample, Int_t in);
   void sampleSetLineColor(const char* sample, Int_t in);
   
-  double sampleIntegralAndError(double& err, const char* sampleFullName, const TRooFitResult& res="") const;
-  double sampleIntegralAndError(double& err, const char* channelName, unsigned int sampleNumber, const TRooFitResult& fr="") const;
+  double IntegralAndError(double& err, const char* sampleName, const char* channelName, const TRooFitResult& res) const;
+  double IntegralAndError(double& err, const char* sampleName, const char* channelName) const { return IntegralAndError(err,sampleName,channelName,fCurrentFitResult?*fCurrentFitResult:""); }
+  
+  /*double sampleIntegralAndError(double& err, const char* sampleFullName, const TRooFitResult& res="") const;
+  double sampleIntegralAndError(double& err, const char* channelName, unsigned int sampleNumber, const TRooFitResult& fr="") const;*/
   
   TRooH1* sample(const char* sampleName, const char* channelName);
   TRooAbsHStack* channel(const char* name) const;
