@@ -333,9 +333,9 @@ TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const
   
   //create a TRooHStack and import it ..
   TRooHStack* hs = new TRooHStack(name,title);
-  fStagedChannels.add(*hs);
-  hs->SetMinimum(0);
-  //import(*hs);
+  //fStagedChannels.add(*hs);
+  hs->setFloor(true,1e-9); //this also does the SetMinimim
+  TRooHStack* hstmp = hs; import(*hs); hs = dynamic_cast<TRooHStack*>(function(hs->GetName())); delete hstmp; //FIXME should check it's ok
   
   //need to store a dummyHist for the binning ...
   fDummyHists[name] = new TH1D(observable,"Data",nBins,bins);
@@ -630,9 +630,9 @@ TRooH1* TRooWorkspace::sample(const char* sampleName, const char* channelName) {
 
 TRooAbsHStack* TRooWorkspace::channel(const char* name) const {
   TRooAbsHStack* out =  dynamic_cast<TRooAbsHStack*>(function(name));
-  if(!out) {
+  /*if(!out) {
     out = dynamic_cast<TRooAbsHStack*>(fStagedChannels.find(name));
-  }
+  }*/
   return out;
 }
   
@@ -1544,13 +1544,13 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
 
 Bool_t TRooWorkspace::writeToFile(const char* fileName, Bool_t recreate) {
   //ensure all staged channels are imported ...
-  std::unique_ptr<TIterator> itr( fStagedChannels.createIterator() );
+  /*std::unique_ptr<TIterator> itr( fStagedChannels.createIterator() );
   TObject* obj;
   while( (obj = itr->Next()) ) {
     import(*static_cast<RooAbsPdf*>(obj));
   }
   fStagedChannels.removeAll();
-  
+  */
   return RooWorkspace::writeToFile(fileName,recreate);
   
 }
@@ -2074,7 +2074,10 @@ void TRooWorkspace::Print(Option_t* opt) const {
 }
 
 //report variations above a given relative uncertainty for any TRooAbsH1 component
-void TRooWorkspace::FindVariations(double relThreshold) {
+void TRooWorkspace::FindVariations(double relThreshold, Option_t* opt) {
+  TString sOpt(opt);
+  sOpt.ToLower();
+  
   RooAbsArg* arg;
 
   RooArgSet _allFuncs = allPdfs();
@@ -2091,6 +2094,9 @@ void TRooWorkspace::FindVariations(double relThreshold) {
       TRooAbsH1* f = dynamic_cast<TRooAbsH1*>(arg);
       if(!f) continue;
       
+      if(dynamic_cast<TRooAbsHStack*>(f) && !sOpt.Contains("channels")) continue;
+      else if(!dynamic_cast<TRooAbsHStack*>(f) && !sOpt.Contains("samples")) continue;
+      
       //loop over bins of function, check for variation in bin content above threshold
       bool printedName=false;
       for(int i=1;i<=f->GetNbinsX();i++) {
@@ -2103,20 +2109,21 @@ void TRooWorkspace::FindVariations(double relThreshold) {
         v->setVal(tmpVal);
         if(fabs(nomVal)<1e-9) {nomVal+=1e-9; upVal+=1e-9;downVal+=1e-9;}
         
-        if(fabs((upVal-nomVal)/nomVal) > relThreshold) {
-          if(!printedName) { std::cout << std::endl << " " << f->GetName() << " :"; printedName=true; }
-          std::cout << " " << i << "UP(" << (upVal-nomVal)/nomVal << ")";
+        if(!sOpt.Contains("ss"))  {
+          if(fabs((upVal-nomVal)/nomVal) > relThreshold) {
+            if(!printedName) { std::cout << std::endl << " " << f->GetName() << " :"; printedName=true; }
+            std::cout << " " << i << "UP(" << (upVal-nomVal)/nomVal << ")";
+          }
+          if(fabs((downVal-nomVal)/nomVal) > relThreshold) {
+            if(!printedName) { std::cout << std::endl << f->GetName() << " :"; printedName=true; }
+            std::cout << " " << i << "DOWN(" << (downVal-nomVal)/nomVal << ")";
+          }
+        } else {
+          if( ((upVal < nomVal && downVal < nomVal) || (upVal > nomVal && downVal > nomVal)) && ( fabs((upVal-nomVal)/nomVal) > relThreshold || fabs((downVal-nomVal)/nomVal) > relThreshold ) ) {
+            if(!printedName) { std::cout << std::endl << " " << f->GetName() << " :"; printedName=true; }
+            std::cout << " " << i << "SS(" << (upVal-nomVal)/nomVal << "," << (downVal-nomVal)/nomVal << ")";
+          }
         }
-        if(fabs((downVal-nomVal)/nomVal) > relThreshold) {
-          if(!printedName) { std::cout << std::endl << f->GetName() << " :"; printedName=true; }
-          std::cout << " " << i << "DOWN(" << (downVal-nomVal)/nomVal << ")";
-        }
-        
-        if((upVal < nomVal && downVal < nomVal) || (upVal > nomVal && downVal > nomVal)) {
-          if(!printedName) { std::cout << std::endl << " " << f->GetName() << " :"; printedName=true; }
-          std::cout << " " << i << "SS(" << (upVal-nomVal)/nomVal << "," << (downVal-nomVal)/nomVal << ")";
-        }
-        
       }
     }
     std::cout << std::endl;

@@ -52,7 +52,7 @@ public:
   
   bool Fill(const char* channel, double x, double w=1.); //fills data!
   Int_t Fill(const char* sample, const char* channel, double x, double w=1., const char* variationName=0, double variationVal=0);
-  bool Fill(const char* sampleName, const char* channelName, TTree* tree, const char* weight="1", const char* variationName=0, double variationVal=0);
+  bool Fill(const char* sampleName, const char* channelNames, TTree* tree, const char* weight="1", const char* variationName=0, double variationVal=0);
   
   
   bool Add(const char* sample, const char* channel,  TH1* h1, const char* variationName=0, double variationVal=0);
@@ -85,6 +85,9 @@ public:
     if(!data(dataName)) return;
     fCurrentData = dataName; 
   }
+  
+  using RooWorkspace::data;
+  inline RooAbsData* data() { return RooWorkspace::data(fCurrentData); }
   
   void DisableForcedRecommendedOption(bool in) { kDisabledForcedRecommendedOptions=in; } //use to override forcing of the recommended fit options when calling fitTo
   
@@ -149,7 +152,7 @@ public:
   
   virtual void Print(Option_t* opt="") const;
   
-  void FindVariations(double relThreshold);
+  void FindVariations(double relThreshold, Option_t* opt = "samples");
   
   static void setDefaultStyle();
   
@@ -165,7 +168,7 @@ private:
   Bool_t fCurrentFitIsPrefit = false; 
   TRooFitResult* fCurrentFitResult = 0;
   
-  RooArgList fStagedChannels; //channels cannot be added until they are frozen (all content filled)
+  //RooArgList fStagedChannels; //channels cannot be added until they are frozen (all content filled)
   
   TLegend* fLegend = 0;
 
