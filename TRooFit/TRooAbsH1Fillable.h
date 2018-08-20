@@ -38,32 +38,28 @@ public:
   bool addParameter( RooAbsArg& arg , int interpCode = 4 ); //current value is taken as value for all existing data
   RooAbsArg* getParameter(const char* name) { return fParameters.find(name); }
 
-  Bool_t Add( const TH1* h1 , Double_t c1 = 1);
+  Bool_t Add( const TH1* h1 , Double_t c1 = 1, RooRealVar* varPar = 0, double varVal=0);
+  Bool_t Add( const TH1* h1 , RooRealVar* varPar, double varVal=0) { return Add(h1,1.,varPar,varVal); }
+  Bool_t Add( const TH1* h1 , Double_t c1, const char* varPar, double varVal=0);
+  Bool_t Add( const TH1* h1 , const char* varPar, double varVal=0) { return Add(h1,1.,varPar,varVal); }
   Bool_t Add( RooAbsReal& val ); 
 
   Int_t Fill( double x, RooAbsReal& val );
   
-  Int_t Fill( const char* name , double w = 1. );
-  Int_t Fill( double x , double w =1.); 
+  Int_t Fill( const char* name , double w = 1., RooRealVar* varPar = 0, double varVal = 0  );
+  Int_t Fill( double x , double w =1., RooRealVar* varPar = 0, double varVal = 0); 
+  Int_t Fill( double x , double w, const char* varPar, double varVal = 0); 
+  Int_t Fill( double x , const char* varPar, double varVal = 0) { return Fill(x,1.,varPar,varVal); }
   
   virtual void SetBinContent( int bin, RooAbsReal& val ); //turns bin value into a function 
-  virtual void SetBinContent( const char* name, double val ); //set category bin
-  virtual void SetBinContent( int bin, double val);
+  virtual void SetBinContent( const char* name, double val, RooRealVar* varPar = 0, double varVal = 0 ); //set category bin
+  virtual void SetBinContent( int bin, double val, RooRealVar* varPar = 0, double varVal = 0);
+  virtual void SetBinContent( int bin, double val, const char* varPar, double varVal = 0);
   virtual void SetBinError( int bin, double val); //will update the stat uncert
 
   using TRooAbsH1::Scale;
   void Scale( double x );
 
-  //these methods will add par as a parameter if it isn't already defined as a parameter
-  Bool_t AddVariation(RooRealVar& par, double parVal, TH1* h1);
-  Int_t FillVariation(RooRealVar& par, double parVal, double x, double w=1.);
-  void SetVariationBinContent(RooRealVar& par, double parVal, int x, double val);
-  
-  //these methods require par to existing parameter
-  Bool_t AddVariation(const char* parName, double parVal, TH1* h1);
-  Int_t FillVariation(const char* parName, double parVal, double x, double w=1.);
-  
-  void SetVariationBinContent(const char* parName, double parVal, int bin, double val);
 
   TH1* GetHist(unsigned int paramSet) const { 
     //Returns the raw histogram associated to the given parameter spacepoint (paramSet)

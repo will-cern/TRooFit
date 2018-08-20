@@ -44,23 +44,26 @@ public:
   TRooHStack* addChannel(const char* name, const char* title, const char* observable, int nBins, double min, double max);
   TRooHStack* addChannel(const char* name, const char* title, const char* observable, int nBins, const double* bins);
   TRooHStack* addChannel(const char* name, const char* title, const char* observable);
-  bool addSample(const char* name, const char* title, const char* channels="*", bool allowNegative=false);
+  
+  bool addSamples(const char* name, const char* title, const char* channels="*", bool allowNegative=false);
   
   TRooHF1* addFactor(const char* name, const char* title, double nomVal=1.);
-  bool factorSetVariation(const char* name, const char* parName, double parVal, double val);
+  bool SetFactorContent(const char* name,double val, const char* parName=0, double parVal=0 );
   
-  bool dataFill(const char* channel, double x, double w=1.);
-  Int_t sampleFill(const char* sample, const char* channel, double x, double w=1.);
-  bool sampleAdd(const char* sample, const char* channel,  TH1* h1);
-  bool sampleAdd(const char* sample, const char* channel, RooAbsReal& arg);
-  bool sampleAddVariation(const char* sample, const char* channel, const char* parName, double parVal, TH1* h1);
+  bool Fill(const char* channel, double x, double w=1.); //fills data!
+  Int_t Fill(const char* sample, const char* channel, double x, double w=1., const char* variationName=0, double variationVal=0);
+  bool Fill(const char* sampleName, const char* channelName, TTree* tree, const char* weight="1", const char* variationName=0, double variationVal=0);
+  
+  
+  bool Add(const char* sample, const char* channel,  TH1* h1, const char* variationName=0, double variationVal=0);
+  bool Add(const char* sample, const char* channel, RooAbsReal& arg);
+  
+  void SetBinContent(const char* sampleName, const char* channelName, Int_t bin, double val, const char* variationName=0, double variationVal=0);
+  
   
   bool sampleFill(const char* sample, TTree* tree, const char* weight="1", const char* variationName=0, double variationVal=0); //fills given sample in all channels where formula have been defined
-  bool sampleFill(const char* sampleName, const char* channelName, TTree* tree, const char* weight="1", const char* variationName=0, double variationVal=0); //specific channel version of above
-    
-  void SetBinContent(const char* sampleName, const char* channelName, Int_t bin, double val) { sample(sampleName,channelName)->SetBinContent(bin,val); }
-  void SetVariationBinContent(const char* sample, const char* channel, const char* parName, double parVal, Int_t bin, double val);
   
+
   //add a normalization factor to a sample, across all channels
   void sampleScale(const char* sample,RooAbsReal& arg);
   void sampleScale(const char* sampleName,const char* par) { if(var(par)) sampleScale(sampleName,*var(par)); }
@@ -96,7 +99,8 @@ public:
   
   void DrawPLL(const char* parName, const char* opt="AL");
   
-  double pll(RooAbsData* theData, const RooArgSet* globalObservables=0, bool oneSided=false, bool discovery=false);
+  double pll(const char* poi, RooAbsData* theData, const RooArgSet* globalObservables=0, bool oneSided=false, bool discovery=false);
+  double pll(RooArgSet&& poi, RooAbsData* theData, const RooArgSet* globalObservables=0, bool oneSided=false, bool discovery=false);
   
   void addLabel(const char* label) { fLabels.push_back(label); }
   
@@ -142,6 +146,8 @@ public:
   Bool_t writeToFile(const char* fileName, Bool_t recreate=kTRUE);
   
   virtual void Print(Option_t* opt="") const;
+  
+  void FindVariations(double relThreshold);
   
   static void setDefaultStyle();
   

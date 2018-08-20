@@ -214,9 +214,21 @@ bool TRooAbsH1Fillable::addParameter( RooAbsArg& arg , int interpCode ) {
 
 
 
-Bool_t TRooAbsH1Fillable::Add(const TH1* h1 , Double_t c1) {
+Bool_t TRooAbsH1Fillable::Add(const TH1* h1 , Double_t c1, RooRealVar* parVar, double parVal) {
   //Add a histogram to this TRooAbsH1Fillable, i.e. fill the content of h1 into this TRooAbsH1Fillable
   //includes the optional scaling factor c1
+
+  if(parVar) {
+    if(!fParameters.find(*parVar)) {
+      parVar->setVal(0);
+      addParameter(*parVar);
+    }
+    double tmpVal = parVar->getVal();
+    parVar->setVal(parVal);
+    Bool_t out = Add(h1,c1);
+    parVar->setVal(tmpVal);
+    return out;
+  }
 
   int pset = getOrCreateParamSet();
   bool out = fHists[pset]->Add(h1,c1);
@@ -245,6 +257,15 @@ Bool_t TRooAbsH1Fillable::Add(const TH1* h1 , Double_t c1) {
   return out;
 }
 
+Bool_t TRooAbsH1Fillable::Add(const TH1* h1 , Double_t c1, const char* parVar, double parVal) {
+  RooRealVar* par = dynamic_cast<RooRealVar*>(fParameters.find(parVar));
+  if(!par) {
+    Error("Add","%s not found, please addParameter this parameter first",parVar);
+    return kFALSE;
+  }
+  return Add(h1,c1,par,parVal);
+}
+
 Bool_t TRooAbsH1Fillable::Add( RooAbsReal& val ) {
   //adding a function is like filling every bin with it
   
@@ -266,76 +287,7 @@ Bool_t TRooAbsH1Fillable::Add( RooAbsReal& val ) {
   
 }
 
-Bool_t TRooAbsH1Fillable::AddVariation(RooRealVar& par, double parVal, TH1* h1) {
-  if(!fParameters.find(par)) {
-    par = 0;
-    addParameter(par);
-  }
-  double tmpVal = par.getVal();
-  par = parVal;
-  Bool_t out = Add(h1);
-  par = tmpVal;
-  return out;
-}
 
-Int_t TRooAbsH1Fillable::FillVariation(RooRealVar& par, double parVal, double x, double w) {
-  if(!fParameters.find(par)) {
-    par = 0;
-    addParameter(par);
-  }
-  double tmpVal = par.getVal();
-  par = parVal;
-  Int_t out = Fill(x,w);
-  par = tmpVal;
-  return out;
-}
-
-void TRooAbsH1Fillable::SetVariationBinContent(RooRealVar& par, double parVal, int bin, double val) {
-  if(!fParameters.find(par)) {
-    par = 0;
-    addParameter(par);
-  }
-  SetVariationBinContent(par.GetName(),parVal,bin,val);
-}
-
-Bool_t TRooAbsH1Fillable::AddVariation(const char* parName, double parVal, TH1* h1) {
-  RooRealVar* par = dynamic_cast<RooRealVar*>(fParameters.find(parName));
-  if(!par) {
-    Error("FillVariation","%s not found, please addParameter this parameter first",parName);
-    return kFALSE;
-  }
-  double tmpVal = par->getVal();
-  *par = parVal;
-  Bool_t out = Add(h1);
-  *par = tmpVal;
-  return out;
-}
-
-Int_t TRooAbsH1Fillable::FillVariation(const char* parName, double parVal, double x, double w) {
-  RooRealVar* par = dynamic_cast<RooRealVar*>(fParameters.find(parName));
-  if(!par) {
-    Error("FillVariation","%s not found, please addParameter this parameter first",parName);
-    return kFALSE;
-  }
-  double tmpVal = par->getVal();
-  *par = parVal;
-  Int_t out = Fill(x,w);
-  *par = tmpVal;
-  return out;
-}
-
-void TRooAbsH1Fillable::SetVariationBinContent(const char* parName, double parVal, int bin, double val) {
-  RooRealVar* par = dynamic_cast<RooRealVar*>(fParameters.find(parName));
-  if(!par) {
-    Error("SetVariationBinContent","%s not found, please addParameter this parameter first",parName);
-    return;
-  }
-  double tmpVal = par->getVal();
-  *par = parVal;
-  SetBinContent(bin,val);
-  *par = tmpVal;
-  //return out;
-}
 
 
 
@@ -361,10 +313,22 @@ void TRooAbsH1Fillable::Scale( double x) {
   for(auto hist : fHists) hist->Scale(x); 
 }
 
-Int_t TRooAbsH1Fillable::Fill( double x , double w ) {
+Int_t TRooAbsH1Fillable::Fill( double x , double w, RooRealVar* parVar, double parVal ) {
   //The usual histogram Fill method
   //This method will trigger the automatic creation of parameters (as necessary) 
   // to represent the statistical uncertainty in the filled bin 
+
+  if(parVar) {
+    if(!fParameters.find(*parVar)) {
+      parVar->setVal(0);
+      addParameter(*parVar);
+    }
+    double tmpVal = parVar->getVal();
+    parVar->setVal(parVal);
+    Int_t out = Fill(x,w);
+    parVar->setVal(tmpVal);
+    return out;
+  }
 
   int pset = getOrCreateParamSet();
   
@@ -392,8 +356,29 @@ Int_t TRooAbsH1Fillable::Fill( double x , double w ) {
   
 }
 
-Int_t TRooAbsH1Fillable::Fill( const char* name , double w ) {
+Int_t TRooAbsH1Fillable::Fill( double x , double w, const char* varPar, double varVal) {
+  RooRealVar* par = dynamic_cast<RooRealVar*>(fParameters.find(varPar));
+  if(!par) {
+    Error("Fill","%s not found, please addParameter this parameter first",varPar);
+    return kFALSE;
+  }
+  return Fill( x , w, par, varVal );
+}
+
+Int_t TRooAbsH1Fillable::Fill( const char* name , double w,  RooRealVar* parVar, double parVal ) {
   //Same as above, but can use name of Category type
+  
+  if(parVar) {
+    if(!fParameters.find(*parVar)) {
+      parVar->setVal(0);
+      addParameter(*parVar);
+    }
+    double tmpVal = parVar->getVal();
+    parVar->setVal(parVal);
+    Int_t out = Fill(name,w);
+    parVar->setVal(tmpVal);
+    return out;
+  }
   
   if(GetDimension()==0) return Fill(0.,w);
   
@@ -550,8 +535,20 @@ bool TRooAbsH1Fillable::setInterpCode(const RooAbsArg& arg, int code) {
   return setInterpCode(arg.GetName(),code);
 }
 
-void TRooAbsH1Fillable::SetBinContent( int bin, double val ) {
+void TRooAbsH1Fillable::SetBinContent( int bin, double val, RooRealVar* parVar, double parVal ) {
   //Set the contents of a given bin
+
+  if(parVar) {
+    if(!fParameters.find(*parVar)) {
+      parVar->setVal(0);
+      addParameter(*parVar);
+    }
+    double tmpVal = parVar->getVal();
+    parVar->setVal(parVal);
+    SetBinContent(bin,val);
+    parVar->setVal(tmpVal);
+    return;
+  }
 
   int pset = getOrCreateParamSet();
   //update the statFactor's sumw, if necessary
@@ -568,9 +565,21 @@ void TRooAbsH1Fillable::SetBinContent( int bin, double val ) {
   //FIXME: propagate changes to transFactor if there is one!
 }
 
-void TRooAbsH1Fillable::SetBinContent( const char* name , double w ) {
+void TRooAbsH1Fillable::SetBinContent( const char* name , double w, RooRealVar* parVar, double parVal ) {
   //Set the contents of a given bin 
   //The first observable of this TRooAbsH1Fillable must be a RooCategory
+
+   if(parVar) {
+    if(!fParameters.find(*parVar)) {
+      parVar->setVal(0);
+      addParameter(*parVar);
+    }
+    double tmpVal = parVar->getVal();
+    parVar->setVal(parVal);
+    SetBinContent(name,w);
+    parVar->setVal(tmpVal);
+    return;
+  }
 
   //first observable must be a category
   if(GetDimension()==0) SetBinContent(1,w);
@@ -587,6 +596,15 @@ void TRooAbsH1Fillable::SetBinContent( const char* name , double w ) {
   }
   SetBinContent( type->getVal() + 1 , w );
   
+}
+
+void TRooAbsH1Fillable::SetBinContent(  int bin, double val, const char* varPar, double varVal) {
+  RooRealVar* par = dynamic_cast<RooRealVar*>(fParameters.find(varPar));
+  if(!par) {
+    Error("SetBinContent","%s not found, please addParameter this parameter first",varPar);
+    return;
+  }
+  SetBinContent( bin , val, par, varVal );
 }
 
 void TRooAbsH1Fillable::SetBinContent( int bin, RooAbsReal& val ) {

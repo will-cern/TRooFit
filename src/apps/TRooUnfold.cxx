@@ -292,7 +292,7 @@ Bool_t TRooUnfold::BuildModel() {
         m_systNP[vName]->setError(1);
       }
       double vVal = (vName==v.first) ? 1. : TString(v.first(v.first.Index("__")+2,v.first.Length())).Atof();
-      m_sfFunctions[myPair.first]->AddVariation(*m_systNP[vName],vVal,v.second);
+      m_sfFunctions[myPair.first]->Add(v.second,1.,m_systNP[vName],vVal);
     }
   }
   
@@ -319,7 +319,7 @@ Bool_t TRooUnfold::BuildModel() {
         m_systNP[vName]->setError(1);
       }
       double vVal = (vName==v.first) ? 1. : TString(v.first(v.first.Index("__")+2,v.first.Length())).Atof();
-      m_bkgPdfs[myPair.first]->AddVariation(*m_systNP[vName],vVal,v.second);
+      m_bkgPdfs[myPair.first]->Add(v.second,m_systNP[vName],vVal);
     }
     //go through scale factors, adding as norm factors 
     for(auto sf : m_sfApplied) {

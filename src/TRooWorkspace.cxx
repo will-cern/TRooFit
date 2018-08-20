@@ -89,12 +89,12 @@ TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
           if(arg->InheritsFrom(RooRealSumPdf::Class())) {
             channelStack = new TRooHStack(*dynamic_cast<RooRealSumPdf*>(arg),*set("ModelConfig_Observables"));
             dynamic_cast<RooAbsReal*>(channelStack)->SetName(c->GetName());dynamic_cast<RooAbsReal*>(channelStack)->SetTitle(c->GetName());
-            channelStack->SetMinimum(0);
+            channelStack->SetMinimum(1e-9);
             break;
           } else if(arg->InheritsFrom(RooAddPdf::Class())) {
             channelStack = new TRooHPdfStack(*dynamic_cast<RooAddPdf*>(arg),*set("ModelConfig_Observables"));
             dynamic_cast<RooAbsReal*>(channelStack)->SetName(c->GetName());dynamic_cast<RooAbsReal*>(channelStack)->SetTitle(c->GetName());
-            channelStack->SetMinimum(0);
+            channelStack->SetMinimum(1e-9);
             break;
           }
         }
@@ -106,7 +106,7 @@ TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
     } else {
       channelStack = new TRooHStack(*channelPdf,*set("ModelConfig_Observables"));
       dynamic_cast<RooAbsReal*>(channelStack)->SetName(c->GetName());dynamic_cast<RooAbsReal*>(channelStack)->SetTitle(c->GetName());
-      channelStack->SetMinimum(0);
+      channelStack->SetMinimum(1e-9);
     }
     import(*dynamic_cast<RooAbsPdf*>(channelStack),RooFit::Silence());
     //create a dummy hist for each channel too
@@ -118,7 +118,10 @@ TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
   if(fIsHFWorkspace) {
     if(set("ModelConfig_Observables")) defineSet("obs",*set("ModelConfig_Observables"));
     if(set("ModelConfig_POI")) defineSet("poi",*set("ModelConfig_POI"));
-    if(set("ModelConfig_GlobalObservables")) saveSnapshot(Form("%s_globalObservables",fCurrentData.Data()),*set("ModelConfig_GlobalObservables"));
+    if(set("ModelConfig_GlobalObservables")) {
+      if(!set("globalObservables")) defineSet("globalObservables",*set("ModelConfig_GlobalObservables"));
+      saveSnapshot(Form("%s_globalObservables",fCurrentData.Data()),*set("ModelConfig_GlobalObservables"));
+    }
     
     
      RooArgSet* _allVars = static_cast<RooArgSet*>(allVars().selectByAttrib("Constant",kFALSE));
@@ -193,15 +196,15 @@ TRooHF1* TRooWorkspace::factor(const char* factorName) {
   return static_cast<TRooHF1*>(function(factorName));
 }
 
-bool TRooWorkspace::factorSetVariation(const char* name, const char* parName, double parVal, double val) {
+bool TRooWorkspace::SetFactorContent(const char* name, double val,const char* parName, double parVal) {
   TRooHF1* _factor = factor(name);
   if(!_factor) return false;
   
-  if(!var(parName)) {
+  if(parName && !var(parName)) {
     Info("factorSetVariation","%s is not defined. Creating a gaussian-constrained parameter",parName);
     addParameter(parName,parName,0,-5,5,"normal");
   }
-  _factor->SetVariationBinContent(*var(parName), parVal, 1, val);
+  _factor->SetBinContent(1, val, (parName) ? var(parName) : 0, parVal);
   return true;
 }
 
@@ -271,6 +274,11 @@ bool TRooWorkspace::addArgument(const char* name, const char* title, double val)
 }
 
 TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const char* observable, int nBins, double min, double max) {
+  RooRealVar* v = var(observable);
+  if(!v) {
+    v = addObservable(observable,observable,nBins,min,max);
+    if(!v) return 0;
+  }
   RooCategory* c = cat(fChannelCatName);
   if(!c) {
     factory(Form("%s[%s=0]",fChannelCatName.Data(),name));
@@ -286,8 +294,7 @@ TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const
   
   
   
-  RooRealVar* v = var(observable);
-  if(!v) return 0;
+  
   
   //create a TRooHStack and import it ..
   TRooHStack* hs = new TRooHStack(name,title);
@@ -303,6 +310,12 @@ TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const
 }
 
 TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const char* observable, int nBins, const double* bins) {
+  RooRealVar* v = var(observable);
+  if(!v) {
+    v = addObservable(observable,observable,nBins,bins);
+    if(!v) return 0;
+  }
+  
   RooCategory* c = cat(fChannelCatName);
   if(!c) {
     factory(Form("%s[%s=0]",fChannelCatName.Data(),name));
@@ -316,10 +329,6 @@ TRooHStack* TRooWorkspace::addChannel(const char* name, const char* title, const
     c->defineType(name);
   }
   
-  
-  
-  RooRealVar* v = var(observable);
-  if(!v) return 0;
   
   //create a TRooHStack and import it ..
   TRooHStack* hs = new TRooHStack(name,title);
@@ -378,7 +387,7 @@ Int_t TRooWorkspace::setVarAttribute(const char* channels,const char* attribute,
   return nCat;
 }
 
-bool TRooWorkspace::addSample(const char* name, const char* title, const char* channels, bool allowNegative) {
+bool TRooWorkspace::addSamples(const char* name, const char* title, const char* channels, bool allowNegative) {
   
   TRegexp pattern(channels,true);
   
@@ -405,8 +414,8 @@ bool TRooWorkspace::addSample(const char* name, const char* title, const char* c
   
 }
   
-bool TRooWorkspace::dataFill(const char* channelName, double x, double w) {
-  if(!data("obsData")) {
+bool TRooWorkspace::Fill(const char* channelName, double x, double w) {
+  if(!data(fCurrentData)) {
     RooArgSet s(*set("obs"));
     RooRealVar w("weightVar","weightVar",1);
     s.add(w);
@@ -417,7 +426,7 @@ bool TRooWorkspace::dataFill(const char* channelName, double x, double w) {
   cat(fChannelCatName)->setLabel(channelName);
   var( fDummyHists[channelName]->GetName() )->setVal( x );
   
-  data("obsData")->add(*set("obs"),w);
+  data(fCurrentData)->add(*set("obs"),w);
   
   return true;
   
@@ -429,14 +438,14 @@ bool TRooWorkspace::sampleFill(const char* sampleName, TTree* tree, const char* 
   TIterator* catIter = cat(fChannelCatName)->typeIterator();
   TObject* c;
   while( (c = catIter->Next()) ) {
-    sampleFill(sampleName,c->GetName(),tree,weight,variationName,variationVal);
+    Fill(sampleName,c->GetName(),tree,weight,variationName,variationVal);
   }
   delete catIter;
   
   return true;
 }
 
-bool TRooWorkspace::sampleFill(const char* sampleName, const char* channelName, TTree* tree, const char* weight, const char* variationName, double variationVal) {
+bool TRooWorkspace::Fill(const char* sampleName, const char* channelName, TTree* tree, const char* weight, const char* variationName, double variationVal) {
   TString sWeight(weight);
   TRooH1* s = sample(sampleName,channelName);
   TRooAbsHStack* cc = channel(channelName);
@@ -446,7 +455,7 @@ bool TRooWorkspace::sampleFill(const char* sampleName, const char* channelName, 
   histToFill->Reset();
   tree->Draw(Form("%s>>tmpHist",var( fDummyHists[channelName]->GetName() )->getStringAttribute("formula")), TCut("cut",ccFunc->getStringAttribute("formula"))*sWeight);
   if(variationName) {
-    sampleAddVariation(sampleName,channelName,variationName,variationVal,histToFill);
+    Add(sampleName,channelName,histToFill,variationName,variationVal);
   } else {
     s->Add(histToFill);
   }
@@ -454,32 +463,35 @@ bool TRooWorkspace::sampleFill(const char* sampleName, const char* channelName, 
   return true;
 }
 
-Int_t TRooWorkspace::sampleFill(const char* sampleName, const char* channelName,  double x, double w) {
-  return sample(sampleName,channelName)->Fill(x,w);
+Int_t TRooWorkspace::Fill(const char* sampleName, const char* channelName,  double x, double w, const char* variationName, double variationVal) {
+  if(variationName && !var(variationName)) {
+    Info("Fill","%s is not defined. Creating a gaussian-constrained parameter",variationName);
+    addParameter(variationName,variationName,0,-5,5,"normal");
+  }
+
+  return sample(sampleName,channelName)->Fill( x, w, variationName ? var(variationName) : 0, variationVal);
 }
-bool TRooWorkspace::sampleAdd(const char* sampleName, const char* channelName,  TH1* h1) {
-  return sample(sampleName,channelName)->Add(h1);
+
+bool TRooWorkspace::Add(const char* sampleName, const char* channelName,  TH1* h1,const char* variationName, double variationVal) {
+  if(variationName && !var(variationName)) {
+    Info("Fill","%s is not defined. Creating a gaussian-constrained parameter",variationName);
+    addParameter(variationName,variationName,0,-5,5,"normal");
+  }
+  return sample(sampleName,channelName)->Add(h1, 1., variationName ? var(variationName) : 0, variationVal);
 }
-bool TRooWorkspace::sampleAdd(const char* sampleName, const char* channelName,  RooAbsReal& arg) {
+
+bool TRooWorkspace::Add(const char* sampleName, const char* channelName,  RooAbsReal& arg) {
   return sample(sampleName,channelName)->Add(arg);
 }
 
-bool TRooWorkspace::sampleAddVariation(const char* sampleName, const char* channelName, const char* parName, double parVal, TH1* h1) {
-  //get the parameter 
-  if(!var(parName)) {
-    Info("sampleAddVariation","%s is not defined. Creating a gaussian-constrained parameter",parName);
-    addParameter(parName,parName,0,-5,5,"normal");
-  }
-  return sample(sampleName,channelName)->AddVariation(*var(parName), parVal, h1);
-}
 
-void TRooWorkspace::SetVariationBinContent(const char* sampleName, const char* channelName, const char* parName, double parVal, Int_t bin, double val) {
+void TRooWorkspace::SetBinContent(const char* sampleName, const char* channelName, Int_t bin, double val, const char* parName, double parVal) {
   //get the parameter 
-  if(!var(parName)) {
-    Info("SetVariationBinContent","%s is not defined. Creating a gaussian-constrained parameter",parName);
+  if(parName && !var(parName)) {
+    Info("SetBinContent","%s is not defined. Creating a gaussian-constrained parameter",parName);
     addParameter(parName,parName,0,-5,5,"normal");
   }
-  sample(sampleName,channelName)->SetVariationBinContent(*var(parName), parVal, bin,val);
+  sample(sampleName,channelName)->SetBinContent(bin,val, parName ? var(parName) : 0, parVal);
 }
 
 double TRooWorkspace::GetSampleCoefficient(const char* sampleFullName) const {
@@ -852,15 +864,12 @@ void TRooWorkspace::DrawPLL(const char* parName, const char* opt) {
 
 }
 
-double TRooWorkspace::pll(RooAbsData* theData, const RooArgSet* globalObservables, bool oneSided, bool discovery) {
+double TRooWorkspace::pll(const char* _poi, RooAbsData* theData, const RooArgSet* globalObservables, bool oneSided, bool discovery) {
+  return pll(*var(_poi),theData,globalObservables,oneSided,discovery);
+}
+
+double TRooWorkspace::pll(RooArgSet&& _poi, RooAbsData* theData, const RooArgSet* globalObservables, bool oneSided, bool discovery) {
   
-  if(set("poi")==0) {
-    Error("pll","You must define parameters of interest");
-    return 0;
-  }
-  
-  //RooArgSet* allSnap = (RooArgSet*)allVars().snapshot();
-  RooArgSet _poi(*set("poi"));
   
   //do an unconditional fit ...
   RooArgSet* snap = (RooArgSet*)allVars().snapshot();
@@ -1328,7 +1337,7 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
     //determine observables for this channel ...
     RooArgSet* chanObs = function(channelName)->getObservables(data(fCurrentData));
     RooArgList l(*chanObs); delete chanObs;
-    fDummyHists[channelName]->SetMinimum(0);
+    fDummyHists[channelName]->SetMinimum(1e-9); //resets minimum
     data(fCurrentData)->fillHistogram(fDummyHists[channelName], l, Form("%s==%s::%s",fChannelCatName.Data(),fChannelCatName.Data(),channelName));
     //update all errors to usual poisson
     for(int i=1;i<=fDummyHists[channelName]->GetNbinsX();i++) fDummyHists[channelName]->SetBinError(i,sqrt(fDummyHists[channelName]->GetBinContent(i)));
@@ -1380,7 +1389,15 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
   double currMax = pad->GetUymax();
   double currMin = pad->GetUymin();
   
-  if(currMax < fDummyHists[channelName]->GetMaximum()) currMax=fDummyHists[channelName]->GetMaximum();
+  if(data(fCurrentData)) {
+    if(currMax < fDummyHists[channelName]->GetMaximum()) currMax=fDummyHists[channelName]->GetMaximum();
+    if(currMin > fDummyHists[channelName]->GetMinimum(1e-6)) currMin=fDummyHists[channelName]->GetMinimum(1e-6);
+  }
+  
+  if(gPad->GetLogy()) {
+    currMin = std::log(std::max(currMin,1e-6));
+    currMax = std::log(currMax);
+  }
   
   //double yScale = (currMax-currMin)/(1.-gPad->GetTopMargin()-gPad->GetBottomMargin());
   
@@ -1388,6 +1405,11 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
   double newYscale = (currMax-currMin)/(myLegend->GetY1NDC()-pad->GetBottomMargin());
   
   currMax = currMin + newYscale*(1.-pad->GetTopMargin()-pad->GetBottomMargin());
+  
+  if(gPad->GetLogy()) {
+    currMin = std::exp(currMin);
+    currMax = std::exp(currMax);
+  }
   
   //currMax += yScale*(myLegend->GetY2NDC()-myLegend->GetY1NDC());
   
@@ -1994,6 +2016,59 @@ void TRooWorkspace::Print(Option_t* opt) const {
   
 }
 
+//report variations above a given relative uncertainty for any TRooAbsH1 component
+void TRooWorkspace::FindVariations(double relThreshold) {
+  RooAbsArg* arg;
+
+  RooArgSet _allFuncs = allPdfs();
+  
+  RooArgSet _allVars = allVars();
+  RooFIter vitr = _allVars.fwdIterator();
+  while( (arg = vitr.next()) ) {
+    RooRealVar* v = dynamic_cast<RooRealVar*>(arg);
+    if(v->isConstant() || v->getError()<1e-9) continue;
+    std::cout << v->GetName() << ":";
+    RooFIter itr = _allFuncs.fwdIterator();
+    while( (arg = itr.next()) ) {
+      if(!arg->dependsOn(*v)) continue;
+      TRooAbsH1* f = dynamic_cast<TRooAbsH1*>(arg);
+      if(!f) continue;
+      
+      //loop over bins of function, check for variation in bin content above threshold
+      bool printedName=false;
+      for(int i=1;i<=f->GetNbinsX();i++) {
+        double nomVal = f->GetBinContent(i);
+        double tmpVal = v->getVal();
+        v->setVal(tmpVal + v->getErrorHi());
+        double upVal = f->GetBinContent(i);
+        v->setVal(tmpVal + v->getErrorLo());
+        double downVal = f->GetBinContent(i);
+        v->setVal(tmpVal);
+        if(fabs(nomVal)<1e-9) {nomVal+=1e-9; upVal+=1e-9;downVal+=1e-9;}
+        
+        if(fabs((upVal-nomVal)/nomVal) > relThreshold) {
+          if(!printedName) { std::cout << std::endl << " " << f->GetName() << " :"; printedName=true; }
+          std::cout << " " << i << "UP(" << (upVal-nomVal)/nomVal << ")";
+        }
+        if(fabs((downVal-nomVal)/nomVal) > relThreshold) {
+          if(!printedName) { std::cout << std::endl << f->GetName() << " :"; printedName=true; }
+          std::cout << " " << i << "DOWN(" << (downVal-nomVal)/nomVal << ")";
+        }
+        
+        if((upVal < nomVal && downVal < nomVal) || (upVal > nomVal && downVal > nomVal)) {
+          if(!printedName) { std::cout << std::endl << " " << f->GetName() << " :"; printedName=true; }
+          std::cout << " " << i << "SS(" << (upVal-nomVal)/nomVal << "," << (downVal-nomVal)/nomVal << ")";
+        }
+        
+      }
+    }
+    std::cout << std::endl;
+    
+  }
+  
+  
+
+}
 
 
 void TRooWorkspace::setDefaultStyle() {
