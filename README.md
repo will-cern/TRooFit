@@ -25,11 +25,16 @@ To checkout the master, just omit the last argument in the clone_project command
 
 
 
-Examples
+Documentation
 ========
-So far, try to look at the macros provided in the demo dir
+Example notebooks are available to help you get started ....
 
-The documentation for the latest version of TRooFit is also available at: http://will.web.cern.ch/will/TRooFit/
+1a. [Model building with TRooWorkspaces](https://cernbox.cern.ch/index.php/s/dxJoaZC0W131OgZ)
+
+2a. [Model inspection general demo](https://cernbox.cern.ch/index.php/s/tzyUPsHqBSgKK1A)
+2b. [Obtaining yields and uncertainties](https://cernbox.cern.ch/index.php/s/I7dwstfWVMD2CIk)
+2c. [Parameter estimation and systematic breakdown](https://cernbox.cern.ch/index.php/s/Mi2MtN8TvAdHocf)
+
 
 Binder
 =======
