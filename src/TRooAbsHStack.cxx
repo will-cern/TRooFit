@@ -266,9 +266,55 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
   RooAbsReal* coef ;
   int i=0;
 
+  //obtain a list of the coeff and func names ... determine common starts and ends, and add these to a list - will use these to truncate hist titles ...
+  std::vector<TString> titles;
+  while((func=(RooAbsReal*)funcIter.next())) {
+    coef = (RooAbsReal*)coefIter.next();
+    titles.push_back(Form("%s_x_%s",coef->GetName(),func->GetName()));
+  }
+  
+  bool nameInComps=true;
+  for(auto& s : titles) {
+    if(!s.Contains(GetName())) { nameInComps=false;break; }
+  }
+  
+  
+  TString commonStart="";TString commonEnd="";
+  if(titles.size()>1) {
+    bool stillValid=true;
+    while(stillValid && commonStart.Length() < titles[0].Length()) {
+      commonStart = titles[0](0,commonStart.Length()+1);
+      for(auto& s : titles) {
+        if(s(0,commonStart.Length()) != commonStart) { stillValid=false; commonStart = commonStart(0,commonStart.Length()-1); break; }
+      }
+    }
+    stillValid=true;
+    while(stillValid && commonEnd.Length() < titles[0].Length()) {
+      commonEnd = titles[0](titles[0].Length()-commonEnd.Length()-1,commonEnd.Length()+1);
+      for(auto& s : titles) {
+        if(s(s.Length()-commonEnd.Length(),commonEnd.Length()) != commonEnd) { stillValid=false; commonEnd = commonEnd(1,commonEnd.Length()-1); break; }
+      }
+    }
+  }
+  
+  funcIter = compList().fwdIterator() ;
+  coefIter = coeffList().fwdIterator() ;
+
   TH1* totalHist = 0;
 
   std::vector<TH1*> histsToAdd;
+
+   //before filling histograms, we need to apply parameters from the fit result, if given ...
+    RooArgSet* paramSnapshot = 0;
+    if(fr) {
+      std::unique_ptr<RooArgSet> floatParams(dynamic_cast<const RooAbsReal*>(this)->getObservables(fr->floatParsFinal()));
+      std::unique_ptr<RooArgSet> constParams(dynamic_cast<const RooAbsReal*>(this)->getObservables(fr->constPars()));
+      floatParams->add(*constParams);
+      paramSnapshot = static_cast<RooArgSet*>(floatParams->snapshot());
+      *floatParams = fr->floatParsFinal();
+      *floatParams = fr->constPars();
+    }
+
 
   while((func=(RooAbsReal*)funcIter.next())) {
     coef = (RooAbsReal*)coefIter.next();
@@ -293,11 +339,13 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
       myTitle.ReplaceAll("_x_StatUncert","");
       myTitle.ReplaceAll("_x_HistSyst","");
       myTitle.ReplaceAll("_x_Exp","");
+      myTitle.ReplaceAll(commonStart,""); myTitle.ReplaceAll(commonEnd,"");
+      if(nameInComps) myTitle.ReplaceAll(GetName(),"");
       hist->SetTitle(myTitle); 
       
       hist->SetFillColor(TRooFit::GetColorByName(myTitle,true));
       
-      //FIXME: need to use fit result to move parameters!
+      
       
       RooAbsPdf* pdf = (RooAbsPdf*)func;
       //use cdf to fill bins ... i.e. correctly integrate over pdfs 
@@ -308,6 +356,8 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
       RooAbsReal* cdf = pdf->createCdf(fObservables);
       
       auto snap = fObservables.snapshot();
+      
+     
       
       std::vector<double> prevIntegral(hist->GetNbinsY(),0.); //need one running total for each 'row' if doing up to 2D
       for(int i=0;i<=hist->GetNbinsX();i++) {
@@ -332,6 +382,9 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
           prevIntegral[j-1]=nextIntegral; 
         }
       }
+      
+      
+      
       //func->fillHistogram(hist,fObservables); //this method assumes function is flat across each bin too (like getBinContent of TRooH1)
       
       const_cast<RooListProxy&>(fObservables) = *static_cast<RooArgList*>(snap);
@@ -351,28 +404,15 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
       myTitle.ReplaceAll("_x_StatUncert","");
       myTitle.ReplaceAll("_x_HistSyst","");
       myTitle.ReplaceAll("_x_Exp","");
+      myTitle.ReplaceAll(commonStart,""); myTitle.ReplaceAll(commonEnd,"");
+      if(nameInComps) myTitle.ReplaceAll(GetName(),"");
       hist->SetTitle(myTitle); 
       
       hist->SetFillColor(TRooFit::GetColorByName(myTitle,true));
       
-      //before filling histogram, we need to apply parameters from the fit result, if given ...
-      RooArgSet* paramSnapshot = 0;
-      if(fr) {
-        std::unique_ptr<RooArgSet> floatParams(func->getObservables(fr->floatParsFinal()));
-        std::unique_ptr<RooArgSet> constParams(func->getObservables(fr->constPars()));
-        floatParams->add(*constParams);
-        paramSnapshot = static_cast<RooArgSet*>(floatParams->snapshot());
-        *floatParams = fr->floatParsFinal();
-        *floatParams = fr->constPars();
-      }
       
       func->fillHistogram(hist,fObservables); //this method assumes function is flat across each bin too (like getBinContent of TRooH1)
     
-      if(fr) {
-        std::unique_ptr<RooArgSet> floatParams(func->getObservables(*paramSnapshot));
-        *floatParams = *paramSnapshot;
-        delete paramSnapshot;
-      }
     
       //remove all error bars, since this is going in the stack ..
       for(int i=1;i<=hist->GetNbinsX();i++) hist->SetBinError(i,0);
@@ -428,6 +468,12 @@ THStack* TRooAbsHStack::fillStack(THStack* stack, const RooFitResult* fr, bool n
     
   }
   if(totalHist) delete totalHist;
+  
+  if(fr) {
+    std::unique_ptr<RooArgSet> floatParams(dynamic_cast<const RooAbsReal*>(this)->getObservables(*paramSnapshot));
+    *floatParams = *paramSnapshot;
+    delete paramSnapshot;
+  }
   
   for(auto hist : histsToAdd) stack->Add(hist); //for some reason cannot correctly scale histograms after adding to stack, so add to stack after scaling
   
