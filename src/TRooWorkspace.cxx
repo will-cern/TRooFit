@@ -121,6 +121,7 @@ TRooWorkspace::TRooWorkspace(const RooWorkspace& other) : RooWorkspace(other) {
     if(set("ModelConfig_POI")) defineSet("poi",*set("ModelConfig_POI"));
     if(set("ModelConfig_GlobalObservables")) {
       if(!set("globalObservables")) defineSet("globalObservables",*set("ModelConfig_GlobalObservables"));
+      (const_cast<RooArgSet*>(set("globalObservables")))->setName("globalObservables");
       saveSnapshot(Form("%s_globalObservables",fCurrentData.Data()),*set("ModelConfig_GlobalObservables"));
     }
     
@@ -759,21 +760,21 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
     //remove the poi ...
     //if(set("poi")) gobs_and_np->remove(*set("poi"));
 
-    RooArgSet gobs;
-    gobs.add(*gobs_and_np); //will remove the np in a moment
+    RooArgSet _gobs;
+    _gobs.add(*gobs_and_np); //will remove the np in a moment
 
     //now pass this to the getAllConstraints method ... it will modify it to contain only the np!
     RooArgSet* s = m->getAllConstraints(*set("obs"),*gobs_and_np);
      delete s; //don't ever need this 
 
      //gobs_and_np now only contains the np
-     gobs.remove(*gobs_and_np);
+     _gobs.remove(*gobs_and_np);
      //ensure all global observables are held constant now - important for pll evaluation
-     gobs.setAttribAll("Constant",kTRUE);
+     _gobs.setAttribAll("Constant",kTRUE);
      
-     defineSet(Form("globalObservables%s",TString(simPdfName(fSimPdfName.Length(),simPdfName.Length()-fSimPdfName.Length())).Data()),gobs);
+     defineSet(Form("globalObservables%s",TString(simPdfName(fSimPdfName.Length(),simPdfName.Length()-fSimPdfName.Length())).Data()),_gobs);
      
-     saveSnapshot(Form("%s_globalObservables%s",fCurrentData.Data(),TString(simPdfName(fSimPdfName.Length(),simPdfName.Length()-fSimPdfName.Length())).Data()),gobs);
+     saveSnapshot(Form("%s_globalObservables%s",fCurrentData.Data(),TString(simPdfName(fSimPdfName.Length(),simPdfName.Length()-fSimPdfName.Length())).Data()),_gobs);
      
      //save the list of parameters as a set (poi+np)
      RooArgSet np;RooArgSet args;
@@ -796,25 +797,22 @@ RooSimultaneous* TRooWorkspace::model(const char* channels) {
 bool TRooWorkspace::generateAsimov(const char* name, const char* title, bool fitToObsData) {
   RooAbsPdf* thePdf = model();
 
-  if(fitToObsData && data("obsData")) {
+  RooArgSet* snap = 0;
+
+  if(fitToObsData && data(fCurrentData)) {
     //fit to data first, holding parameters of interest constant at their current values ...
-    RooArgSet* snap = 0;
+    snap = (RooArgSet*)allVars().snapshot();
     if(set("poi")) {
-      snap = (RooArgSet*)set("poi")->snapshot();
       const_cast<RooArgSet*>(set("poi"))->setAttribAll("Constant",kTRUE);
     }
-    auto _nll = TRooFit::createNLL(thePdf,data("obsData"),set("globalObservables"));
-    loadSnapshot("obsData_globalObservables");
-    auto fitResult = TRooFit::minimize(_nll,true,false); //hesse not needed, just need best fit values 
-    import(*fitResult,Form("conditionalFit_obsData_for%s",name));
+    
+    RooFitResult* fitResult = fitTo(data(),data_gobs(),"q" /*no need for hesse*/); //fits to the "current data"
+    
+    //import(*fitResult,Form("conditionalFit_%s_for%s",fCurrentData.Data(),name));
     delete fitResult;
-    if(snap) {
-       *const_cast<RooArgSet*>(set("poi")) = *snap; //restores constant statuses 
-       delete snap;
-    }
   }
   
-  auto asimov = TRooFit::generateAsimovDataset(thePdf,set("obs"),set("globalObservables"));
+  auto asimov = TRooFit::generateAsimovDataset(thePdf,set("obs"),gobs());
   
   saveSnapshot(Form("%s_globalObservables",name),*asimov.second,true);
   asimov.first->SetName(name);asimov.first->SetTitle(title);
@@ -824,6 +822,11 @@ bool TRooWorkspace::generateAsimov(const char* name, const char* title, bool fit
   delete asimov.first;
   delete asimov.second;
   
+  if(snap) {
+    allVars() = *snap;
+    delete snap;
+  }
+  
   return kTRUE;
   
 }
@@ -831,28 +834,26 @@ bool TRooWorkspace::generateAsimov(const char* name, const char* title, bool fit
 std::pair<RooAbsData*,RooArgSet*> TRooWorkspace::generateToy(const char* name, const char* title, bool fitToObsData) {
   RooAbsPdf* thePdf = model();
 
-  if(fitToObsData && data("obsData")) {
+  RooArgSet* snap = 0;
+
+  if(fitToObsData && data(fCurrentData)) {
     //fit to data first, holding parameters of interest constant at their current values ...
-    RooArgSet* snap = 0;
-    if(set("poi")) {
-      snap = (RooArgSet*)set("poi")->snapshot();
-      const_cast<RooArgSet*>(set("poi"))->setAttribAll("Constant",kTRUE);
-    }
-    auto _nll = TRooFit::createNLL(thePdf,data("obsData"),set("globalObservables"));
-    loadSnapshot("obsData_globalObservables");
-    auto fitResult = TRooFit::minimize(_nll,true,false); //hesse not needed, just need best fit values 
-    import(*fitResult,Form("conditionalFit_obsData_for%s",name));
+    snap = (RooArgSet*)set("poi")->snapshot();
+    if(set("poi")) const_cast<RooArgSet*>(set("poi"))->setAttribAll("Constant",kTRUE);
+    RooFitResult* fitResult = fitTo(data(),data_gobs(),"q" /*no need for hesse*/); //fits to the "current data"
+    //import(*fitResult,Form("conditionalFit_%s_for%s",fCurrentData.Data(),name));
     delete fitResult;
-    if(snap) {
-       *const_cast<RooArgSet*>(set("poi")) = *snap; //restores constant statuses 
-       delete snap;
-    }
   }
   
-  auto out = TRooFit::generateToy(thePdf,set("obs"),set("globalObservables"));
+  auto out = TRooFit::generateToy(thePdf,set("obs"),gobs());
   
   if(out.second) out.second->setName(Form("%s_globalObservables",name));
   out.first->SetName(name);out.first->SetTitle(title);
+  
+  if(snap) {
+    allVars() = *snap;
+    delete snap;
+  }
   
   return out;
   
@@ -926,31 +927,38 @@ double TRooWorkspace::pll(const char* _poi, RooAbsData* theData, const RooArgSet
 }
 
 double TRooWorkspace::pll(RooArgSet&& _poi, RooAbsData* theData, const RooArgSet* globalObservables, bool oneSided, bool discovery) {
+  if(oneSided && discovery) {
+    return pll(std::move(_poi),theData,globalObservables,TRooFit::OneSidedNegative);
+  } else if(oneSided && !discovery) {
+    return pll(std::move(_poi),theData,globalObservables,TRooFit::OneSidedPositive);
+  } else if(!oneSided) {
+    return pll(std::move(_poi),theData,globalObservables,TRooFit::TwoSided);
+  }
+  return -1;
+}
+
+double TRooWorkspace::pll(RooArgSet&& _poi, RooAbsData* theData, const RooArgSet* globalObservables, bool (*_compatibilityFunction)(double mu, double mu_hat)) {
   
   
   //do an unconditional fit ...
   RooArgSet* snap = (RooArgSet*)allVars().snapshot();
-  _poi.setAttribAll("Constant",kFALSE);
+  TRooFit::setAttribAll(_poi,"Constant",kFALSE);
   
-  RooFitResult* unconditionalFit = fitTo(theData,globalObservables,false /*no need for hesse*/);
+  RooFitResult* unconditionalFit = fitTo(theData,globalObservables,"q" /*no need for hesse*/);
   
   allVars() = *snap; //restores values
   
-  if(oneSided) {
-    bool isGreater = ((RooAbsReal*)unconditionalFit->floatParsFinal().find(_poi.first()->GetName()))->getVal() > ((RooAbsReal*)_poi.first())->getVal();
-    if( (!discovery && isGreater) || (discovery && !isGreater) ) {
-          
-      delete unconditionalFit;
-      delete snap;
-      return 0;
-    }
-          
+  if(_compatibilityFunction(  ((RooAbsReal*)_poi.first())->getVal() , ((RooAbsReal*)unconditionalFit->floatParsFinal().find(_poi.first()->GetName()))->getVal() ) == 1) {
+    //best fit poi value is considered compatible with test value 
+    delete unconditionalFit;
+    delete snap;
+    return 0;
   }
   
   
   //do a conditional fit ...
-  _poi.setAttribAll("Constant",kTRUE);
-  RooFitResult* conditionalFit = fitTo(theData,globalObservables,false /*no need for hesse*/);
+  TRooFit::setAttribAll(_poi,"Constant",kTRUE);
+  RooFitResult* conditionalFit = fitTo(theData,globalObservables,"q" /*no need for hesse*/);
   allVars() = *snap; //restores values
   
   double out = 2.0*(conditionalFit->minNll() - unconditionalFit->minNll());
@@ -966,6 +974,41 @@ double TRooWorkspace::pll(RooArgSet&& _poi, RooAbsData* theData, const RooArgSet
   
 }
 
+const RooArgSet* TRooWorkspace::data_gobs(const char* dataName) const {
+  //get the current model name ...
+  std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
+  TObject* c;
+  TString simPdfName(fSimPdfName);
+  int nComps(0);
+  while( (c = catIter->Next()) ) {
+    if(function(c->GetName())->getAttribute("isValidation")) continue; //don't include validation regions when constructing models
+    nComps++;
+    simPdfName += Form("_%s",c->GetName());
+  }
+  if(nComps==cat(fChannelCatName)->numTypes()) { simPdfName=fSimPdfName; } //all channels available
+  
+  TString theData = (dataName==0) ? fCurrentData.Data() : dataName;
+  
+  return getSnapshot(Form("%s_globalObservables%s",theData.Data(),TString(simPdfName(fSimPdfName.Length(),simPdfName.Length()-fSimPdfName.Length())).Data()));
+}
+
+const RooArgSet* TRooWorkspace::gobs() {
+  //get the current model name ...
+  std::unique_ptr<TIterator> catIter(cat(fChannelCatName)->typeIterator());
+  TObject* c;
+  TString simPdfName(fSimPdfName);
+  int nComps(0);
+  while( (c = catIter->Next()) ) {
+    if(function(c->GetName())->getAttribute("isValidation")) continue; //don't include validation regions when constructing models
+    nComps++;
+    simPdfName += Form("_%s",c->GetName());
+  }
+  if(nComps==cat(fChannelCatName)->numTypes()) { simPdfName=fSimPdfName; } //all channels available
+  
+  return set(Form("globalObservables%s",TString(simPdfName(fSimPdfName.Length(),simPdfName.Length()-fSimPdfName.Length())).Data()));
+  
+}
+
 
 #include "TMultiGraph.h"
 
@@ -974,7 +1017,10 @@ template <class T> struct greater_abs {
       };
 
 
-RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalObservables, bool doHesse) {
+RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalObservables, Option_t* opt) {
+  TString sOpt(opt);sOpt.ToLower();
+  bool doHesse = sOpt.Contains("h");
+
   RooSimultaneous* thePdf = model();
   TString simPdfName(thePdf->GetName());
   
@@ -1034,10 +1080,10 @@ RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalO
     RooArgSet* snap = 0;
     if(set("poi")) {
       snap = (RooArgSet*)set("poi")->snapshot();
-      const_cast<RooArgSet*>(set("poi"))->setAttribAll("Constant",kFALSE);
+      TRooFit::setAttribAll(*const_cast<RooArgSet*>(set("poi")),"Constant",kFALSE);
     }
-    const RooArgSet* gobs = set(Form("globalObservables%s",TString(simPdfName(fSimPdfName.Length(),simPdfName.Length()-fSimPdfName.Length())).Data()));
-    _nll = TRooFit::createNLL(thePdf,theData,gobs);
+    const RooArgSet* _gobs = gobs();
+    _nll = TRooFit::createNLL(thePdf,theData,_gobs);
     if(snap) {
       *const_cast<RooArgSet*>(set("poi")) = *snap;
       delete snap;
@@ -1065,13 +1111,13 @@ RooFitResult* TRooWorkspace::fitTo(RooAbsData* theData, const RooArgSet* globalO
   allFloatVars->remove(*allPars);allFloatVars->remove(*theData->get(),true,true);
   if(allFloatVars->getSize()) {
     Info("fitTo","Setting the following parameters constant: %s", allFloatVars->contentsString().c_str());
-    allFloatVars->setAttribAll("Constant",kTRUE);
+    TRooFit::setAttribAll(*allFloatVars,"Constant",kTRUE);
   }
   delete allPars; delete allFloatVars;
   
   if(!kDisabledForcedRecommendedOptions) TRooFit::setRecommendedDefaultOptions();
   RooFitResult* result = TRooFit::minimize(_nll, true, doHesse);
-  if(internalData) result->Print();
+  if(internalData && !sOpt.Contains("q")) result->Print();
   result->SetName(Form("fitTo_%s",theData->GetName()));
   result->SetTitle(result->GetTitle());
   
@@ -1266,7 +1312,7 @@ void TRooWorkspace::impact(const char* impactPar, float correlationThreshold) {
   
 }
 
-RooFitResult* TRooWorkspace::fitTo(const char* dataName, bool doHesse, const RooArgSet& minosPars) {
+RooFitResult* TRooWorkspace::fitTo(const char* dataName, Option_t* opt) {
   RooAbsData* theData = data((dataName)?dataName:fCurrentData.Data());
   
   if(!theData) {
@@ -1277,7 +1323,7 @@ RooFitResult* TRooWorkspace::fitTo(const char* dataName, bool doHesse, const Roo
   fCurrentData = theData->GetName(); //switch to this data
   
   model(); //call this method just the bring globalObservables snapshot into existence if necessary
-  RooFitResult* result = fitTo(theData,getSnapshot(Form("%s_globalObservables",theData->GetName())),doHesse);
+  RooFitResult* result = fitTo(theData,getSnapshot(Form("%s_globalObservables",theData->GetName())),opt);
   import(*result,true/*overwrites existing*/); //FIXME: the statusHistory is not imported because RooFitResult Clone doesnt copy
 
   
@@ -2095,10 +2141,97 @@ void TRooWorkspace::Print(Option_t* opt) const {
       
     }
   
+  } else if(sOpt.Contains("nll")) {
+    fNll.Print();
   } else {
     RooWorkspace::Print(opt);
   }
   
+}
+
+double TRooWorkspace::sigma_mu(const char* poi, const char* asimovDataset, double asimovValue) {
+  RooRealVar* mu = var(poi);
+  if(!mu) return -1;
+  
+  RooArgSet* snap = (RooArgSet*)allVars().snapshot();
+  
+  
+  if(!data(asimovDataset)) {
+    //generate asimov dataset (ensure a fit to the obs data is performed first)
+    double tmp = mu->getVal();
+    mu->setVal(asimovValue);mu->setConstant(true);
+    generateAsimov(asimovDataset,Form("Expected Data (%s=%g)",poi,asimovValue)); //asimov data is automatically added to workspace 
+    mu->setVal(tmp);
+  }
+  
+  //check if we have done unconditional fit already ...
+  RooFitResult* ucFit = dynamic_cast<RooFitResult*>( obj(Form("fitTo_%s",asimovDataset)) );
+  if(!ucFit || ucFit->constPars().find(poi)) {
+    //need to ensure mu is floating ...
+    double tmp = mu->getVal();
+    TString oldData = fCurrentData; 
+    TString oldFit = fCurrentFit;
+    bool oldFitPrefit = fCurrentFitIsPrefit;
+    mu->setConstant(false);
+    fitTo(asimovDataset,"q");
+    mu->setVal(tmp);
+    fCurrentData = oldData;
+    if(oldFit!="") loadFit(oldFit,oldFitPrefit);
+    else {
+      //unload the fit ...
+      fCurrentFit = oldFit;
+      SafeDelete(fCurrentFitResult); fCurrentFitResult=0;
+    }
+    ucFit = dynamic_cast<RooFitResult*>( obj(Form("fitTo_%s",asimovDataset)) );
+  }
+  
+  
+  //now need a conditional fit ...
+  mu->setConstant(true);
+  RooFitResult* cFit = fitTo(data(asimovDataset),getSnapshot(Form("%s_globalObservables",asimovDataset)),"q"); //avoids saving result into workspace
+  
+  allVars() = *snap;
+  delete snap;
+  
+  double pll_asimov = 2.0*(cFit->minNll() - ucFit->minNll());
+  
+  delete cFit;
+  
+  if(pll_asimov < 1e-15) pll_asimov = 1e-15; //protect against 0 and negative values
+  
+  return  (fabs(mu->getVal() - asimovValue) / sqrt(pll_asimov) );
+  
+}
+
+//returns null and alt p value
+//This involves running up to 5 fits:
+//  Evaluating sigma_mu requires:
+//    1. Conditional fit of asimov data (to evaluate asimov pll)
+//    2. Unconditional fit of asimov data is also required if not already saved in workspace
+//  If need to generate asimov data then:
+//    3. Conditional fit to current data required
+//  Evaluating pll is up to two fits:
+//    4. Unconditional fit to provided data
+//    5. Conditional fit to provided data if required by compatibility function 
+std::pair<double,double> TRooWorkspace::asymptoticPValue(const char* poi, RooAbsData* data, const RooArgSet* _gobs,bool (*_compatibilityFunction)(double mu, double mu_hat), double alt_val, double _sigma_mu) {
+
+  if(fabs(var(poi)->getVal() - alt_val) < 1e-9) {
+    //shift alt_val so that it's different to testing value ...
+    if(var(poi)->getVal() - 1. >= var(poi)->getMin()) alt_val -= 1.;
+    else alt_val += 1.;
+  }
+
+  if(_sigma_mu<=0) _sigma_mu = sigma_mu(poi,TString::Format("asimovData%d",int(alt_val)),alt_val);
+  
+  double _pll = pll(*var(poi),data,_gobs,_compatibilityFunction);
+  
+  std::cout << _pll << " " << _sigma_mu << std::endl;
+  
+  
+  
+  return std::make_pair( TRooFit::Asymptotics::nullPValue(_pll, var(poi), _sigma_mu, _compatibilityFunction) , 
+                         TRooFit::Asymptotics::altPValue(_pll, var(poi), alt_val, _sigma_mu, _compatibilityFunction) );
+
 }
 
 //report variations above a given relative uncertainty for any TRooAbsH1 component
