@@ -88,14 +88,19 @@ public:
   
   using RooWorkspace::data;
   inline RooAbsData* data() { return RooWorkspace::data(fCurrentData); }
+  //obtain the global observables associated to a given dataset (this is a snapshot of gobs)
+  const RooArgSet* data_gobs(const char* dataName=0) const;
+  
+  //return the set of parameters that are currently global observables
+  const RooArgSet* gobs();
   
   void DisableForcedRecommendedOption(bool in) { kDisabledForcedRecommendedOptions=in; } //use to override forcing of the recommended fit options when calling fitTo
   
   double impact(const char* poi, const char* np, bool positive=true);
   void impact(const char* impactPar=0, float correlationThreshold=0);
   
-  RooFitResult* fitTo(RooAbsData* theData, const RooArgSet* globalObservables=0, bool doHesse=true);
-  RooFitResult* fitTo(const char* dataName=0, bool doHesse=true, const RooArgSet& minosPars=RooArgSet());
+  RooFitResult* fitTo(RooAbsData* theData, const RooArgSet* globalObservables=0, Option_t* opt = "h");
+  RooFitResult* fitTo(const char* dataName=0, Option_t* opt = "h");
   RooFitResult* loadFit(const char* fitName,bool prefit=false);
   RooFitResult* getFit(const char* fitName=0) { return dynamic_cast<RooFitResult*>(obj((fitName==0)?fCurrentFit.Data():fitName)); }
   RooAbsReal* getFitNll(const char* fitName=0);
@@ -106,6 +111,10 @@ public:
   
   double pll(const char* poi, RooAbsData* theData, const RooArgSet* globalObservables=0, bool oneSided=false, bool discovery=false);
   double pll(RooArgSet&& poi, RooAbsData* theData, const RooArgSet* globalObservables=0, bool oneSided=false, bool discovery=false);
+  double pll(RooArgSet&& _poi, RooAbsData* theData, const RooArgSet* globalObservables, bool (*_compatibilityFunction)(double mu, double mu_hat));
+  
+  double sigma_mu(const char* poi, const char* asimovDataset, double asimovValue=0);
+  std::pair<double,double> asymptoticPValue(const char* poi, RooAbsData* data, const RooArgSet* gobs,bool (*_compatibilityFunction)(double mu, double mu_hat), double alt_val=0, double _sigma_mu=0);
   
   void addLabel(const char* label) { fLabels.push_back(label); }
   

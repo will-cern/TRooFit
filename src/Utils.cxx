@@ -369,7 +369,7 @@ RooFitResult* TRooFit::minos(RooAbsReal* nll, const RooArgSet& pars, RooFitResul
   
   //start by moving all float pars to best fit values and ensuring they are floating for the fit
   *floatPars = unconditionalFitResult->floatParsFinal();
-  floatPars->setAttribAll("Constant",kFALSE);
+  TRooFit::setAttribAll(*floatPars,"Constant",kFALSE);
   
   double nll_absMin = nll->getVal();//unconditionalFitResult->minNll(); -- cannot use minNll because might be offset corrected
   
@@ -509,7 +509,7 @@ std::vector<RooFitResult*> TRooFit::minos_series(RooAbsReal* nll, const RooArgSe
   }
   
   //finish by restoring floating status of all parameters
-  floatPars->setAttribAll("Constant",kFALSE);
+  TRooFit::setAttribAll(*floatPars,"Constant",kFALSE);
   delete floatPars;
   
   return out;
@@ -635,7 +635,7 @@ const std::map<TString,RooArgList*> TRooFit::breakdown(RooAbsReal* nll, const Ro
     out["STAT"]->addClone(myList2); //this is now the uncorrelated stat uncertainty (the 'diagaonal' variance)
     
     //finish by restoring float status of all parameters
-    allPars.setAttribAll("Constant",kFALSE);
+    TRooFit::setAttribAll(allPars,"Constant",kFALSE);
     
   }
   
@@ -984,100 +984,11 @@ double TRooFit::GetBakerCousins(RooAbsPdf* model, RooAbsData* data) {
   
 }
 
-
-#include "Math/ProbFuncMathCore.h"
-
-Double_t TRooFit::Phi_m(double mu, double mu_prime, double a, double sigma, int compatCode) {
-   //implemented only for special cases of compatibility function
-   if(compatCode==0) {
-      return 0;
-   } 
-
-   //will need sigma unless mu = mu_prime ...
-   if(mu!=mu_prime && !sigma) {
-    msg().Error("Phi_m","Estimate of mu_hat sigma not provided but required");
-   } else if(mu==mu_prime) {
-    sigma = 1; //don't need to worry about sigma value when mu= mu_prime
-   }
-   
-   if(compatCode==1) {
-      //ignore region below x*sigma+mu_prime = mu ... x = (mu - mu_prime)/sigma 
-      if(a < (mu-mu_prime)/sigma) return 0;
-      return ROOT::Math::gaussian_cdf(a) - ROOT::Math::gaussian_cdf((mu-mu_prime)/sigma);
-   } else if(compatCode==2) {
-      //ignore region above x*sigma+mu_prime = mu ... 
-      if(a > (mu-mu_prime)/sigma) return ROOT::Math::gaussian_cdf((mu-mu_prime)/sigma);
-      return ROOT::Math::gaussian_cdf(a);
-   } else if(compatCode==3) {
-      //cutoff at x*sigma+mu_prime = mu for mu<0 , and turns back on at x*sigma+mu_prime=mu for mu>0
-      //ignore region between x = (-mu-mu_prime)/sigma and x = (mu-mu_prime)/sigma
-      double edge1 = (-mu - mu_prime)/sigma;
-      double edge2 = (mu-mu_prime)/sigma;
-
-      if(edge1>edge2) { double tmp=edge1; edge1=edge2; edge2=tmp; }
-
-      if(a<edge1) return ROOT::Math::gaussian_cdf(a);
-      if(a<edge2) return ROOT::Math::gaussian_cdf(edge1);
-      return ROOT::Math::gaussian_cdf(a) - (ROOT::Math::gaussian_cdf(edge2) - ROOT::Math::gaussian_cdf(edge1));
-   }
-   msg().Error("Phi_m","Unknown compatibility function ... can't evaluate");
-   return 0;
-}
-
-//must use asimov dataset corresponding to mu_prime, evaluating pll at mu
-
-Double_t TRooFit::asymptoticPValue(double k, RooRealVar* mu, double mu_prime, double sigma, int compatCode) {
-  if(k<0) return 1.;
-  if(k==0) {
-    if(compatCode==2) return 0.5; //when doing discovery (one-sided negative) use a 0.5 pValue
-    return 1.; //case to catch the delta function that ends up at exactly 0 for the one-sided tests 
+void TRooFit::setAttribAll(RooAbsCollection& coll, const char* name, Bool_t value) {
+  RooFIter itr = coll.fwdIterator();
+  RooAbsArg* arg = 0;
+  while( (arg = itr.next()) ) {
+    arg->setAttribute(name,value);
+    arg->setValueDirty(); arg->setShapeDirty();
   }
-      //get the poi value that defines the test statistic, and the poi_prime hypothesis we are testing 
-   //when setting limits, these are often the same value 
-
-   Double_t poiVal = mu->getVal();
-   //Double_t k = getVal();
-
-   //if(fOutputLevel<=1) Info("asymptoticPValue","poiVal = %f poiPrimeVal=%f k=%f", poiVal, poi_primeVal, k);
-   Double_t Lambda_y = 0;
-
-   double lowBound = mu->getMin();
-   double upBound = mu->getMax();
-
-   Lambda_y = (poiVal-mu_prime)/sigma;
-
-
-   Double_t k_low = (lowBound == -std::numeric_limits<double>::infinity()) ? std::numeric_limits<double>::infinity() : pow((poiVal - lowBound)/sigma,2);
-   Double_t k_high = (upBound == std::numeric_limits<double>::infinity()) ? std::numeric_limits<double>::infinity() : pow((upBound - poiVal)/sigma,2);
-
-   //std::cout << " sigma = " << sigma << std::endl;
-
-   double out = Phi_m(poiVal,mu_prime,std::numeric_limits<double>::infinity(),sigma,compatCode) - 1;
-
-   //if(fOutputLevel<=0) Info("asymptoticPValue","sigma=%f k_low=%f k_high=%f ", sigma, k_low, k_high);
-     
-   //std::cout << " out = " << out << std::endl;
-   //std::cout << " k_low = " << k_low << std::endl;
-
-   //go through the 4 'regions' ... only two of which will apply
-   if( k <= k_low ) {
-      out += ROOT::Math::gaussian_cdf(sqrt(k)-Lambda_y) + Phi_m(poiVal,mu_prime,Lambda_y - sqrt(k),sigma,compatCode);
-   } else {
-      double Lambda_low = (poiVal - lowBound)*(poiVal + lowBound - 2.*mu_prime)/(sigma*sigma);
-      double sigma_low = 2.*(poiVal - lowBound)/sigma;
-      out +=  ROOT::Math::gaussian_cdf((k-Lambda_low)/sigma_low) + Phi_m(poiVal,mu_prime,(Lambda_low - k)/sigma_low,sigma,compatCode);
-   }
-   //std::cout << " out = " << out << std::endl;
-   //std::cout << " k_high = " << k_high << std::endl;
-
-   if( k <= k_high ) {
-      out += ROOT::Math::gaussian_cdf(sqrt(k)+Lambda_y) - Phi_m(poiVal,mu_prime,Lambda_y + sqrt(k),sigma,compatCode);
-   } else {
-      double Lambda_high = (poiVal - upBound)*(poiVal + upBound - 2.*mu_prime)/(sigma*sigma);
-      double sigma_high = 2.*(upBound-poiVal)/sigma;
-      out +=  ROOT::Math::gaussian_cdf((k-Lambda_high)/sigma_high) - Phi_m(poiVal,mu_prime,(k - Lambda_high)/sigma_high,sigma,compatCode);
-   }
-
-
-   return 1. - out;
 }

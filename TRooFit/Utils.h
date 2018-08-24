@@ -75,7 +75,7 @@ class TRooFit : public TObject  {
     static double GetBakerCousins(RooAbsPdf* model, RooAbsData* data);
    
    
-   static Double_t asymptoticPValue(double k, RooRealVar* mu, double mu_prime, double sigma, int compatCode);
+   
    
    
     //TRooFit( RooWorkspace& w, const char* poiNames=0 ); 
@@ -83,6 +83,14 @@ class TRooFit : public TObject  {
    //function that removes uncertainties on a given histogram
    static void RemoveErrors(TH1* hist, double relUncertThreshold=99999.);
    
+   //this is just like RooAbsCollection::setAttribAll but it also dirties all the elements.
+   static void setAttribAll(RooAbsCollection& coll, const char* name, Bool_t value);
+   
+   //some basic compatibility functions 
+    static bool TwoSided(double mu, double mu_hat) { return mu==mu_hat; }
+    static bool OneSidedPositive(double mu, double mu_hat) { return mu_hat>=mu; }
+    static bool OneSidedNegative(double mu, double mu_hat) { return mu_hat<=mu; }
+    static bool OneSidedAbsolute(double mu, double mu_hat) { return fabs(mu_hat) >= fabs(mu); }
    
     ClassDef(TRooFit,1);
     
@@ -94,12 +102,36 @@ class TRooFit : public TObject  {
     static TObject* m_msgObj;
 
 
-    static Double_t Phi_m(double mu, double mu_prime, double a, double sigma, int compatCode);
-
-    //RooAbsReal* m_nll = 0;
-    
     static std::map<TString,Int_t> m_colorsByName;
     
+  
+  
+   public:
+    class Asymptotics : public TObject {
+     public:
+      Asymptotics();
+    
+      
+    
+      
+    
+      static Double_t Phi_m(double mu, double mu_prime, double a, double sigma, bool (*_compatibilityFunction)(double mu, double mu_hat));
+      static Double_t PValue(double k, double mu, double mu_prime, double sigma_mu, double mu_low, double mu_high, bool (*_compatibilityFunction)(double mu, double mu_hat));
+      
+      
+      static Double_t nullPValue(double k, RooRealVar* mu_test, double sigma_mu, bool (*_compatibilityFunction)(double mu, double mu_hat) ) {
+        return PValue(k,mu_test->getVal(),mu_test->getVal(),sigma_mu,mu_test->getMin(),mu_test->getMax(),_compatibilityFunction);
+      }
+      static Double_t altPValue(double k, RooRealVar* mu_test, double alt_mu, double sigma_mu, bool (*_compatibilityFunction)(double mu, double mu_hat)) {
+        return PValue(k,mu_test->getVal(),alt_mu,sigma_mu,mu_test->getMin(),mu_test->getMax(),_compatibilityFunction);
+      }
+    
+    
+      static TObject& msg() { return TRooFit::msg(); }
+      
+      ClassDef(TRooFit::Asymptotics,1);
+  
+  };
   
 };
 

@@ -47,6 +47,7 @@
 #pragma link C++ class TRooUnfold+;
 
 #pragma link C++ class TRooFit+;
+#pragma link C++ class TRooFit::Asymptotics+;
 //#pragma link C++ function TRooFit::BuildModel;
 
 //#pragma link C++ nestedfunction;
