@@ -589,8 +589,11 @@ void TRooAbsHStack::Draw(Option_t* option,const TRooFitResult& r) {
     //if drawing with option "e3XXX" then need to also draw as a histogram
     if(fillType) {
         TRooAbsH1::Draw(TString::Format("%s e%dsame",(hadInit)?"init":"",fillType),r);
-        TH1* theHist = (TH1*)gPad->GetListOfPrimitives()->Last();
-        fDrawStacks.back().frame->Add( theHist );
+        if(fDrawStacks.back().frame) {
+          TH1* theHist = (TH1*)gPad->GetListOfPrimitives()->Last();
+          fDrawStacks.back().frame->Add( theHist );
+          fDrawStacks.back().frame->SetMinimum(fMinimum);fDrawStacks.back().frame->SetMaximum(fMaximum);
+        }
     }
     
     if(fDrawStacks.back().frame) gPad->GetListOfPrimitives()->Add( fDrawStacks.back().frame , "sameaxis" ); //redraw to avoid cover up
