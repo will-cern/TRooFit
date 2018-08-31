@@ -115,6 +115,7 @@ public:
   
   double sigma_mu(const char* poi, const char* asimovDataset, double asimovValue=0);
   std::pair<double,double> asymptoticPValue(const char* poi, RooAbsData* data, const RooArgSet* gobs,bool (*_compatibilityFunction)(double mu, double mu_hat), double alt_val=0, double _sigma_mu=0);
+  std::pair<double,double> asymptoticExpectedPValue(const char* poi, bool (*_compatibilityFunction)(double mu, double mu_hat), double nSigma=0, double alt_val=0, double _sigma_mu=0);
   
   void addLabel(const char* label) { fLabels.push_back(label); }
   

@@ -1506,7 +1506,7 @@ void TRooWorkspace::channelDraw(const char* channelName, const char* opt, const 
     }
     latex.DrawLatex(xPos,yPos,channel(channelName)->GetTitle());
     yPos -= latex.GetTextSize();
-    if(fCurrentFit!="" && !fCurrentFitIsPrefit) {
+    if(fCurrentFit!="" && !fCurrentFitIsPrefit && !sOpt.Contains("init")) {
       if(getFit(fCurrentFit)->status()%1000!=0) latex.SetTextColor(kRed);
       latex.DrawLatex(xPos,yPos,"Post-Fit");
       latex.SetTextColor(kBlack);
@@ -2232,6 +2232,58 @@ std::pair<double,double> TRooWorkspace::asymptoticPValue(const char* poi, RooAbs
   return std::make_pair( TRooFit::Asymptotics::nullPValue(_pll, var(poi), _sigma_mu, _compatibilityFunction) , 
                          TRooFit::Asymptotics::altPValue(_pll, var(poi), alt_val, _sigma_mu, _compatibilityFunction) );
 
+}
+
+#include "Math/BrentRootFinder.h"
+#include "Math/WrappedFunction.h"
+#include "Math/ProbFunc.h"
+
+struct TailIntegralFunction { 
+  TailIntegralFunction( RooRealVar* _poi, double _alt_val, double _sigma_mu, bool (*_compatibilityFunction)(double mu, double mu_hat), double _target ) : 
+   poi(_poi), alt_val(_alt_val), sigma_mu(_sigma_mu), target(_target), compatibilityFunction(_compatibilityFunction)
+   {}
+  double operator() (double x) const {
+    return TRooFit::Asymptotics::altPValue(x,poi,alt_val,sigma_mu,compatibilityFunction) - target;
+  }
+  RooRealVar* poi;
+  double alt_val, sigma_mu, target;
+  bool (*compatibilityFunction)(double mu, double mu_hat);
+  
+};
+
+std::pair<double,double> TRooWorkspace::asymptoticExpectedPValue(const char* poi, bool (*_compatibilityFunction)(double mu, double mu_hat), double nSigma, double alt_val, double _sigma_mu) {
+  
+  //need to determine the expected pll value corresponding to nSigma
+  
+  if(_sigma_mu<=0) _sigma_mu = sigma_mu(poi,TString::Format("asimovData%d",int(alt_val)),alt_val);
+  
+  //find the solution (wrt x) of: TRooFit::Asymptotics::altPValue(x, var(poi), alt_val, _sigma_mu, _compatibilityFunction) - targetPValue = 0 
+  float targetTailIntegral = ROOT::Math::normal_cdf(nSigma);
+  
+  TailIntegralFunction f( var(poi), alt_val, _sigma_mu, _compatibilityFunction  , targetTailIntegral );
+  ROOT::Math::BrentRootFinder brf;
+  ROOT::Math::WrappedFunction<TailIntegralFunction> wf(f);
+  
+  double _pll(500.);
+  double currVal(1.);
+  int tryCount(0);
+  while( fabs( TRooFit::Asymptotics::altPValue(_pll, var(poi), alt_val, _sigma_mu, _compatibilityFunction) - targetTailIntegral ) > 1e-4 ) {
+    currVal = TRooFit::Asymptotics::altPValue(_pll, var(poi), alt_val, _sigma_mu, _compatibilityFunction);
+    if(currVal - targetTailIntegral > 1e-4) _pll = 2.*(_pll+1.);
+    else if(currVal - targetTailIntegral < -1e-4) _pll /= 2.;
+    //std::cout << "pll = " << _pll << std::endl;
+    brf.SetFunction( wf, 0, _pll);
+    brf.Solve();
+    _pll =  brf.Root();
+    //std::cout << ret << " -- " << brf.Root() << " " << TRooFit::Asymptotics::altPValue(_pll, var(poi), alt_val, _sigma_mu, _compatibilityFunction) << std::endl;
+    tryCount++;
+    if(tryCount>20) break;
+  
+  }
+  _pll *= 0.99; //subtract a little to capture delta function effects
+  return std::make_pair( TRooFit::Asymptotics::nullPValue(_pll, var(poi), _sigma_mu, _compatibilityFunction) , 
+                         TRooFit::Asymptotics::altPValue(_pll, var(poi), alt_val, _sigma_mu, _compatibilityFunction) );
+  
 }
 
 //report variations above a given relative uncertainty for any TRooAbsH1 component
