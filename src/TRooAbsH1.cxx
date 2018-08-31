@@ -1424,7 +1424,7 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         }
       }
    }
-   if(!found) me->AppendPad(opt.Data()); //will create gPad
+   if(!found) me->AppendPad(opt); //will create gPad
    
    bool hasSame = opt.Contains("same");
    opt.ReplaceAll("same","");
@@ -1551,7 +1551,12 @@ void TRooAbsH1::Draw(Option_t* option,const TRooFitResult& r) {
         opt += "hist";
         //also if not drawing with 'same' option then draw axis of the hist, so that axis span the error bar 
         if(!hasSame) {
-          gPad->GetListOfPrimitives()->AddFirst( hist , "axis" ); //NOTE: sadly this means that the histogram title does not show up ... because this 'axis' version gets no title, but is drawn first
+          //draw the axis of the dummyHist, so that when we axis GetXaxis() we get the drawn axis!
+          fDummyHist->Reset();fDummyHist->Add(hist);
+          *fDummyHist->GetYaxis() = *hist->GetYaxis();
+          *fDummyHist->GetXaxis() = *hist->GetXaxis();
+          fDummyHist->SetMinimum(fMinimum);fDummyHist->SetMaximum(fMaximum);
+          gPad->GetListOfPrimitives()->Add( fDummyHist , "axis" ); //NOTE: sadly this means that the histogram title does not show up ... because this 'axis' version gets no title, but is drawn first
           opt += "same";
         }
       }
