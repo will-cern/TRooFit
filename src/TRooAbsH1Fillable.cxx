@@ -625,10 +625,20 @@ void TRooAbsH1Fillable::SetBinContent( int bin, RooAbsReal& val ) {
 void TRooAbsH1Fillable::SetBinError( int bin, double error ) {
   //Set the error of the given bin
   //If a statFactor for the bin does not already exist, it will be created
+  //if error is 0, the statFactor will be removed, and deleted if necessary 
 
   int pset = getOrCreateParamSet();
   
   if(pset==0) {
+    if(error==0) {
+      RooRealVar* statFactor = getStatFactor(bin,false);
+      if(!statFactor) {
+        //no stat factor existing, ok, just update fHists to be sure and exit 
+        fHists[pset]->SetBinError(bin,error);
+        return;
+      }
+    }
+  
     RooRealVar* statFactor = getStatFactor(bin,true);
     //update the sumw2 attribute of the stat factor ... 
     //the factor might be shared if its in a stack, so must subtract old error and add new one
@@ -636,6 +646,16 @@ void TRooAbsH1Fillable::SetBinError( int bin, double error ) {
     //will also set the error to sqrt(sumw2)/sumw
     statFactor->setError(sqrt((TString(statFactor->getStringAttribute("sumw2")).Atof()))/(TString(statFactor->getStringAttribute("sumw")).Atof()));
     if(std::isnan(statFactor->getError())||std::isinf(statFactor->getError())) statFactor->setError(1e9);
+    
+    if(error==0) {
+      //remove from shape factors ...
+      fBinsShapeFactors[bin].erase(std::remove(fBinsShapeFactors[bin].begin(), fBinsShapeFactors[bin].end(), fShapeFactors.index(statFactor)), fBinsShapeFactors[bin].end());
+      fShapeFactors.remove(*statFactor);
+      if(fShapeFactors.getSize()==0) fShapeFactors.setName("!shapeFactors");
+      fStatFactors.remove(*statFactor); //will cause deletion
+      if(fStatFactors.getSize()==0) fStatFactors.setName("!statFactors");
+    }
+    
   } else {
     Warning("SetBinError","Bin errors only used when in nominal histogram");
   }
