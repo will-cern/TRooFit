@@ -29,7 +29,8 @@ Documentation
 ========
 Example notebooks are available to help you get started ....
 
-1a. [Model building with TRooWorkspaces](https://cernbox.cern.ch/index.php/s/dxJoaZC0W131OgZ)
+1a. [Building a simple s+b model](https://cernbox.cern.ch/index.php/s/WttQzxbWt9nYkOs)
+1b. [Model building with TRooWorkspaces](https://cernbox.cern.ch/index.php/s/dxJoaZC0W131OgZ)
 
 2a. [Model inspection general demo](https://cernbox.cern.ch/index.php/s/tzyUPsHqBSgKK1A)<br>
 2b. [Obtaining yields and uncertainties](https://cernbox.cern.ch/index.php/s/I7dwstfWVMD2CIk)<br>
