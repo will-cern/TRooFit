@@ -511,6 +511,67 @@ void TRooWorkspace::SetBinContent(const char* sampleName, const char* channelNam
   sample(sampleName,channelName)->SetBinContent(bin,val, parName ? var(parName) : 0, parVal);
 }
 
+double TRooWorkspace::GetBinContent(const char* sampleName, const char* channelName, Int_t bin, TRooFitResult* fr) {
+  int sampleNumber = channel(channelName)->compList().index(Form("%s_%s",sampleName,channelName));
+  if(sampleNumber==-1) sampleNumber = channel(channelName)->compList().index(sampleName);
+  if(sampleNumber==-1) return 0;
+
+  RooAbsReal* samp = dynamic_cast<RooAbsReal*>(channel(channelName)->compList().at(sampleNumber));
+  if(!samp) return 0;
+  double out = 0;
+  
+  //will scale result by the coefficient
+  RooAbsArg* coefArg = channel(channelName)->coeffList().at(sampleNumber);
+
+  if(samp->InheritsFrom("TRooAbsH1")) {
+    //the simple case :-)
+    out = (dynamic_cast<TRooAbsH1*>(samp))->GetBinContent(bin,fr);
+    //scale by coef ...
+    double coef = static_cast<RooAbsReal*>(coefArg)->getVal();
+    out *= coef;
+    return out;
+  }
+
+  //got here, so apply the fr if necessary, then evaluate subcomponent
+  //TRooAbsH1's GetBinContent doesn't perform an integral, only an evaluation at the bin center
+  //so to be consistent we will do the same, even though TRooAbsHStack performs an integral!
+  Warning("GetBinContent","Not implemented yet");
+
+  return out;
+  
+}
+
+double TRooWorkspace::GetBinContent(const char* channelName, Int_t bin, const char* dataName) {
+
+  RooAbsData* _data = data((dataName) ? dataName : fCurrentData.Data());
+  if(!_data) return 0;
+
+  //get observable for channel ...
+  RooAbsReal* chanFunc = function(channelName);
+  if(!chanFunc) return 0;
+  RooArgSet* chanObs = chanFunc->getObservables(set("obs"));
+  if(chanObs->getSize()!=1) {
+    Error("GetBinContent","More than one observable found?"); //FIXME: support for 2D would need this fixing
+    return 0;
+  }
+
+  RooAbsArg* arg = chanObs->first();
+
+  int abin[3];
+  fDummyHists[channelName]->GetBinXYZ(bin,abin[0],abin[1],abin[2]);
+
+  double low[3];
+  low[0] = fDummyHists[channelName]->GetXaxis()->GetBinLowEdge(abin[0]);
+  double high[3];
+  high[0] = fDummyHists[channelName]->GetXaxis()->GetBinUpEdge(abin[0]);
+
+  double yield = _data->sumEntries(Form("%s==%s::%s&&(%s>=%f)&&(%s<%f)",fChannelCatName.Data(),fChannelCatName.Data(),channelName,arg->GetName(),low[0],arg->GetName(),high[0]));
+
+  delete chanObs;
+
+  return yield;
+}
+
 double TRooWorkspace::GetSampleCoefficient(const char* sampleFullName) const {
   RooAbsReal* samp = function(sampleFullName);
   if(!samp) {

@@ -60,7 +60,8 @@ public:
   
   void SetBinContent(const char* sampleName, const char* channelName, Int_t bin, double val, const char* variationName=0, double variationVal=0);
   
-  
+  double GetBinContent(const char* sampleName, const char* channelName, Int_t bin, TRooFitResult* fr = 0);
+  double GetBinContent(const char* channelName, Int_t bin, const char* dataName=0);
   
 
   //add a normalization factor to a sample, across all channels
